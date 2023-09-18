@@ -11,6 +11,7 @@ from ..log_config import setup_logger
 
 logger = setup_logger(__name__)
 
+
 class DiscreteJumpModel:
     """
     Statistical Jump Model with Discrete States
@@ -144,7 +145,7 @@ class DiscreteJumpModel:
         )
         state_assignments = np.argmin(distances, axis=0)
         return state_assignments
-    
+
     def infer_states_stats(self, ts_returns, states):
         """
         Compute the mean and standard deviation of returns for each state
@@ -181,10 +182,16 @@ class DiscreteJumpModel:
             # idx = np.argsort(optimized_theta[i][:, 0])[::-1]
             # whichever has the lowest volatility is assigned to state 0
             states_features = self.infer_states_stats(ts_returns, optimized_s[i])
-            idx_vol = np.argsort([states_features[state][1] for state in states_features])
-            idx_ret = np.argsort([states_features[state][0] for state in states_features])[::-1]
+            idx_vol = np.argsort(
+                [states_features[state][1] for state in states_features]
+            )
+            idx_ret = np.argsort(
+                [states_features[state][0] for state in states_features]
+            )[::-1]
             if not np.array_equal(idx_vol, idx_ret):
-                logger.warning("States identified by volatility ranks and returns ranks are different!")
+                logger.warning(
+                    "States identified by volatility ranks and returns ranks are different!"
+                )
             # remap the states
             idx_mapping = {old_idx: new_idx for new_idx, old_idx in enumerate(idx_vol)}
 
@@ -202,7 +209,7 @@ class DiscreteJumpModel:
             res_theta.append(remapped_theta)
 
         return res_s, res_theta
-    
+
     def cleanResults(self, raw_result, ts_returns, rearrange=False):
         """
         Clean the results of the optimization.
@@ -213,9 +220,10 @@ class DiscreteJumpModel:
         optimized_loss = list(map(itemgetter(1), raw_result))
         optimized_theta = list(map(itemgetter(2), raw_result))
         if rearrange:
-            optimized_s, optimized_theta = \
-                self.remapResults(optimized_s, optimized_theta, ts_returns)
-        idx = np.array(optimized_loss).argmin()
+            optimized_s, optimized_theta = self.remapResults(
+                optimized_s, optimized_theta, ts_returns
+            )
+        idx = int(np.array(optimized_loss).argmin())
         best_s = optimized_s[idx]
         best_loss = optimized_loss[idx]
         best_theta = optimized_theta[idx]
@@ -226,11 +234,11 @@ class DiscreteJumpModel:
             "best_theta": best_theta,
             "all_state_sequence": optimized_s,
             "all_loss": optimized_loss,
-            "all_theta": optimized_theta
+            "all_theta": optimized_theta,
         }
 
         return res_dict
-    
+
     def single_run(self, y, k, lambda_):
         """
         Run a single trial of the optimization. Each trial uses a different \
@@ -262,7 +270,7 @@ class DiscreteJumpModel:
 
         logger.debug(f"Single run completes after {i} iterations with loss {loss}")
         return cur_s, loss, cur_theta
-    
+
     def fit(self, y, k=2, lambda_=100, rearrange=False, n_trials=10):
         """
         fit discrete jump model
@@ -293,10 +301,10 @@ class DiscreteJumpModel:
         pool.close()
 
         res = self.cleanResults(res, y[:, 0], rearrange)
-        states_stats = self.infer_states_stats(y[:, 0], res['best_state_sequence'])
+        states_stats = self.infer_states_stats(y[:, 0], res["best_state_sequence"])
         logger.info(f"Mean and Volatility by inferred states:\n {states_stats}")
         return res
-    
+
     def evaluate(self, true, pred, plot=False):
         true_len = len(true)
         pred_len = len(pred)
@@ -305,14 +313,12 @@ class DiscreteJumpModel:
             plt.plot(pred, label="pred")
             plt.legend()
             plt.show()
-        res = {
-            "BAC": balanced_accuracy_score(true[true_len - pred_len:], pred)
-        }
+        res = {"BAC": balanced_accuracy_score(true[true_len - pred_len :], pred)}
         return res
-    
+
     def debug(self, train_res):
-        for i in train_res['all_state_sequence']:
-            plt.plot(train_res['all_state_sequence'][i], label=f"state sequence {i}")
+        for i in train_res["all_state_sequence"]:
+            plt.plot(train_res["all_state_sequence"][i], label=f"state sequence {i}")
         plt.legend()
         plt.show()
 
@@ -354,7 +360,7 @@ class FeatureGenerator:
         # Drop the original time series column
         df = df.drop(columns=["ts"])
         # Drop the first w rows where features are NaN
-        df = df[~np.isnan(df).any(axis=1)]
+        df = df.iloc[~np.isnan(df).any(axis=1)]
 
         return df.values
 
@@ -432,7 +438,7 @@ class SimulationGenerator:
             value = np.random.normal(mu, sigma)
             data.append(value)
         return data
-    
+
     def run(self, steps, transition_matrix, norm_params):
         """
         Run the simulation, return the simulated states and conditional data
@@ -450,10 +456,13 @@ class SimulationGenerator:
             simulated_data (list): simulated data conditional on states
         """
         initial_distribution = self.stationary_distribution(transition_matrix)
-        logger.info(f"Step 1: Initial (stationary) distribution: {initial_distribution}")
-        simulated_states = self.simulate_markov(transition_matrix, \
-                                                initial_distribution, steps)
-        
+        logger.info(
+            f"Step 1: Initial (stationary) distribution: {initial_distribution}"
+        )
+        simulated_states = self.simulate_markov(
+            transition_matrix, initial_distribution, steps
+        )
+
         # sanity check for the simulated states
         count_states = Counter(simulated_states)
         if len(count_states) != len(transition_matrix):
@@ -473,13 +482,15 @@ class TestingParams:
         """
         Parameters for simulated daily return data, sourced from the paper
         """
-        transition_matrix = np.array([
-            [0.99788413, 0.00211587],  # From state 0 to states 0 and 1
-            [0.01198743, 0.98801257]   # From state 1 to states 0 and 1
-        ])
+        transition_matrix = np.array(
+            [
+                [0.99788413, 0.00211587],  # From state 0 to states 0 and 1
+                [0.01198743, 0.98801257],  # From state 1 to states 0 and 1
+            ]
+        )
         norm_parameters = {
             0: (0.000615, 0.007759155881924271),  # mu1, sigma1
-            1: (-0.000785, 0.017396608864948364) # mu2, sigma2
+            1: (-0.000785, 0.017396608864948364),  # mu2, sigma2
         }
 
         return transition_matrix, norm_parameters
