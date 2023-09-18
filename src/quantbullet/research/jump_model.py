@@ -172,7 +172,7 @@ class DiscreteJumpModel:
         Remap the results of the optimization.
 
         We would like the states to be in increasing order of the volatility of returns.
-        This is because vol has smaller variance than returns, a warning is issued if \
+        This is because vol has smaller variance than returns, a warning is triggered if \
             the states identified by volatility and returns are different.
         """
         res_s = list()
@@ -283,8 +283,8 @@ class DiscreteJumpModel:
             y (np.ndarray): observed data (T x n_features)
             k (int): number of states
             lambda_ (float): regularization parameter
-            rearrange (bool): whether to rearrange the states in decreasing order of \
-                mean returns
+            rearrange (bool): whether to rearrange the states in increasing order of \
+                volatility
 
         Returns:
             best_s (np.ndarray): optimal state sequence (T x 1)
@@ -306,6 +306,17 @@ class DiscreteJumpModel:
         return res
 
     def evaluate(self, true, pred, plot=False):
+        """
+        Evaluate the model using balanced accuracy score
+
+        Args:
+            true (np.ndarray): true state sequence (T x 1)
+            pred (np.ndarray): predicted state sequence (T x 1)
+            plot (bool): whether to plot the true and predicted state sequences
+
+        Returns:
+            res (dict): evaluation results
+        """
         true_len = len(true)
         pred_len = len(pred)
         if plot:
@@ -315,12 +326,6 @@ class DiscreteJumpModel:
             plt.show()
         res = {"BAC": balanced_accuracy_score(true[true_len - pred_len :], pred)}
         return res
-
-    def debug(self, train_res):
-        for i in train_res["all_state_sequence"]:
-            plt.plot(train_res["all_state_sequence"][i], label=f"state sequence {i}")
-        plt.legend()
-        plt.show()
 
 
 class FeatureGenerator:
@@ -360,7 +365,8 @@ class FeatureGenerator:
         # Drop the original time series column
         df = df.drop(columns=["ts"])
         # Drop the first w rows where features are NaN
-        df = df.iloc[~np.isnan(df).any(axis=1)]
+        # df = df[~np.isnan(df).any(axis=1)]
+        df = df.dropna(how="any")
 
         return df.values
 

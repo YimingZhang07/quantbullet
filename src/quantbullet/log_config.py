@@ -1,3 +1,6 @@
+"""
+Centralized logging configuration for the package.
+"""
 import logging
 
 LEVEL_MAP = {
@@ -39,4 +42,4 @@ def set_package_log_level(level='WARNING'):
 
 
 # package logger
-logger = setup_logger(__name__)
+pkg_logger = setup_logger(__name__)
