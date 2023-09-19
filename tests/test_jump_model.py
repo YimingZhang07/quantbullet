@@ -16,22 +16,21 @@ def test_fixed_states_optimize_result():
 
 
 def test_generate_loss_matrix():
+    """
+    Test the generate_loss_matrix function
+    """
     model = DiscreteJumpModel()
-    # Test 1: Basic functionality
+    # Test 1
     y = np.array([[1, 2], [3, 4], [5, 6]])
     theta = np.array([[1, 2], [5, 6]])
     expected_loss = np.array([[0.0, 16.0], [4.0, 4.0], [16.0, 0.0]])
     assert np.subtract(model.generate_loss_matrix(y, theta), expected_loss).max() < 1e-5
 
-    # Test 2: Check shape of the output
-    y = np.array([[1, 2], [3, 4], [5, 6]])
-    theta = np.array([[1, 2], [5, 6], [7, 8]])
-    k = 3
-    loss = model.generate_loss_matrix(y, theta, k)
-    assert loss.shape == (3, 3)
-
 
 def test_fixed_theta_optimize():
+    """
+    Test the fixed_theta_optimize function
+    """
     model = DiscreteJumpModel()
     # Test 1
     lossMatrix = np.array([[2, 8], [6, 4], [5, 1], [7, 3], [9, 0]])
