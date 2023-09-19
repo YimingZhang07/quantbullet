@@ -20,6 +20,36 @@ class DiscreteJumpModel:
     def __init__(self) -> None:
         pass
 
+    # Non-vectorized version
+    # def fixed_states_optimize(self, y, s, theta_guess=None, k=2):
+    #     """
+    #     Optimize the parameters of a discrete jump model with fixed states
+
+    #     Args:
+    #         y (np.ndarray): observed data (T x n_features)
+    #         s (np.ndarray): state sequence (T x 1)
+    #         theta_guess (np.ndarray): initial guess for theta (k x n_features)
+    #         k (int): number of states
+
+    #     Returns:
+    #         theta (np.ndarray): optimized parameters
+    #         prob.value (float): optimal value of the objective function
+    #     """
+    #     if not isinstance(y, np.ndarray) or not isinstance(s, np.ndarray):
+    #         raise TypeError("y and s must be numpy arrays")
+    #     T, n_features = y.shape
+    #     # initialize variables from guess
+    #     theta = cp.Variable((k, n_features))
+    #     if theta_guess is not None:
+    #         theta.value = theta_guess
+
+    #     # solve optimization problem; essentially the k-means problem
+    #     diff = [0.5 * cp.norm2(y[i, :] - theta[s[i], :]) ** 2 for i in range(T)]
+    #     objective = cp.Minimize(cp.sum(diff))
+    #     prob = cp.Problem(objective)
+    #     prob.solve()
+    #     return theta.value, prob.value
+
     def fixed_states_optimize(self, y, s, theta_guess=None, k=2):
         """
         Optimize the parameters of a discrete jump model with fixed states
@@ -32,22 +62,47 @@ class DiscreteJumpModel:
 
         Returns:
             theta (np.ndarray): optimized parameters
-            prob.value (float): optimal value of the objective function
+            objective_value (float): optimal value of the objective function
         """
         if not isinstance(y, np.ndarray) or not isinstance(s, np.ndarray):
             raise TypeError("y and s must be numpy arrays")
-        T, n_features = y.shape
-        # initialize variables from guess
-        theta = cp.Variable((k, n_features))
-        if theta_guess is not None:
-            theta.value = theta_guess
 
-        # solve optimization problem; essentially the k-means problem
-        diff = [0.5 * cp.norm2(y[i, :] - theta[s[i], :]) ** 2 for i in range(T)]
-        objective = cp.Minimize(cp.sum(diff))
-        prob = cp.Problem(objective)
-        prob.solve()
-        return theta.value, prob.value
+        T, n_features = y.shape
+        theta = np.zeros((k, n_features))
+
+        # Compute the optimal centroids (theta) for each state
+        for state in range(k):
+            assigned_data_points = y[s == state]
+            if assigned_data_points.size > 0:
+                theta[state] = assigned_data_points.mean(axis=0)
+
+        # Compute the objective value
+        objective_value = 0.5 * np.sum(
+            [np.linalg.norm(y[i, :] - theta[s[i], :]) ** 2 for i in range(T)]
+        )
+
+        return theta, objective_value
+
+    # Non-vectorized version
+    # def generate_loss_matrix(self, y, theta, k=2):
+    #     """
+    #     Generate the loss matrix for a discrete jump model for fixed theta
+
+    #     Args:
+    #         y (np.ndarray): observed data (T x n_features)
+    #         theta (np.ndarray): parameters (k x n_features)
+    #         k (int): number of states
+
+    #     Returns:
+    #         loss (np.ndarray): loss matrix (T x k)
+    #     """
+    #     T = y.shape[0]
+    #     loss = np.zeros((T, k))
+    #     for i in range(T):
+    #         for j in range(k):
+    #             # norm is the L2 norm by default
+    #             loss[i, j] = 0.5 * np.linalg.norm(y[i, :] - theta[j, :]) ** 2
+    #     return loss
 
     def generate_loss_matrix(self, y, theta, k=2):
         """
@@ -61,13 +116,49 @@ class DiscreteJumpModel:
         Returns:
             loss (np.ndarray): loss matrix (T x k)
         """
-        T = y.shape[0]
-        loss = np.zeros((T, k))
-        for i in range(T):
-            for j in range(k):
-                # norm is the L2 norm by default
-                loss[i, j] = 0.5 * np.linalg.norm(y[i, :] - theta[j, :]) ** 2
+
+        # Expand dimensions to broadcast subtraction across y and theta
+        diff = y[:, np.newaxis, :] - theta[np.newaxis, :, :]
+
+        # Compute squared L2 norm along the last axis (n_features)
+        loss = 0.5 * np.sum(diff**2, axis=-1)
+
         return loss
+
+    # Non-vectorized version
+    # def fixed_theta_optimize(self, lossMatrix, lambda_, k=2):
+    #     """
+    #     Optimize the state sequence of a discrete jump model with fixed parameters
+
+    #     Args:
+    #         lossMatrix (np.ndarray): loss matrix (T x k)
+    #         lambda_ (float): regularization parameter
+    #         k (int): number of states
+
+    #     Returns:
+    #         s (np.ndarray): optimal state sequence (T x 1)
+    #         v (float): optimal value of the objective function
+    #     """
+    #     state_choices = list(range(k))
+    #     T, n_states = lossMatrix.shape
+    #     V = np.zeros((T, n_states))
+    #     V[0, :] = lossMatrix[0, :]
+    #     for t in range(1, T):
+    #         for k in range(n_states):
+    #             V[t, k] = lossMatrix[t, k] + min(
+    #                 V[t - 1, :]
+    #                 + lambda_ * np.abs(state_choices[k] - np.array(state_choices))
+    #             )
+
+    #     # backtrack to find optimal state sequence
+    #     v = V[-1, :].min()
+    #     s = np.zeros(T, dtype=int)
+    #     s[-1] = state_choices[V[-1, :].argmin()]
+    #     for t in range(T - 2, -1, -1):
+    #         s[t] = state_choices[
+    #             np.argmin(V[t, :] + lambda_ * np.abs(state_choices - s[t + 1]))
+    #         ]
+    #     return s, v
 
     def fixed_theta_optimize(self, lossMatrix, lambda_, k=2):
         """
@@ -79,19 +170,21 @@ class DiscreteJumpModel:
             k (int): number of states
 
         Returns:
-            s (np.ndarray): optimal state sequence (T x 1)
+            s (np.ndarray): optimal state sequence (T,)
             v (float): optimal value of the objective function
         """
-        state_choices = list(range(k))
         T, n_states = lossMatrix.shape
         V = np.zeros((T, n_states))
         V[0, :] = lossMatrix[0, :]
+
+        state_choices = np.arange(n_states)
+
         for t in range(1, T):
-            for k in range(n_states):
-                V[t, k] = lossMatrix[t, k] + min(
-                    V[t - 1, :]
-                    + lambda_ * np.abs(state_choices[k] - np.array(state_choices))
-                )
+            # Using broadcasting to compute the regularization term for all states at once
+            regularization = lambda_ * np.abs(
+                state_choices[:, np.newaxis] - state_choices
+            )
+            V[t, :] = lossMatrix[t, :] + (V[t - 1, :] + regularization).min(axis=1)
 
         # backtrack to find optimal state sequence
         v = V[-1, :].min()
@@ -322,6 +415,9 @@ class DiscreteJumpModel:
         if plot:
             plt.plot(true, label="true")
             plt.plot(pred, label="pred")
+            plt.title("True and Predicted State Sequences")
+            plt.xlabel("Time")
+            plt.ylabel("State")
             plt.legend()
             plt.show()
         res = {"BAC": balanced_accuracy_score(true[true_len - pred_len :], pred)}
@@ -480,7 +576,7 @@ class SimulationGenerator:
         return simulated_states, simulated_data
 
 
-class TestingParams:
+class TestingUtils:
     def __init__(self) -> None:
         pass
 
@@ -500,3 +596,98 @@ class TestingParams:
         }
 
         return transition_matrix, norm_parameters
+
+    def plot_returns(self, returns, shade_list=[]):
+        """
+        Plot both the cumulative returns and returns on separate subplots sharing the x-axis.
+
+        Args:
+            returns (np.ndarray): An array of returns.
+        """
+        if not isinstance(returns, np.ndarray):
+            returns = np.array(returns)
+
+        # Create a color palette
+        palette = plt.get_cmap("Set1")
+
+        # Compute cumulative returns
+        cumulative_returns = np.cumprod(1 + returns) - 1
+
+        # Create subplots sharing the x-axis
+        fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(8, 6))
+
+        # Plot cumulative returns on the first subplot
+        ax1.plot(
+            cumulative_returns,
+            label="Cumulative Returns",
+            color=palette(1),
+            linestyle="-",
+        )
+        ax1.set_ylabel("Cumulative Returns")
+        ax1.set_title("Cumulative Returns")
+
+        # Plot returns on the second subplot
+        ax2.plot(returns, label="Returns", color=palette(2))
+        ax2.set_xlabel("Time")
+        ax2.set_ylabel("Returns")
+        ax2.set_title("Returns")
+
+        if len(shade_list) > 0:
+            # Shade regions corresponding to clusters of 1s in the shade_list
+            start_shade = len(returns) - len(shade_list)
+            start_region = None
+            for i, val in enumerate(shade_list):
+                if val == 1 and start_region is None:
+                    start_region = start_shade + i
+                elif val == 0 and start_region is not None:
+                    ax1.axvspan(start_region, start_shade + i, color="gray", alpha=0.3)
+                    ax2.axvspan(start_region, start_shade + i, color="gray", alpha=0.3)
+                    start_region = None
+            # If the last cluster extends to the end of the shade_list
+            if start_region is not None:
+                ax1.axvspan(
+                    start_region, start_shade + len(shade_list), color="gray", alpha=0.3
+                )
+                ax2.axvspan(
+                    start_region, start_shade + len(shade_list), color="gray", alpha=0.3
+                )
+
+        fig.tight_layout()
+        plt.show()
+
+    def plot_averages(self, data_dict):
+        """
+        Plot the average of numbers for each key in the dictionary \
+            using a line plot with x-axis labels in the form of 10^x.
+
+        Args:
+            data_dict (dict): A dictionary where keys are labels \
+                    and values are lists of numbers.
+        """
+        # Compute averages
+        labels = sorted(
+            data_dict.keys(), key=float
+        )  # Sort the keys by their float value
+        averages = [
+            sum(values) / len(values)
+            for key in labels
+            for values in [data_dict[key]]
+        ]
+
+        # Plot
+        plt.plot(labels, averages, marker="o")
+        plt.xlabel("Lambda")
+        plt.ylabel("Balanced Accuracy")
+        plt.title("Lambda vs. Average BAC")
+
+        # Adjust x-axis labels to only show integer powers
+        int_powers = [
+            label for label in labels if np.log10(float(label)).is_integer()
+        ]
+        plt.xticks(
+            int_powers,
+            [f"$10^{{{int(np.log10(float(label)))}}}$" for label in int_powers],
+        )
+
+        plt.grid(True, which="both", ls="--", c="0.8")
+        plt.show()
