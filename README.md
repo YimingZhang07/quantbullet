@@ -1,11 +1,11 @@
 # quantbullet
 
-`quantbullet` is a toolkit for swift quantitative analysis for finance. My vision for this package is to
+`quantbullet` is a toolkit designed for streamlined quantitative analysis in finance. The goals for this package are:
 
-1. Provide a set of tools for fast prototyping of quantitative research ideas
-2. Implement and test the latest research ideas (mostly will come from academic papers) in a production-ready manner
+1. To provide a practical set of tools for prototyping quantitative research ideas.
+2. To integrate and test contemporary research findings, primarily from academic sources, ensuring they're actionable.
 
-The package is mainly for my personal use, so I will commit to maintaining it for a long time. However, I will be happy if it can help others as well.
+While I initially developed this package for my own needs, I intend to maintain it consistently. If it assists others in their endeavors, I consider that a success.
 
 ## Installation
 
