@@ -1,0 +1,52 @@
+:py:mod:`quantbullet.log_config`
+================================
+
+.. py:module:: quantbullet.log_config
+
+.. autoapi-nested-parse::
+
+   Centralized logging configuration for the package.
+
+
+
+Module Contents
+---------------
+
+
+Functions
+~~~~~~~~~
+
+.. autoapisummary::
+
+   quantbullet.log_config.setup_logger
+   quantbullet.log_config.set_package_log_level
+
+
+
+Attributes
+~~~~~~~~~~
+
+.. autoapisummary::
+
+   quantbullet.log_config.LEVEL_MAP
+   quantbullet.log_config.pkg_logger
+
+
+.. py:data:: LEVEL_MAP
+
+   
+
+.. py:function:: setup_logger(name)
+
+   Setup a logger with a given name.
+
+
+.. py:function:: set_package_log_level(level='WARNING')
+
+   Set the log level for all loggers in the package.
+
+
+.. py:data:: pkg_logger
+
+   
+

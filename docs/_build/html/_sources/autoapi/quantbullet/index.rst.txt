@@ -1,0 +1,83 @@
+:py:mod:`quantbullet`
+=====================
+
+.. py:module:: quantbullet
+
+
+Subpackages
+-----------
+.. toctree::
+   :titlesonly:
+   :maxdepth: 3
+
+   research/index.rst
+   tsa/index.rst
+
+
+Submodules
+----------
+.. toctree::
+   :titlesonly:
+   :maxdepth: 1
+
+   global_utils/index.rst
+   log_config/index.rst
+   quantbullet/index.rst
+
+
+Package Contents
+----------------
+
+
+Functions
+~~~~~~~~~
+
+.. autoapisummary::
+
+   quantbullet.display_package_info
+   quantbullet.setup_logger
+   quantbullet.set_package_log_level
+   quantbullet.set_figsize
+
+
+
+Attributes
+~~~~~~~~~~
+
+.. autoapisummary::
+
+   quantbullet.__version__
+   quantbullet.info
+
+
+.. py:data:: __version__
+
+   
+
+.. py:function:: display_package_info(info_dict)
+
+   Display package information in a geeky bordered box format.
+
+   :param info_dict: Dictionary containing package details.
+   :type info_dict: dict
+
+
+.. py:data:: info
+
+   
+
+.. py:function:: setup_logger(name)
+
+   Setup a logger with a given name.
+
+
+.. py:function:: set_package_log_level(level='WARNING')
+
+   Set the log level for all loggers in the package.
+
+
+.. py:function:: set_figsize(width, height)
+
+   Temporarily set the figure size using a context manager.
+
+

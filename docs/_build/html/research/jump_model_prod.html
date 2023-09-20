@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Statistical Jump Model &mdash; quantbullet  documentation</title>
+      <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/mystnb.4510f1fc1dee50b3e5859aac5469c37c29e427902b24a333a5f9fcb2f0b3ac41.css" type="text/css" />
+      <link rel="stylesheet" href="../_static/graphviz.css" type="text/css" />
+  <!--[if lt IE 9]>
+    <script src="../_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
+        <script src="../_static/jquery.js"></script>
+        <script src="../_static/underscore.js"></script>
+        <script src="../_static/_sphinx_javascript_frameworks_compat.js"></script>
+        <script src="../_static/doctools.js"></script>
+        <script src="../_static/sphinx_highlight.js"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Changelog" href="../changelog.html" />
+    <link rel="prev" title="quantbullet" href="../index.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            quantbullet
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Statistical Jump Model</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#basic-tutorial">Basic Tutorial</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#find-the-best-penalty-parameter">Find the best Penalty parameter</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../changelog.html">Changelog</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../contributing.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../conduct.html">Code of Conduct</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../autoapi/index.html">API Reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">quantbullet</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Statistical Jump Model</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/research/jump_model_prod.ipynb.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="statistical-jump-model">
+<h1>Statistical Jump Model<a class="headerlink" href="#statistical-jump-model" title="Permalink to this heading"></a></h1>
+<div class="cell docutils container">
+<div class="cell_input docutils container">
+<div class="highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">matplotlib.pyplot</span> <span class="k">as</span> <span class="nn">plt</span>
+<span class="n">plt</span><span class="o">.</span><span class="n">style</span><span class="o">.</span><span class="n">use</span><span class="p">(</span><span class="s1">&#39;seaborn-v0_8-talk&#39;</span><span class="p">)</span>
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">import</span> <span class="nn">quantbullet.research.jump_model</span> <span class="k">as</span> <span class="nn">jm</span>
+<span class="kn">from</span> <span class="nn">quantbullet</span> <span class="kn">import</span> <span class="n">set_package_log_level</span><span class="p">,</span> <span class="n">set_figsize</span>
+<span class="n">set_package_log_level</span><span class="p">(</span><span class="s1">&#39;info&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="cell_output docutils container">
+<div class="output stream highlight-myst-ansi notranslate"><div class="highlight"><pre><span></span>+-------------------------+
+|  Package : quantbullet  |
+|  Author  : Yiming Zhang |
+|  Version : 0.1.0        |
+|  Note    : BETA version |
++-------------------------+
+</pre></div>
+</div>
+</div>
+</div>
+<section id="basic-tutorial">
+<h2>Basic Tutorial<a class="headerlink" href="#basic-tutorial" title="Permalink to this heading"></a></h2>
+<p>Default parameters can be loaded using <code class="docutils literal notranslate"><span class="pre">TestingParams</span></code> class. This loads the same simulation inputs as the related literature. The transition matrix controls the probability of transitioning from one state to another, and the normal distribution parameters control the mean and standard deviation for each state.</p>
+<div class="cell docutils container">
+<div class="cell_input docutils container">
+<div class="highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="n">transition_matrix</span><span class="p">,</span> <span class="n">norm_params</span> <span class="o">=</span> <span class="n">jm</span><span class="o">.</span><span class="n">TestingUtils</span><span class="p">()</span><span class="o">.</span><span class="n">daily</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">transition_matrix</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">norm_params</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="cell_output docutils container">
+<div class="output stream highlight-myst-ansi notranslate"><div class="highlight"><pre><span></span>[[0.99788413 0.00211587]
+ [0.01198743 0.98801257]]
+{0: (0.000615, 0.007759155881924271), 1: (-0.000785, 0.017396608864948364)}
+</pre></div>
+</div>
+</div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">SimulationGenerator</span></code> class runs the simulation by first generating the hidden states, then conditional normal returns.</p>
+<p>Here, we observed that simulated returns indeed show pattern of volatility clustering.</p>
+<div class="cell docutils container">
+<div class="cell_input docutils container">
+<div class="highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="mi">999</span><span class="p">)</span>
+<span class="n">sim_states</span><span class="p">,</span> <span class="n">sim_returns</span> <span class="o">=</span> <span class="n">jm</span><span class="o">.</span><span class="n">SimulationGenerator</span><span class="p">()</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
+    <span class="n">steps</span><span class="o">=</span><span class="mi">1000</span><span class="p">,</span> <span class="n">transition_matrix</span><span class="o">=</span><span class="n">transition_matrix</span><span class="p">,</span> <span class="n">norm_params</span><span class="o">=</span><span class="n">norm_params</span>
+<span class="p">)</span>
+<span class="n">jm</span><span class="o">.</span><span class="n">TestingUtils</span><span class="p">()</span><span class="o">.</span><span class="n">plot_returns</span><span class="p">(</span><span class="n">sim_returns</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="cell_output docutils container">
+<div class="output stderr highlight-myst-ansi notranslate"><div class="highlight"><pre><span></span>09-20 00:47:01 INFO Step 1: Initial (stationary) distribution: [0.84997341 0.15002659]
+09-20 00:47:01 INFO Step 2: Simulated states: Counter({0: 633, 1: 368})
+09-20 00:47:01 INFO Step 3: Generate simulated return data conditional on states.
+</pre></div>
+</div>
+<img alt="../_images/9c37caf4564b34783e1683f3277d15857cf9e437996a281dc0d07ac4186cc96a.png" src="../_images/9c37caf4564b34783e1683f3277d15857cf9e437996a281dc0d07ac4186cc96a.png" />
+</div>
+</div>
+<p>To fit the model, <code class="docutils literal notranslate"><span class="pre">FeatureGenerator</span></code> class enriches the features by adding a family of lagged returns and volatility features. It also standardizes the features.</p>
+<div class="cell docutils container">
+<div class="cell_input docutils container">
+<div class="highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="n">enriched_returns</span> <span class="o">=</span> <span class="n">jm</span><span class="o">.</span><span class="n">FeatureGenerator</span><span class="p">()</span><span class="o">.</span><span class="n">enrich_features</span><span class="p">(</span><span class="n">sim_returns</span><span class="p">)</span>
+<span class="n">enriched_returns</span> <span class="o">=</span> <span class="n">jm</span><span class="o">.</span><span class="n">FeatureGenerator</span><span class="p">()</span><span class="o">.</span><span class="n">standarize_features</span><span class="p">(</span><span class="n">enriched_returns</span><span class="p">)</span>
+<span class="n">enriched_returns</span><span class="o">.</span><span class="n">shape</span>
+</pre></div>
+</div>
+</div>
+<div class="cell_output docutils container">
+<div class="output text_plain highlight-myst-ansi notranslate"><div class="highlight"><pre><span></span>(988, 15)
+</pre></div>
+</div>
+</div>
+</div>
+<p>Finally, the dicrete jump model is fitted using <code class="docutils literal notranslate"><span class="pre">DiscreteJumpModel</span></code> class. Lambda is the penalty parameter for the jumps. <code class="docutils literal notranslate"><span class="pre">n_trials</span></code> is the number of trials for different initializations, as the algorithm cannot guarantee to find the global optimum.</p>
+<div class="cell docutils container">
+<div class="cell_input docutils container">
+<div class="highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="n">model</span> <span class="o">=</span> <span class="n">jm</span><span class="o">.</span><span class="n">DiscreteJumpModel</span><span class="p">()</span>
+<span class="n">res</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">enriched_returns</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">lambda_</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">rearrange</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">n_trials</span><span class="o">=</span><span class="mi">4</span><span class="p">)</span>
+<span class="k">with</span> <span class="n">set_figsize</span><span class="p">(</span><span class="mi">6</span><span class="p">,</span> <span class="mi">4</span><span class="p">):</span>
+    <span class="n">bac</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">evaluate</span><span class="p">(</span><span class="n">sim_states</span><span class="p">,</span> <span class="n">res</span><span class="p">[</span><span class="s1">&#39;best_state_sequence&#39;</span><span class="p">],</span> <span class="n">plot</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="n">bac</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="cell_output docutils container">
+<div class="output stderr highlight-myst-ansi notranslate"><div class="highlight"><pre><span></span>09-20 00:47:02 INFO Mean and Volatility by inferred states:
+ {0: (0.028637970131994296, 0.7088256592365949), 1: (-0.05710237680864317, 1.4096882064420155)}
+</pre></div>
+</div>
+<img alt="../_images/e49ecb5fb346f0c4e85d3e40c2b7dffa84f1aae2b01c8237c939e8cb40cfa44c.png" src="../_images/e49ecb5fb346f0c4e85d3e40c2b7dffa84f1aae2b01c8237c939e8cb40cfa44c.png" />
+<div class="output stream highlight-myst-ansi notranslate"><div class="highlight"><pre><span></span>{&#39;BAC&#39;: 0.9310483870967742}
+</pre></div>
+</div>
+</div>
+</div>
+<p>We label the identified states and plot against the returns. The model indeed captures several states with different volatility levels / market downturns.</p>
+<div class="cell docutils container">
+<div class="cell_input docutils container">
+<div class="highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="n">jm</span><span class="o">.</span><span class="n">TestingUtils</span><span class="p">()</span><span class="o">.</span><span class="n">plot_returns</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">sim_returns</span><span class="p">),</span> <span class="n">res</span><span class="p">[</span><span class="s1">&#39;best_state_sequence&#39;</span><span class="p">])</span>
+</pre></div>
+</div>
+</div>
+<div class="cell_output docutils container">
+<img alt="../_images/e5981e91de0d6b1f6c891f6be17985a7f236273668490618e3bb99f969288430.png" src="../_images/e5981e91de0d6b1f6c891f6be17985a7f236273668490618e3bb99f969288430.png" />
+</div>
+</div>
+</section>
+<section id="find-the-best-penalty-parameter">
+<h2>Find the best Penalty parameter<a class="headerlink" href="#find-the-best-penalty-parameter" title="Permalink to this heading"></a></h2>
+<p>In this section, we aim to find the best penalty parameter for the model. For each penalty parameter, we simulated 50 sequences of states with length 1000, and model runs 8 trials for each sequence. Finally, the average Balanced Accuracy is calculated for each penalty parameter.</p>
+<div class="cell docutils container">
+<div class="cell_input docutils container">
+<div class="highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">defaultdict</span>
+<span class="kn">from</span> <span class="nn">tqdm</span> <span class="kn">import</span> <span class="n">tqdm</span>
+<span class="kn">import</span> <span class="nn">json</span>
+
+<span class="n">bac_lambda_hist</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
+<span class="n">lambda_range</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">logspace</span><span class="p">(</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="n">num</span><span class="o">=</span><span class="mi">13</span><span class="p">,</span> <span class="n">base</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
+<span class="n">transition_matrix</span><span class="p">,</span> <span class="n">norm_params</span> <span class="o">=</span> <span class="n">jm</span><span class="o">.</span><span class="n">TestingUtils</span><span class="p">()</span><span class="o">.</span><span class="n">daily</span><span class="p">()</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">jm</span><span class="o">.</span><span class="n">DiscreteJumpModel</span><span class="p">()</span>
+
+<span class="c1"># for lambda_ in lambda_range:</span>
+<span class="c1">#     for _ in tqdm(range(50)):</span>
+<span class="c1">#         sim_states, sim_returns = jm.SimulationGenerator().run(steps=1000, transition_matrix=transition_matrix, norm_params=norm_params)</span>
+<span class="c1">#         enriched_returns = jm.FeatureGenerator().enrich_features(sim_returns)</span>
+<span class="c1">#         enriched_returns = jm.FeatureGenerator().standarize_features(enriched_returns)</span>
+<span class="c1">#         res = model.fit(enriched_returns, k=2, lambda_=lambda_, rearrange=True, n_trials=8)</span>
+<span class="c1">#         score = model.evaluate(sim_states, res[&#39;best_state_sequence&#39;], plot=False)</span>
+<span class="c1">#         bac_lambda_hist[str(lambda_)].append(score[&quot;BAC&quot;])</span>
+</pre></div>
+</div>
+</div>
+</div>
+<div class="cell docutils container">
+<div class="cell_input docutils container">
+<div class="highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="n">bac_lambda_hist</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="nb">open</span><span class="p">(</span><span class="s1">&#39;bac_lambda_hist.json&#39;</span><span class="p">,</span> <span class="s1">&#39;r&#39;</span><span class="p">))</span>
+<span class="k">with</span> <span class="n">set_figsize</span><span class="p">(</span><span class="mi">6</span><span class="p">,</span> <span class="mi">4</span><span class="p">):</span>
+    <span class="n">jm</span><span class="o">.</span><span class="n">TestingUtils</span><span class="p">()</span><span class="o">.</span><span class="n">plot_averages</span><span class="p">(</span><span class="n">bac_lambda_hist</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="cell_output docutils container">
+<img alt="../_images/da032814e16d662cd8049cae3fdd68c1d30c58c61892369c3eb0b93ce2856f0d.png" src="../_images/da032814e16d662cd8049cae3fdd68c1d30c58c61892369c3eb0b93ce2856f0d.png" />
+</div>
+</div>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="../index.html" class="btn btn-neutral float-left" title="quantbullet" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="../changelog.html" class="btn btn-neutral float-right" title="Changelog" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2023, Yiming Zhang.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

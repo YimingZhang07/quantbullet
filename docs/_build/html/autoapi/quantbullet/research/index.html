@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>quantbullet.research &mdash; quantbullet  documentation</title>
+      <link rel="stylesheet" href="../../../_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="../../../_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="../../../_static/mystnb.4510f1fc1dee50b3e5859aac5469c37c29e427902b24a333a5f9fcb2f0b3ac41.css" type="text/css" />
+      <link rel="stylesheet" href="../../../_static/graphviz.css" type="text/css" />
+  <!--[if lt IE 9]>
+    <script src="../../../_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script data-url_root="../../../" id="documentation_options" src="../../../_static/documentation_options.js"></script>
+        <script src="../../../_static/jquery.js"></script>
+        <script src="../../../_static/underscore.js"></script>
+        <script src="../../../_static/_sphinx_javascript_frameworks_compat.js"></script>
+        <script src="../../../_static/doctools.js"></script>
+        <script src="../../../_static/sphinx_highlight.js"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+    <link rel="next" title="quantbullet.research.jump_model" href="jump_model/index.html" />
+    <link rel="prev" title="quantbullet" href="../index.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            quantbullet
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../../../research/jump_model_prod.html">Statistical Jump Model</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../changelog.html">Changelog</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../contributing.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../conduct.html">Code of Conduct</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../../index.html">API Reference</a><ul class="current">
+<li class="toctree-l2 current"><a class="reference internal" href="../index.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">quantbullet</span></code></a><ul class="current">
+<li class="toctree-l3 current"><a class="reference internal" href="../index.html#subpackages">Subpackages</a><ul class="current">
+<li class="toctree-l4 current"><a class="current reference internal" href="#"><code class="xref py py-mod docutils literal notranslate"><span class="pre">quantbullet.research</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="../tsa/index.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">quantbullet.tsa</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../index.html#submodules">Submodules</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../index.html#package-contents">Package Contents</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">quantbullet</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">API Reference</a></li>
+          <li class="breadcrumb-item"><a href="../index.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">quantbullet</span></code></a></li>
+      <li class="breadcrumb-item active"><code class="xref py py-mod docutils literal notranslate"><span class="pre">quantbullet.research</span></code></li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../../_sources/autoapi/quantbullet/research/index.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-quantbullet.research">
+<span id="quantbullet-research"></span><h1><a class="reference internal" href="#module-quantbullet.research" title="quantbullet.research"><code class="xref py py-mod docutils literal notranslate"><span class="pre">quantbullet.research</span></code></a><a class="headerlink" href="#module-quantbullet.research" title="Permalink to this heading"></a></h1>
+<section id="submodules">
+<h2>Submodules<a class="headerlink" href="#submodules" title="Permalink to this heading"></a></h2>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="jump_model/index.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">quantbullet.research.jump_model</span></code></a></li>
+</ul>
+</div>
+</section>
+<section id="package-contents">
+<h2>Package Contents<a class="headerlink" href="#package-contents" title="Permalink to this heading"></a></h2>
+<section id="classes">
+<h3>Classes<a class="headerlink" href="#classes" title="Permalink to this heading"></a></h3>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#quantbullet.research.DiscreteJumpModel" title="quantbullet.research.DiscreteJumpModel"><code class="xref py py-obj docutils literal notranslate"><span class="pre">DiscreteJumpModel</span></code></a></p></td>
+<td><p>Statistical Jump Model with Discrete States</p></td>
+</tr>
+</tbody>
+</table>
+<dl class="py class">
+<dt class="sig sig-object py" id="quantbullet.research.DiscreteJumpModel">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">quantbullet.research.</span></span><span class="sig-name descname"><span class="pre">DiscreteJumpModel</span></span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel" title="Permalink to this definition"></a></dt>
+<dd><p>Statistical Jump Model with Discrete States</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="quantbullet.research.DiscreteJumpModel.fixed_states_optimize">
+<span class="sig-name descname"><span class="pre">fixed_states_optimize</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">theta_guess</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.fixed_states_optimize"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.fixed_states_optimize" title="Permalink to this definition"></a></dt>
+<dd><p>Optimize the parameters of a discrete jump model with fixed states</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>y</strong> (<em>np.ndarray</em>) – observed data (T x n_features)</p></li>
+<li><p><strong>s</strong> (<em>np.ndarray</em>) – state sequence (T x 1)</p></li>
+<li><p><strong>theta_guess</strong> (<em>np.ndarray</em>) – initial guess for theta (k x n_features)</p></li>
+<li><p><strong>k</strong> (<em>int</em>) – number of states</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>optimized parameters
+objective_value (float): optimal value of the objective function</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>theta (np.ndarray)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="quantbullet.research.DiscreteJumpModel.generate_loss_matrix">
+<span class="sig-name descname"><span class="pre">generate_loss_matrix</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">theta</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.generate_loss_matrix"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.generate_loss_matrix" title="Permalink to this definition"></a></dt>
+<dd><p>Generate the loss matrix for a discrete jump model for fixed theta</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>y</strong> (<em>np.ndarray</em>) – observed data (T x n_features)</p></li>
+<li><p><strong>theta</strong> (<em>np.ndarray</em>) – parameters (k x n_features)</p></li>
+<li><p><strong>k</strong> (<em>int</em>) – number of states</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>loss matrix (T x k)</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>loss (np.ndarray)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="quantbullet.research.DiscreteJumpModel.fixed_theta_optimize">
+<span class="sig-name descname"><span class="pre">fixed_theta_optimize</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lossMatrix</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lambda_</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.fixed_theta_optimize"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.fixed_theta_optimize" title="Permalink to this definition"></a></dt>
+<dd><p>Optimize the state sequence of a discrete jump model with fixed parameters</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>lossMatrix</strong> (<em>np.ndarray</em>) – loss matrix (T x k)</p></li>
+<li><p><strong>lambda</strong> (<em>float</em>) – regularization parameter</p></li>
+<li><p><strong>k</strong> (<em>int</em>) – number of states</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>optimal state sequence (T,)
+v (float): optimal value of the objective function</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>s (np.ndarray)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="quantbullet.research.DiscreteJumpModel.initialize_kmeans_plusplus">
+<span class="sig-name descname"><span class="pre">initialize_kmeans_plusplus</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.initialize_kmeans_plusplus"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.initialize_kmeans_plusplus" title="Permalink to this definition"></a></dt>
+<dd><p>Initialize the centroids using the k-means++ method.</p>
+<p>Parameters:
+- data: ndarray of shape (n_samples, n_features)
+- k: number of clusters</p>
+<p>Returns:
+- centroids: ndarray of shape (k, n_features)</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="quantbullet.research.DiscreteJumpModel.classify_data_to_states">
+<span class="sig-name descname"><span class="pre">classify_data_to_states</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">centroids</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.classify_data_to_states"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.classify_data_to_states" title="Permalink to this definition"></a></dt>
+<dd><p>Classify data points to the states based on the centroids.</p>
+<p>Parameters:
+- data: ndarray of shape (n_samples, n_features)
+- centroids: centroids or means of the states, ndarray of shape (k, n_features)</p>
+<p>Returns:
+- state_assignments: ndarray of shape (n_samples,), indices of the states             to which each data point is assigned</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="quantbullet.research.DiscreteJumpModel.infer_states_stats">
+<span class="sig-name descname"><span class="pre">infer_states_stats</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ts_returns</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">states</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.infer_states_stats"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.infer_states_stats" title="Permalink to this definition"></a></dt>
+<dd><p>Compute the mean and standard deviation of returns for each state</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>ts_returns</strong> (<em>np.ndarray</em>) – observed returns (T x 1)</p></li>
+<li><p><strong>states</strong> (<em>np.ndarray</em>) – state sequence (T x 1)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>mean and standard deviation of returns for each state</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>state_features (dict)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="quantbullet.research.DiscreteJumpModel.remapResults">
+<span class="sig-name descname"><span class="pre">remapResults</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">optimized_s</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">optimized_theta</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ts_returns</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.remapResults"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.remapResults" title="Permalink to this definition"></a></dt>
+<dd><p>Remap the results of the optimization.</p>
+<p>We would like the states to be in increasing order of the volatility of returns.
+This is because vol has smaller variance than returns, a warning is triggered if             the states identified by volatility and returns are different.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="quantbullet.research.DiscreteJumpModel.cleanResults">
+<span class="sig-name descname"><span class="pre">cleanResults</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">raw_result</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ts_returns</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rearrange</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.cleanResults"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.cleanResults" title="Permalink to this definition"></a></dt>
+<dd><p>Clean the results of the optimization.</p>
+<p>This extracts the best results from the ten trials based on the loss.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="quantbullet.research.DiscreteJumpModel.single_run">
+<span class="sig-name descname"><span class="pre">single_run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lambda_</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.single_run"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.single_run" title="Permalink to this definition"></a></dt>
+<dd><p>Run a single trial of the optimization. Each trial uses a different             initialization of the centroids.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>y</strong> (<em>np.ndarray</em>) – observed data (T x n_features)</p></li>
+<li><p><strong>k</strong> (<em>int</em>) – number of states</p></li>
+<li><p><strong>lambda</strong> (<em>float</em>) – regularization parameter</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>optimal state sequence (T x 1)
+loss (float): optimal value of the objective function
+cur_theta (np.ndarray): optimal parameters (k x n_features)</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>cur_s (np.ndarray)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="quantbullet.research.DiscreteJumpModel.fit">
+<span class="sig-name descname"><span class="pre">fit</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lambda_</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">100</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rearrange</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_trials</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.fit"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.fit" title="Permalink to this definition"></a></dt>
+<dd><p>fit discrete jump model</p>
+<p>NOTE:
+- A multiprocessing implementation is used to speed up the optimization
+- Ten trials with k means++ initialization are ran</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>y</strong> (<em>np.ndarray</em>) – observed data (T x n_features)</p></li>
+<li><p><strong>k</strong> (<em>int</em>) – number of states</p></li>
+<li><p><strong>lambda</strong> (<em>float</em>) – regularization parameter</p></li>
+<li><p><strong>rearrange</strong> (<em>bool</em>) – whether to rearrange the states in increasing order of                 volatility</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>optimal state sequence (T x 1)
+best_loss (float): optimal value of the objective function
+best_theta (np.ndarray): optimal parameters (k x n_features)
+optimized_s (list): state sequences from all trials (10 x T)
+optimized_loss (list): objective function values from all trials (10 x 1)
+optimized_theta (list): parameters from all trials (10 x k x n_features)</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>best_s (np.ndarray)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="quantbullet.research.DiscreteJumpModel.evaluate">
+<span class="sig-name descname"><span class="pre">evaluate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">true</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pred</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">plot</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.evaluate"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.evaluate" title="Permalink to this definition"></a></dt>
+<dd><p>Evaluate the model using balanced accuracy score</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>true</strong> (<em>np.ndarray</em>) – true state sequence (T x 1)</p></li>
+<li><p><strong>pred</strong> (<em>np.ndarray</em>) – predicted state sequence (T x 1)</p></li>
+<li><p><strong>plot</strong> (<em>bool</em>) – whether to plot the true and predicted state sequences</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>evaluation results</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>res (dict)</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="../index.html" class="btn btn-neutral float-left" title="quantbullet" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="jump_model/index.html" class="btn btn-neutral float-right" title="quantbullet.research.jump_model" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2023, Yiming Zhang.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

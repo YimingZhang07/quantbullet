@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>quantbullet.research.jump_model &mdash; quantbullet  documentation</title>
+      <link rel="stylesheet" href="../../../_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="../../../_static/css/theme.css" type="text/css" />
+      <link rel="stylesheet" href="../../../_static/mystnb.4510f1fc1dee50b3e5859aac5469c37c29e427902b24a333a5f9fcb2f0b3ac41.css" type="text/css" />
+      <link rel="stylesheet" href="../../../_static/graphviz.css" type="text/css" />
+  <!--[if lt IE 9]>
+    <script src="../../../_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script data-url_root="../../../" id="documentation_options" src="../../../_static/documentation_options.js"></script>
+        <script src="../../../_static/jquery.js"></script>
+        <script src="../../../_static/underscore.js"></script>
+        <script src="../../../_static/_sphinx_javascript_frameworks_compat.js"></script>
+        <script src="../../../_static/doctools.js"></script>
+        <script src="../../../_static/sphinx_highlight.js"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            quantbullet
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../research/jump_model_prod.html">Statistical Jump Model</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../changelog.html">Changelog</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../contributing.html">Contributing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../conduct.html">Code of Conduct</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../autoapi/index.html">API Reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">quantbullet</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+          <li class="breadcrumb-item"><a href="../../quantbullet.html">quantbullet</a></li>
+      <li class="breadcrumb-item active">quantbullet.research.jump_model</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for quantbullet.research.jump_model</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span> <span class="nn">cvxpy</span> <span class="k">as</span> <span class="nn">cp</span>
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">import</span> <span class="nn">pandas</span> <span class="k">as</span> <span class="nn">pd</span>
+<span class="kn">import</span> <span class="nn">multiprocessing</span> <span class="k">as</span> <span class="nn">mp</span>
+<span class="kn">import</span> <span class="nn">matplotlib.pyplot</span> <span class="k">as</span> <span class="nn">plt</span>
+<span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">Counter</span>
+<span class="kn">from</span> <span class="nn">operator</span> <span class="kn">import</span> <span class="n">itemgetter</span>
+<span class="kn">from</span> <span class="nn">sklearn</span> <span class="kn">import</span> <span class="n">preprocessing</span>
+<span class="kn">from</span> <span class="nn">sklearn.metrics</span> <span class="kn">import</span> <span class="n">balanced_accuracy_score</span>
+<span class="kn">from</span> <span class="nn">..log_config</span> <span class="kn">import</span> <span class="n">setup_logger</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">setup_logger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="DiscreteJumpModel"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.DiscreteJumpModel">[docs]</a><span class="k">class</span> <span class="nc">DiscreteJumpModel</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Statistical Jump Model with Discrete States</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">pass</span>
+
+    <span class="c1"># Non-vectorized version</span>
+    <span class="c1"># def fixed_states_optimize(self, y, s, theta_guess=None, k=2):</span>
+    <span class="c1">#     &quot;&quot;&quot;</span>
+    <span class="c1">#     Optimize the parameters of a discrete jump model with fixed states</span>
+
+    <span class="c1">#     Args:</span>
+    <span class="c1">#         y (np.ndarray): observed data (T x n_features)</span>
+    <span class="c1">#         s (np.ndarray): state sequence (T x 1)</span>
+    <span class="c1">#         theta_guess (np.ndarray): initial guess for theta (k x n_features)</span>
+    <span class="c1">#         k (int): number of states</span>
+
+    <span class="c1">#     Returns:</span>
+    <span class="c1">#         theta (np.ndarray): optimized parameters</span>
+    <span class="c1">#         prob.value (float): optimal value of the objective function</span>
+    <span class="c1">#     &quot;&quot;&quot;</span>
+    <span class="c1">#     if not isinstance(y, np.ndarray) or not isinstance(s, np.ndarray):</span>
+    <span class="c1">#         raise TypeError(&quot;y and s must be numpy arrays&quot;)</span>
+    <span class="c1">#     T, n_features = y.shape</span>
+    <span class="c1">#     # initialize variables from guess</span>
+    <span class="c1">#     theta = cp.Variable((k, n_features))</span>
+    <span class="c1">#     if theta_guess is not None:</span>
+    <span class="c1">#         theta.value = theta_guess</span>
+
+    <span class="c1">#     # solve optimization problem; essentially the k-means problem</span>
+    <span class="c1">#     diff = [0.5 * cp.norm2(y[i, :] - theta[s[i], :]) ** 2 for i in range(T)]</span>
+    <span class="c1">#     objective = cp.Minimize(cp.sum(diff))</span>
+    <span class="c1">#     prob = cp.Problem(objective)</span>
+    <span class="c1">#     prob.solve()</span>
+    <span class="c1">#     return theta.value, prob.value</span>
+
+<div class="viewcode-block" id="DiscreteJumpModel.fixed_states_optimize"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.DiscreteJumpModel.fixed_states_optimize">[docs]</a>    <span class="k">def</span> <span class="nf">fixed_states_optimize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">s</span><span class="p">,</span> <span class="n">theta_guess</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">2</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Optimize the parameters of a discrete jump model with fixed states</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            y (np.ndarray): observed data (T x n_features)</span>
+<span class="sd">            s (np.ndarray): state sequence (T x 1)</span>
+<span class="sd">            theta_guess (np.ndarray): initial guess for theta (k x n_features)</span>
+<span class="sd">            k (int): number of states</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            theta (np.ndarray): optimized parameters</span>
+<span class="sd">            objective_value (float): optimal value of the objective function</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s2">&quot;y and s must be numpy arrays&quot;</span><span class="p">)</span>
+
+        <span class="n">T</span><span class="p">,</span> <span class="n">n_features</span> <span class="o">=</span> <span class="n">y</span><span class="o">.</span><span class="n">shape</span>
+        <span class="n">theta</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">k</span><span class="p">,</span> <span class="n">n_features</span><span class="p">))</span>
+
+        <span class="c1"># Compute the optimal centroids (theta) for each state</span>
+        <span class="k">for</span> <span class="n">state</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">k</span><span class="p">):</span>
+            <span class="n">assigned_data_points</span> <span class="o">=</span> <span class="n">y</span><span class="p">[</span><span class="n">s</span> <span class="o">==</span> <span class="n">state</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">assigned_data_points</span><span class="o">.</span><span class="n">size</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">theta</span><span class="p">[</span><span class="n">state</span><span class="p">]</span> <span class="o">=</span> <span class="n">assigned_data_points</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+
+        <span class="c1"># Compute the objective value</span>
+        <span class="n">objective_value</span> <span class="o">=</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span>
+            <span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">y</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="p">:]</span> <span class="o">-</span> <span class="n">theta</span><span class="p">[</span><span class="n">s</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="p">:])</span> <span class="o">**</span> <span class="mi">2</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">T</span><span class="p">)]</span>
+        <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">theta</span><span class="p">,</span> <span class="n">objective_value</span></div>
+
+    <span class="c1"># Non-vectorized version</span>
+    <span class="c1"># def generate_loss_matrix(self, y, theta, k=2):</span>
+    <span class="c1">#     &quot;&quot;&quot;</span>
+    <span class="c1">#     Generate the loss matrix for a discrete jump model for fixed theta</span>
+
+    <span class="c1">#     Args:</span>
+    <span class="c1">#         y (np.ndarray): observed data (T x n_features)</span>
+    <span class="c1">#         theta (np.ndarray): parameters (k x n_features)</span>
+    <span class="c1">#         k (int): number of states</span>
+
+    <span class="c1">#     Returns:</span>
+    <span class="c1">#         loss (np.ndarray): loss matrix (T x k)</span>
+    <span class="c1">#     &quot;&quot;&quot;</span>
+    <span class="c1">#     T = y.shape[0]</span>
+    <span class="c1">#     loss = np.zeros((T, k))</span>
+    <span class="c1">#     for i in range(T):</span>
+    <span class="c1">#         for j in range(k):</span>
+    <span class="c1">#             # norm is the L2 norm by default</span>
+    <span class="c1">#             loss[i, j] = 0.5 * np.linalg.norm(y[i, :] - theta[j, :]) ** 2</span>
+    <span class="c1">#     return loss</span>
+
+<div class="viewcode-block" id="DiscreteJumpModel.generate_loss_matrix"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.DiscreteJumpModel.generate_loss_matrix">[docs]</a>    <span class="k">def</span> <span class="nf">generate_loss_matrix</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">theta</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">2</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Generate the loss matrix for a discrete jump model for fixed theta</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            y (np.ndarray): observed data (T x n_features)</span>
+<span class="sd">            theta (np.ndarray): parameters (k x n_features)</span>
+<span class="sd">            k (int): number of states</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            loss (np.ndarray): loss matrix (T x k)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="c1"># Expand dimensions to broadcast subtraction across y and theta</span>
+        <span class="n">diff</span> <span class="o">=</span> <span class="n">y</span><span class="p">[:,</span> <span class="n">np</span><span class="o">.</span><span class="n">newaxis</span><span class="p">,</span> <span class="p">:]</span> <span class="o">-</span> <span class="n">theta</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">newaxis</span><span class="p">,</span> <span class="p">:,</span> <span class="p">:]</span>
+
+        <span class="c1"># Compute squared L2 norm along the last axis (n_features)</span>
+        <span class="n">loss</span> <span class="o">=</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">diff</span><span class="o">**</span><span class="mi">2</span><span class="p">,</span> <span class="n">axis</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">loss</span></div>
+
+    <span class="c1"># Non-vectorized version</span>
+    <span class="c1"># def fixed_theta_optimize(self, lossMatrix, lambda_, k=2):</span>
+    <span class="c1">#     &quot;&quot;&quot;</span>
+    <span class="c1">#     Optimize the state sequence of a discrete jump model with fixed parameters</span>
+
+    <span class="c1">#     Args:</span>
+    <span class="c1">#         lossMatrix (np.ndarray): loss matrix (T x k)</span>
+    <span class="c1">#         lambda_ (float): regularization parameter</span>
+    <span class="c1">#         k (int): number of states</span>
+
+    <span class="c1">#     Returns:</span>
+    <span class="c1">#         s (np.ndarray): optimal state sequence (T x 1)</span>
+    <span class="c1">#         v (float): optimal value of the objective function</span>
+    <span class="c1">#     &quot;&quot;&quot;</span>
+    <span class="c1">#     state_choices = list(range(k))</span>
+    <span class="c1">#     T, n_states = lossMatrix.shape</span>
+    <span class="c1">#     V = np.zeros((T, n_states))</span>
+    <span class="c1">#     V[0, :] = lossMatrix[0, :]</span>
+    <span class="c1">#     for t in range(1, T):</span>
+    <span class="c1">#         for k in range(n_states):</span>
+    <span class="c1">#             V[t, k] = lossMatrix[t, k] + min(</span>
+    <span class="c1">#                 V[t - 1, :]</span>
+    <span class="c1">#                 + lambda_ * np.abs(state_choices[k] - np.array(state_choices))</span>
+    <span class="c1">#             )</span>
+
+    <span class="c1">#     # backtrack to find optimal state sequence</span>
+    <span class="c1">#     v = V[-1, :].min()</span>
+    <span class="c1">#     s = np.zeros(T, dtype=int)</span>
+    <span class="c1">#     s[-1] = state_choices[V[-1, :].argmin()]</span>
+    <span class="c1">#     for t in range(T - 2, -1, -1):</span>
+    <span class="c1">#         s[t] = state_choices[</span>
+    <span class="c1">#             np.argmin(V[t, :] + lambda_ * np.abs(state_choices - s[t + 1]))</span>
+    <span class="c1">#         ]</span>
+    <span class="c1">#     return s, v</span>
+
+<div class="viewcode-block" id="DiscreteJumpModel.fixed_theta_optimize"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.DiscreteJumpModel.fixed_theta_optimize">[docs]</a>    <span class="k">def</span> <span class="nf">fixed_theta_optimize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">lossMatrix</span><span class="p">,</span> <span class="n">lambda_</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">2</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Optimize the state sequence of a discrete jump model with fixed parameters</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            lossMatrix (np.ndarray): loss matrix (T x k)</span>
+<span class="sd">            lambda_ (float): regularization parameter</span>
+<span class="sd">            k (int): number of states</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            s (np.ndarray): optimal state sequence (T,)</span>
+<span class="sd">            v (float): optimal value of the objective function</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">T</span><span class="p">,</span> <span class="n">n_states</span> <span class="o">=</span> <span class="n">lossMatrix</span><span class="o">.</span><span class="n">shape</span>
+        <span class="n">V</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">T</span><span class="p">,</span> <span class="n">n_states</span><span class="p">))</span>
+        <span class="n">V</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="p">:]</span> <span class="o">=</span> <span class="n">lossMatrix</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="p">:]</span>
+
+        <span class="n">state_choices</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">n_states</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">T</span><span class="p">):</span>
+            <span class="c1"># Using broadcasting to compute the regularization term for all states at once</span>
+            <span class="n">regularization</span> <span class="o">=</span> <span class="n">lambda_</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span>
+                <span class="n">state_choices</span><span class="p">[:,</span> <span class="n">np</span><span class="o">.</span><span class="n">newaxis</span><span class="p">]</span> <span class="o">-</span> <span class="n">state_choices</span>
+            <span class="p">)</span>
+            <span class="n">V</span><span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="p">:]</span> <span class="o">=</span> <span class="n">lossMatrix</span><span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="p">:]</span> <span class="o">+</span> <span class="p">(</span><span class="n">V</span><span class="p">[</span><span class="n">t</span> <span class="o">-</span> <span class="mi">1</span><span class="p">,</span> <span class="p">:]</span> <span class="o">+</span> <span class="n">regularization</span><span class="p">)</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+
+        <span class="c1"># backtrack to find optimal state sequence</span>
+        <span class="n">v</span> <span class="o">=</span> <span class="n">V</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="p">:]</span><span class="o">.</span><span class="n">min</span><span class="p">()</span>
+        <span class="n">s</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">T</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">int</span><span class="p">)</span>
+        <span class="n">s</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">state_choices</span><span class="p">[</span><span class="n">V</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="p">:]</span><span class="o">.</span><span class="n">argmin</span><span class="p">()]</span>
+        <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">T</span> <span class="o">-</span> <span class="mi">2</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">):</span>
+            <span class="n">s</span><span class="p">[</span><span class="n">t</span><span class="p">]</span> <span class="o">=</span> <span class="n">state_choices</span><span class="p">[</span>
+                <span class="n">np</span><span class="o">.</span><span class="n">argmin</span><span class="p">(</span><span class="n">V</span><span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="p">:]</span> <span class="o">+</span> <span class="n">lambda_</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">state_choices</span> <span class="o">-</span> <span class="n">s</span><span class="p">[</span><span class="n">t</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]))</span>
+            <span class="p">]</span>
+        <span class="k">return</span> <span class="n">s</span><span class="p">,</span> <span class="n">v</span></div>
+
+<div class="viewcode-block" id="DiscreteJumpModel.initialize_kmeans_plusplus"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.DiscreteJumpModel.initialize_kmeans_plusplus">[docs]</a>    <span class="k">def</span> <span class="nf">initialize_kmeans_plusplus</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">k</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initialize the centroids using the k-means++ method.</span>
+
+<span class="sd">        Parameters:</span>
+<span class="sd">        - data: ndarray of shape (n_samples, n_features)</span>
+<span class="sd">        - k: number of clusters</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">        - centroids: ndarray of shape (k, n_features)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">initial_idx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">choice</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="n">centroids</span> <span class="o">=</span> <span class="p">[</span><span class="n">data</span><span class="p">[</span><span class="n">initial_idx</span><span class="p">]]</span>
+
+        <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">k</span> <span class="o">-</span> <span class="mi">1</span><span class="p">):</span>
+            <span class="n">squared_distances</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span>
+                <span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">((</span><span class="n">data</span> <span class="o">-</span> <span class="n">centroid</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span> <span class="k">for</span> <span class="n">centroid</span> <span class="ow">in</span> <span class="n">centroids</span><span class="p">],</span>
+                <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="n">prob</span> <span class="o">=</span> <span class="n">squared_distances</span> <span class="o">/</span> <span class="n">squared_distances</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span>
+            <span class="n">next_centroid_idx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">choice</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">1</span><span class="p">,</span> <span class="n">p</span><span class="o">=</span><span class="n">prob</span><span class="p">)</span>
+            <span class="n">centroids</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="n">next_centroid_idx</span><span class="p">])</span>
+
+        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">centroids</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="DiscreteJumpModel.classify_data_to_states"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.DiscreteJumpModel.classify_data_to_states">[docs]</a>    <span class="k">def</span> <span class="nf">classify_data_to_states</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">centroids</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Classify data points to the states based on the centroids.</span>
+
+<span class="sd">        Parameters:</span>
+<span class="sd">        - data: ndarray of shape (n_samples, n_features)</span>
+<span class="sd">        - centroids: centroids or means of the states, ndarray of shape (k, n_features)</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">        - state_assignments: ndarray of shape (n_samples,), indices of the states \</span>
+<span class="sd">            to which each data point is assigned</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">distances</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span>
+            <span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">((</span><span class="n">data</span> <span class="o">-</span> <span class="n">centroid</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span> <span class="k">for</span> <span class="n">centroid</span> <span class="ow">in</span> <span class="n">centroids</span><span class="p">]</span>
+        <span class="p">)</span>
+        <span class="n">state_assignments</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argmin</span><span class="p">(</span><span class="n">distances</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">state_assignments</span></div>
+
+<div class="viewcode-block" id="DiscreteJumpModel.infer_states_stats"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.DiscreteJumpModel.infer_states_stats">[docs]</a>    <span class="k">def</span> <span class="nf">infer_states_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ts_returns</span><span class="p">,</span> <span class="n">states</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Compute the mean and standard deviation of returns for each state</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            ts_returns (np.ndarray): observed returns (T x 1)</span>
+<span class="sd">            states (np.ndarray): state sequence (T x 1)</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            state_features (dict): mean and standard deviation of returns for each state</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">ts_returns</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">states</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">):</span>
+            <span class="n">ts_returns</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">ts_returns</span><span class="p">)</span>
+            <span class="n">states</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">states</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">int</span><span class="p">)</span>
+
+        <span class="n">stats</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">state</span> <span class="ow">in</span> <span class="nb">set</span><span class="p">(</span><span class="n">states</span><span class="p">):</span>
+            <span class="n">idx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">states</span> <span class="o">==</span> <span class="n">state</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">stats</span><span class="p">[</span><span class="n">state</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">ts_returns</span><span class="p">[</span><span class="n">idx</span><span class="p">]),</span> <span class="n">np</span><span class="o">.</span><span class="n">std</span><span class="p">(</span><span class="n">ts_returns</span><span class="p">[</span><span class="n">idx</span><span class="p">]))</span>
+        <span class="k">return</span> <span class="n">stats</span></div>
+
+<div class="viewcode-block" id="DiscreteJumpModel.remapResults"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.DiscreteJumpModel.remapResults">[docs]</a>    <span class="k">def</span> <span class="nf">remapResults</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">optimized_s</span><span class="p">,</span> <span class="n">optimized_theta</span><span class="p">,</span> <span class="n">ts_returns</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Remap the results of the optimization.</span>
+
+<span class="sd">        We would like the states to be in increasing order of the volatility of returns.</span>
+<span class="sd">        This is because vol has smaller variance than returns, a warning is triggered if \</span>
+<span class="sd">            the states identified by volatility and returns are different.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">res_s</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+        <span class="n">res_theta</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+        <span class="n">n</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">optimized_s</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+            <span class="c1"># idx = np.argsort(optimized_theta[i][:, 0])[::-1]</span>
+            <span class="c1"># whichever has the lowest volatility is assigned to state 0</span>
+            <span class="n">states_features</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">infer_states_stats</span><span class="p">(</span><span class="n">ts_returns</span><span class="p">,</span> <span class="n">optimized_s</span><span class="p">[</span><span class="n">i</span><span class="p">])</span>
+            <span class="n">idx_vol</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argsort</span><span class="p">(</span>
+                <span class="p">[</span><span class="n">states_features</span><span class="p">[</span><span class="n">state</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span> <span class="k">for</span> <span class="n">state</span> <span class="ow">in</span> <span class="n">states_features</span><span class="p">]</span>
+            <span class="p">)</span>
+            <span class="n">idx_ret</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argsort</span><span class="p">(</span>
+                <span class="p">[</span><span class="n">states_features</span><span class="p">[</span><span class="n">state</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">state</span> <span class="ow">in</span> <span class="n">states_features</span><span class="p">]</span>
+            <span class="p">)[::</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">array_equal</span><span class="p">(</span><span class="n">idx_vol</span><span class="p">,</span> <span class="n">idx_ret</span><span class="p">):</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span>
+                    <span class="s2">&quot;States identified by volatility ranks and returns ranks are different!&quot;</span>
+                <span class="p">)</span>
+            <span class="c1"># remap the states</span>
+            <span class="n">idx_mapping</span> <span class="o">=</span> <span class="p">{</span><span class="n">old_idx</span><span class="p">:</span> <span class="n">new_idx</span> <span class="k">for</span> <span class="n">new_idx</span><span class="p">,</span> <span class="n">old_idx</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">idx_vol</span><span class="p">)}</span>
+
+            <span class="c1"># if only one state, no need to remap</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">idx_mapping</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">remapped_s</span> <span class="o">=</span> <span class="n">optimized_s</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+                <span class="n">remapped_theta</span> <span class="o">=</span> <span class="n">optimized_theta</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">remapped_s</span> <span class="o">=</span> <span class="p">[</span><span class="n">idx_mapping</span><span class="p">[</span><span class="n">_</span><span class="p">]</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">optimized_s</span><span class="p">[</span><span class="n">i</span><span class="p">]]</span>
+                <span class="n">remapped_theta</span> <span class="o">=</span> <span class="n">optimized_theta</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="n">idx_vol</span><span class="p">,</span> <span class="p">:]</span>
+
+            <span class="c1"># append the remapped results</span>
+            <span class="n">res_s</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">remapped_s</span><span class="p">)</span>
+            <span class="n">res_theta</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">remapped_theta</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">res_s</span><span class="p">,</span> <span class="n">res_theta</span></div>
+
+<div class="viewcode-block" id="DiscreteJumpModel.cleanResults"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.DiscreteJumpModel.cleanResults">[docs]</a>    <span class="k">def</span> <span class="nf">cleanResults</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">raw_result</span><span class="p">,</span> <span class="n">ts_returns</span><span class="p">,</span> <span class="n">rearrange</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Clean the results of the optimization.</span>
+
+<span class="sd">        This extracts the best results from the ten trials based on the loss.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">optimized_s</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">map</span><span class="p">(</span><span class="n">itemgetter</span><span class="p">(</span><span class="mi">0</span><span class="p">),</span> <span class="n">raw_result</span><span class="p">))</span>
+        <span class="n">optimized_loss</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">map</span><span class="p">(</span><span class="n">itemgetter</span><span class="p">(</span><span class="mi">1</span><span class="p">),</span> <span class="n">raw_result</span><span class="p">))</span>
+        <span class="n">optimized_theta</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">map</span><span class="p">(</span><span class="n">itemgetter</span><span class="p">(</span><span class="mi">2</span><span class="p">),</span> <span class="n">raw_result</span><span class="p">))</span>
+        <span class="k">if</span> <span class="n">rearrange</span><span class="p">:</span>
+            <span class="n">optimized_s</span><span class="p">,</span> <span class="n">optimized_theta</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">remapResults</span><span class="p">(</span>
+                <span class="n">optimized_s</span><span class="p">,</span> <span class="n">optimized_theta</span><span class="p">,</span> <span class="n">ts_returns</span>
+            <span class="p">)</span>
+        <span class="n">idx</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">optimized_loss</span><span class="p">)</span><span class="o">.</span><span class="n">argmin</span><span class="p">())</span>
+        <span class="n">best_s</span> <span class="o">=</span> <span class="n">optimized_s</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span>
+        <span class="n">best_loss</span> <span class="o">=</span> <span class="n">optimized_loss</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span>
+        <span class="n">best_theta</span> <span class="o">=</span> <span class="n">optimized_theta</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span>
+
+        <span class="n">res_dict</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;best_state_sequence&quot;</span><span class="p">:</span> <span class="n">best_s</span><span class="p">,</span>
+            <span class="s2">&quot;best_loss&quot;</span><span class="p">:</span> <span class="n">best_loss</span><span class="p">,</span>
+            <span class="s2">&quot;best_theta&quot;</span><span class="p">:</span> <span class="n">best_theta</span><span class="p">,</span>
+            <span class="s2">&quot;all_state_sequence&quot;</span><span class="p">:</span> <span class="n">optimized_s</span><span class="p">,</span>
+            <span class="s2">&quot;all_loss&quot;</span><span class="p">:</span> <span class="n">optimized_loss</span><span class="p">,</span>
+            <span class="s2">&quot;all_theta&quot;</span><span class="p">:</span> <span class="n">optimized_theta</span><span class="p">,</span>
+        <span class="p">}</span>
+
+        <span class="k">return</span> <span class="n">res_dict</span></div>
+
+<div class="viewcode-block" id="DiscreteJumpModel.single_run"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.DiscreteJumpModel.single_run">[docs]</a>    <span class="k">def</span> <span class="nf">single_run</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">lambda_</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Run a single trial of the optimization. Each trial uses a different \</span>
+<span class="sd">            initialization of the centroids.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            y (np.ndarray): observed data (T x n_features)</span>
+<span class="sd">            k (int): number of states</span>
+<span class="sd">            lambda_ (float): regularization parameter</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            cur_s (np.ndarray): optimal state sequence (T x 1)</span>
+<span class="sd">            loss (float): optimal value of the objective function</span>
+<span class="sd">            cur_theta (np.ndarray): optimal parameters (k x n_features)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># initialize centroids using k-means++</span>
+        <span class="n">centroids</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">initialize_kmeans_plusplus</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="n">k</span><span class="p">)</span>
+        <span class="n">cur_s</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">classify_data_to_states</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="n">centroids</span><span class="p">)</span>
+        <span class="n">hist_s</span> <span class="o">=</span> <span class="p">[</span><span class="n">cur_s</span><span class="p">]</span>
+        <span class="c1"># the coordinate descent algorithm</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">30</span><span class="p">):</span>
+            <span class="n">cur_theta</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fixed_states_optimize</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="n">cur_s</span><span class="p">,</span> <span class="n">theta_guess</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+            <span class="n">lossMatrix</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">generate_loss_matrix</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="n">cur_theta</span><span class="p">)</span>
+            <span class="n">cur_s</span><span class="p">,</span> <span class="n">loss</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fixed_theta_optimize</span><span class="p">(</span><span class="n">lossMatrix</span><span class="p">,</span> <span class="n">lambda_</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">cur_s</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span> <span class="o">==</span> <span class="n">hist_s</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">():</span>
+                <span class="k">break</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">hist_s</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">cur_s</span><span class="p">)</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Single run completes after </span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2"> iterations with loss </span><span class="si">{</span><span class="n">loss</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">cur_s</span><span class="p">,</span> <span class="n">loss</span><span class="p">,</span> <span class="n">cur_theta</span></div>
+
+<div class="viewcode-block" id="DiscreteJumpModel.fit"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.DiscreteJumpModel.fit">[docs]</a>    <span class="k">def</span> <span class="nf">fit</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">lambda_</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">rearrange</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">n_trials</span><span class="o">=</span><span class="mi">10</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        fit discrete jump model</span>
+
+<span class="sd">        NOTE:</span>
+<span class="sd">        - A multiprocessing implementation is used to speed up the optimization</span>
+<span class="sd">        - Ten trials with k means++ initialization are ran</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            y (np.ndarray): observed data (T x n_features)</span>
+<span class="sd">            k (int): number of states</span>
+<span class="sd">            lambda_ (float): regularization parameter</span>
+<span class="sd">            rearrange (bool): whether to rearrange the states in increasing order of \</span>
+<span class="sd">                volatility</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            best_s (np.ndarray): optimal state sequence (T x 1)</span>
+<span class="sd">            best_loss (float): optimal value of the objective function</span>
+<span class="sd">            best_theta (np.ndarray): optimal parameters (k x n_features)</span>
+<span class="sd">            optimized_s (list): state sequences from all trials (10 x T)</span>
+<span class="sd">            optimized_loss (list): objective function values from all trials (10 x 1)</span>
+<span class="sd">            optimized_theta (list): parameters from all trials (10 x k x n_features)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">args</span> <span class="o">=</span> <span class="p">[(</span><span class="n">y</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">lambda_</span><span class="p">)]</span> <span class="o">*</span> <span class="n">n_trials</span>
+        <span class="c1"># mp.cpu_count()</span>
+        <span class="n">pool</span> <span class="o">=</span> <span class="n">mp</span><span class="o">.</span><span class="n">Pool</span><span class="p">(</span><span class="n">n_trials</span><span class="p">)</span>
+        <span class="n">res</span> <span class="o">=</span> <span class="n">pool</span><span class="o">.</span><span class="n">starmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">single_run</span><span class="p">,</span> <span class="n">args</span><span class="p">)</span>
+        <span class="n">pool</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+        <span class="n">res</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">cleanResults</span><span class="p">(</span><span class="n">res</span><span class="p">,</span> <span class="n">y</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">rearrange</span><span class="p">)</span>
+        <span class="n">states_stats</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">infer_states_stats</span><span class="p">(</span><span class="n">y</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">res</span><span class="p">[</span><span class="s2">&quot;best_state_sequence&quot;</span><span class="p">])</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Mean and Volatility by inferred states:</span><span class="se">\n</span><span class="s2"> </span><span class="si">{</span><span class="n">states_stats</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">res</span></div>
+
+<div class="viewcode-block" id="DiscreteJumpModel.evaluate"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.DiscreteJumpModel.evaluate">[docs]</a>    <span class="k">def</span> <span class="nf">evaluate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">true</span><span class="p">,</span> <span class="n">pred</span><span class="p">,</span> <span class="n">plot</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Evaluate the model using balanced accuracy score</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            true (np.ndarray): true state sequence (T x 1)</span>
+<span class="sd">            pred (np.ndarray): predicted state sequence (T x 1)</span>
+<span class="sd">            plot (bool): whether to plot the true and predicted state sequences</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            res (dict): evaluation results</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">true_len</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">true</span><span class="p">)</span>
+        <span class="n">pred_len</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">pred</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">plot</span><span class="p">:</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">true</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;true&quot;</span><span class="p">)</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">pred</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;pred&quot;</span><span class="p">)</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s2">&quot;True and Predicted State Sequences&quot;</span><span class="p">)</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">&quot;Time&quot;</span><span class="p">)</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s2">&quot;State&quot;</span><span class="p">)</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">legend</span><span class="p">()</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
+        <span class="n">res</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;BAC&quot;</span><span class="p">:</span> <span class="n">balanced_accuracy_score</span><span class="p">(</span><span class="n">true</span><span class="p">[</span><span class="n">true_len</span> <span class="o">-</span> <span class="n">pred_len</span> <span class="p">:],</span> <span class="n">pred</span><span class="p">)}</span>
+        <span class="k">return</span> <span class="n">res</span></div></div>
+
+
+<div class="viewcode-block" id="FeatureGenerator"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.FeatureGenerator">[docs]</a><span class="k">class</span> <span class="nc">FeatureGenerator</span><span class="p">:</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">pass</span>
+
+<div class="viewcode-block" id="FeatureGenerator.enrich_features"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.FeatureGenerator.enrich_features">[docs]</a>    <span class="k">def</span> <span class="nf">enrich_features</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">time_series</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Enrich a single time series with features</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            time_series (np.ndarray): time series (T x 1)</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            features (np.ndarray): features (T x n_features)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">({</span><span class="s2">&quot;ts&quot;</span><span class="p">:</span> <span class="n">time_series</span><span class="p">})</span>
+
+        <span class="c1"># Features 1-3</span>
+        <span class="n">df</span><span class="p">[</span><span class="s2">&quot;observation&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;ts&quot;</span><span class="p">]</span>
+        <span class="n">df</span><span class="p">[</span><span class="s2">&quot;abs_change&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;ts&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">diff</span><span class="p">()</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span>
+        <span class="n">df</span><span class="p">[</span><span class="s2">&quot;prev_abs_change&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;abs_change&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">shift</span><span class="p">()</span>
+
+        <span class="c1"># Features 4-9 for w=6 and w=14</span>
+        <span class="k">for</span> <span class="n">w</span> <span class="ow">in</span> <span class="p">[</span><span class="mi">6</span><span class="p">,</span> <span class="mi">14</span><span class="p">]:</span>
+            <span class="n">roll</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;ts&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">rolling</span><span class="p">(</span><span class="n">window</span><span class="o">=</span><span class="n">w</span><span class="p">)</span>
+            <span class="n">df</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;centered_mean_</span><span class="si">{</span><span class="n">w</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">roll</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
+            <span class="n">df</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;centered_std_</span><span class="si">{</span><span class="n">w</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">roll</span><span class="o">.</span><span class="n">std</span><span class="p">()</span>
+
+            <span class="n">half_w</span> <span class="o">=</span> <span class="n">w</span> <span class="o">//</span> <span class="mi">2</span>
+            <span class="n">df</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;left_mean_</span><span class="si">{</span><span class="n">w</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;ts&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">rolling</span><span class="p">(</span><span class="n">window</span><span class="o">=</span><span class="n">half_w</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span><span class="o">.</span><span class="n">shift</span><span class="p">(</span><span class="n">half_w</span><span class="p">)</span>
+            <span class="n">df</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;left_std_</span><span class="si">{</span><span class="n">w</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;ts&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">rolling</span><span class="p">(</span><span class="n">window</span><span class="o">=</span><span class="n">half_w</span><span class="p">)</span><span class="o">.</span><span class="n">std</span><span class="p">()</span><span class="o">.</span><span class="n">shift</span><span class="p">(</span><span class="n">half_w</span><span class="p">)</span>
+
+            <span class="n">df</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;right_mean_</span><span class="si">{</span><span class="n">w</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;ts&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">rolling</span><span class="p">(</span><span class="n">window</span><span class="o">=</span><span class="n">half_w</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
+            <span class="n">df</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;right_std_</span><span class="si">{</span><span class="n">w</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;ts&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">rolling</span><span class="p">(</span><span class="n">window</span><span class="o">=</span><span class="n">half_w</span><span class="p">)</span><span class="o">.</span><span class="n">std</span><span class="p">()</span>
+
+        <span class="c1"># Drop the original time series column</span>
+        <span class="n">df</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">drop</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;ts&quot;</span><span class="p">])</span>
+        <span class="c1"># Drop the first w rows where features are NaN</span>
+        <span class="c1"># df = df[~np.isnan(df).any(axis=1)]</span>
+        <span class="n">df</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">dropna</span><span class="p">(</span><span class="n">how</span><span class="o">=</span><span class="s2">&quot;any&quot;</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">df</span><span class="o">.</span><span class="n">values</span></div>
+
+<div class="viewcode-block" id="FeatureGenerator.standarize_features"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.FeatureGenerator.standarize_features">[docs]</a>    <span class="k">def</span> <span class="nf">standarize_features</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Standarize features using sklearn&#39;s StandardScaler</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">preprocessing</span><span class="o">.</span><span class="n">StandardScaler</span><span class="p">()</span><span class="o">.</span><span class="n">fit_transform</span><span class="p">(</span><span class="n">X</span><span class="p">)</span></div></div>
+
+
+<div class="viewcode-block" id="SimulationGenerator"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.SimulationGenerator">[docs]</a><span class="k">class</span> <span class="nc">SimulationGenerator</span><span class="p">:</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">pass</span>
+
+<div class="viewcode-block" id="SimulationGenerator.stationary_distribution"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.SimulationGenerator.stationary_distribution">[docs]</a>    <span class="k">def</span> <span class="nf">stationary_distribution</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">transition_matrix</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Computes the stationary distribution for a given Markov transition matrix.</span>
+
+<span class="sd">        Parameters:</span>
+<span class="sd">        - transition_matrix (numpy array): The Markov transition matrix.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">        - numpy array: The stationary distribution.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">size</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">transition_matrix</span><span class="p">)</span>
+        <span class="c1"># Create a matrix subtracted from the identity matrix</span>
+        <span class="n">Q</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">eye</span><span class="p">(</span><span class="n">size</span><span class="p">)</span> <span class="o">-</span> <span class="n">transition_matrix</span><span class="o">.</span><span class="n">T</span>
+        <span class="c1"># Append a ones row to handle the constraint sum(pi) = 1</span>
+        <span class="n">Q</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">vstack</span><span class="p">([</span><span class="n">Q</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="n">size</span><span class="p">)])</span>
+        <span class="c1"># Create the target matrix (last entry is 1 for the sum(pi) = 1 constraint)</span>
+        <span class="n">b</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">size</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="n">b</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+        <span class="c1"># Solve the linear system</span>
+        <span class="n">pi</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">lstsq</span><span class="p">(</span><span class="n">Q</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">rcond</span><span class="o">=</span><span class="kc">None</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">pi</span></div>
+
+<div class="viewcode-block" id="SimulationGenerator.simulate_markov"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.SimulationGenerator.simulate_markov">[docs]</a>    <span class="k">def</span> <span class="nf">simulate_markov</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">transition_matrix</span><span class="p">,</span> <span class="n">initial_distribution</span><span class="p">,</span> <span class="n">steps</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Simulates a Markov process.</span>
+
+<span class="sd">        Parameters:</span>
+<span class="sd">        - transition_matrix (numpy array): The Markov transition matrix.</span>
+<span class="sd">        - initial_distribution (numpy array): The initial state distribution.</span>
+<span class="sd">        - steps (int): The number of steps to simulate.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">        - list: The states at each step.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">state</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">choice</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">initial_distribution</span><span class="p">),</span> <span class="n">p</span><span class="o">=</span><span class="n">initial_distribution</span><span class="p">)</span>
+        <span class="n">states</span> <span class="o">=</span> <span class="p">[</span><span class="n">state</span><span class="p">]</span>
+
+        <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">steps</span><span class="p">):</span>
+            <span class="n">state</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">choice</span><span class="p">(</span>
+                <span class="nb">len</span><span class="p">(</span><span class="n">transition_matrix</span><span class="p">[</span><span class="n">state</span><span class="p">]),</span> <span class="n">p</span><span class="o">=</span><span class="n">transition_matrix</span><span class="p">[</span><span class="n">state</span><span class="p">]</span>
+            <span class="p">)</span>
+            <span class="n">states</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">states</span></div>
+
+<div class="viewcode-block" id="SimulationGenerator.generate_conditional_data"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.SimulationGenerator.generate_conditional_data">[docs]</a>    <span class="k">def</span> <span class="nf">generate_conditional_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">states</span><span class="p">,</span> <span class="n">parameters</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Generate data using normal distribution conditional on the states.</span>
+
+<span class="sd">        Parameters:</span>
+<span class="sd">        - states (list): The list of states</span>
+<span class="sd">        - parameters (dict): Parameters for each state with means and \</span>
+<span class="sd">            standard deviations</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">        - list: Simulated data conditional on the states.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">state</span> <span class="ow">in</span> <span class="n">states</span><span class="p">:</span>
+            <span class="n">mu</span><span class="p">,</span> <span class="n">sigma</span> <span class="o">=</span> <span class="n">parameters</span><span class="p">[</span><span class="n">state</span><span class="p">]</span>
+            <span class="n">value</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">normal</span><span class="p">(</span><span class="n">mu</span><span class="p">,</span> <span class="n">sigma</span><span class="p">)</span>
+            <span class="n">data</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">data</span></div>
+
+<div class="viewcode-block" id="SimulationGenerator.run"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.SimulationGenerator.run">[docs]</a>    <span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">steps</span><span class="p">,</span> <span class="n">transition_matrix</span><span class="p">,</span> <span class="n">norm_params</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Run the simulation, return the simulated states and conditional data</span>
+
+<span class="sd">        NOTE:</span>
+<span class="sd">        - States are forced to cover all states, if not, re-run the simulation</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            steps (int): number of steps to simulate</span>
+<span class="sd">            transition_matrix (np.ndarray): transition matrix (k x k)</span>
+<span class="sd">            norm_params (dict): parameters for the normal distribution for each state</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            simulated_states (list): simulated states</span>
+<span class="sd">            simulated_data (list): simulated data conditional on states</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">initial_distribution</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">stationary_distribution</span><span class="p">(</span><span class="n">transition_matrix</span><span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Step 1: Initial (stationary) distribution: </span><span class="si">{</span><span class="n">initial_distribution</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+        <span class="n">simulated_states</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">simulate_markov</span><span class="p">(</span>
+            <span class="n">transition_matrix</span><span class="p">,</span> <span class="n">initial_distribution</span><span class="p">,</span> <span class="n">steps</span>
+        <span class="p">)</span>
+
+        <span class="c1"># sanity check for the simulated states</span>
+        <span class="n">count_states</span> <span class="o">=</span> <span class="n">Counter</span><span class="p">(</span><span class="n">simulated_states</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">count_states</span><span class="p">)</span> <span class="o">!=</span> <span class="nb">len</span><span class="p">(</span><span class="n">transition_matrix</span><span class="p">):</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;The simulated states do not cover all states. Re-run.&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">steps</span><span class="p">,</span> <span class="n">transition_matrix</span><span class="p">,</span> <span class="n">norm_params</span><span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Step 2: Simulated states: </span><span class="si">{</span><span class="n">count_states</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">simulated_data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">generate_conditional_data</span><span class="p">(</span><span class="n">simulated_states</span><span class="p">,</span> <span class="n">norm_params</span><span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Step 3: Generate simulated return data conditional on states.&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">simulated_states</span><span class="p">,</span> <span class="n">simulated_data</span></div></div>
+
+
+<div class="viewcode-block" id="TestingUtils"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.TestingUtils">[docs]</a><span class="k">class</span> <span class="nc">TestingUtils</span><span class="p">:</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">pass</span>
+
+<div class="viewcode-block" id="TestingUtils.daily"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.TestingUtils.daily">[docs]</a>    <span class="k">def</span> <span class="nf">daily</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Parameters for simulated daily return data, sourced from the paper</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">transition_matrix</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span>
+            <span class="p">[</span>
+                <span class="p">[</span><span class="mf">0.99788413</span><span class="p">,</span> <span class="mf">0.00211587</span><span class="p">],</span>  <span class="c1"># From state 0 to states 0 and 1</span>
+                <span class="p">[</span><span class="mf">0.01198743</span><span class="p">,</span> <span class="mf">0.98801257</span><span class="p">],</span>  <span class="c1"># From state 1 to states 0 and 1</span>
+            <span class="p">]</span>
+        <span class="p">)</span>
+        <span class="n">norm_parameters</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="mi">0</span><span class="p">:</span> <span class="p">(</span><span class="mf">0.000615</span><span class="p">,</span> <span class="mf">0.007759155881924271</span><span class="p">),</span>  <span class="c1"># mu1, sigma1</span>
+            <span class="mi">1</span><span class="p">:</span> <span class="p">(</span><span class="o">-</span><span class="mf">0.000785</span><span class="p">,</span> <span class="mf">0.017396608864948364</span><span class="p">),</span>  <span class="c1"># mu2, sigma2</span>
+        <span class="p">}</span>
+
+        <span class="k">return</span> <span class="n">transition_matrix</span><span class="p">,</span> <span class="n">norm_parameters</span></div>
+
+<div class="viewcode-block" id="TestingUtils.plot_returns"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.TestingUtils.plot_returns">[docs]</a>    <span class="k">def</span> <span class="nf">plot_returns</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">returns</span><span class="p">,</span> <span class="n">shade_list</span><span class="o">=</span><span class="p">[]):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Plot both the cumulative returns and returns on separate subplots sharing the x-axis.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            returns (np.ndarray): An array of returns.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">returns</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">):</span>
+            <span class="n">returns</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">returns</span><span class="p">)</span>
+
+        <span class="c1"># Create a color palette</span>
+        <span class="n">palette</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">get_cmap</span><span class="p">(</span><span class="s2">&quot;Set1&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Compute cumulative returns</span>
+        <span class="n">cumulative_returns</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">cumprod</span><span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="n">returns</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span>
+
+        <span class="c1"># Create subplots sharing the x-axis</span>
+        <span class="n">fig</span><span class="p">,</span> <span class="p">(</span><span class="n">ax1</span><span class="p">,</span> <span class="n">ax2</span><span class="p">)</span> <span class="o">=</span> <span class="n">plt</span><span class="o">.</span><span class="n">subplots</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">sharex</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">6</span><span class="p">))</span>
+
+        <span class="c1"># Plot cumulative returns on the first subplot</span>
+        <span class="n">ax1</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span>
+            <span class="n">cumulative_returns</span><span class="p">,</span>
+            <span class="n">label</span><span class="o">=</span><span class="s2">&quot;Cumulative Returns&quot;</span><span class="p">,</span>
+            <span class="n">color</span><span class="o">=</span><span class="n">palette</span><span class="p">(</span><span class="mi">1</span><span class="p">),</span>
+            <span class="n">linestyle</span><span class="o">=</span><span class="s2">&quot;-&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">ax1</span><span class="o">.</span><span class="n">set_ylabel</span><span class="p">(</span><span class="s2">&quot;Cumulative Returns&quot;</span><span class="p">)</span>
+        <span class="n">ax1</span><span class="o">.</span><span class="n">set_title</span><span class="p">(</span><span class="s2">&quot;Cumulative Returns&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Plot returns on the second subplot</span>
+        <span class="n">ax2</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">returns</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;Returns&quot;</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="n">palette</span><span class="p">(</span><span class="mi">2</span><span class="p">))</span>
+        <span class="n">ax2</span><span class="o">.</span><span class="n">set_xlabel</span><span class="p">(</span><span class="s2">&quot;Time&quot;</span><span class="p">)</span>
+        <span class="n">ax2</span><span class="o">.</span><span class="n">set_ylabel</span><span class="p">(</span><span class="s2">&quot;Returns&quot;</span><span class="p">)</span>
+        <span class="n">ax2</span><span class="o">.</span><span class="n">set_title</span><span class="p">(</span><span class="s2">&quot;Returns&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">shade_list</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="c1"># Shade regions corresponding to clusters of 1s in the shade_list</span>
+            <span class="n">start_shade</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">returns</span><span class="p">)</span> <span class="o">-</span> <span class="nb">len</span><span class="p">(</span><span class="n">shade_list</span><span class="p">)</span>
+            <span class="n">start_region</span> <span class="o">=</span> <span class="kc">None</span>
+            <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">val</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">shade_list</span><span class="p">):</span>
+                <span class="k">if</span> <span class="n">val</span> <span class="o">==</span> <span class="mi">1</span> <span class="ow">and</span> <span class="n">start_region</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="n">start_region</span> <span class="o">=</span> <span class="n">start_shade</span> <span class="o">+</span> <span class="n">i</span>
+                <span class="k">elif</span> <span class="n">val</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">start_region</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="n">ax1</span><span class="o">.</span><span class="n">axvspan</span><span class="p">(</span><span class="n">start_region</span><span class="p">,</span> <span class="n">start_shade</span> <span class="o">+</span> <span class="n">i</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s2">&quot;gray&quot;</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.3</span><span class="p">)</span>
+                    <span class="n">ax2</span><span class="o">.</span><span class="n">axvspan</span><span class="p">(</span><span class="n">start_region</span><span class="p">,</span> <span class="n">start_shade</span> <span class="o">+</span> <span class="n">i</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s2">&quot;gray&quot;</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.3</span><span class="p">)</span>
+                    <span class="n">start_region</span> <span class="o">=</span> <span class="kc">None</span>
+            <span class="c1"># If the last cluster extends to the end of the shade_list</span>
+            <span class="k">if</span> <span class="n">start_region</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">ax1</span><span class="o">.</span><span class="n">axvspan</span><span class="p">(</span>
+                    <span class="n">start_region</span><span class="p">,</span> <span class="n">start_shade</span> <span class="o">+</span> <span class="nb">len</span><span class="p">(</span><span class="n">shade_list</span><span class="p">),</span> <span class="n">color</span><span class="o">=</span><span class="s2">&quot;gray&quot;</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.3</span>
+                <span class="p">)</span>
+                <span class="n">ax2</span><span class="o">.</span><span class="n">axvspan</span><span class="p">(</span>
+                    <span class="n">start_region</span><span class="p">,</span> <span class="n">start_shade</span> <span class="o">+</span> <span class="nb">len</span><span class="p">(</span><span class="n">shade_list</span><span class="p">),</span> <span class="n">color</span><span class="o">=</span><span class="s2">&quot;gray&quot;</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.3</span>
+                <span class="p">)</span>
+
+        <span class="n">fig</span><span class="o">.</span><span class="n">tight_layout</span><span class="p">()</span>
+        <span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></div>
+
+<div class="viewcode-block" id="TestingUtils.plot_averages"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.TestingUtils.plot_averages">[docs]</a>    <span class="k">def</span> <span class="nf">plot_averages</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data_dict</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Plot the average of numbers for each key in the dictionary \</span>
+<span class="sd">            using a line plot with x-axis labels in the form of 10^x.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            data_dict (dict): A dictionary where keys are labels \</span>
+<span class="sd">                    and values are lists of numbers.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Compute averages</span>
+        <span class="n">labels</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span>
+            <span class="n">data_dict</span><span class="o">.</span><span class="n">keys</span><span class="p">(),</span> <span class="n">key</span><span class="o">=</span><span class="nb">float</span>
+        <span class="p">)</span>  <span class="c1"># Sort the keys by their float value</span>
+        <span class="n">averages</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="nb">sum</span><span class="p">(</span><span class="n">values</span><span class="p">)</span> <span class="o">/</span> <span class="nb">len</span><span class="p">(</span><span class="n">values</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">labels</span>
+            <span class="k">for</span> <span class="n">values</span> <span class="ow">in</span> <span class="p">[</span><span class="n">data_dict</span><span class="p">[</span><span class="n">key</span><span class="p">]]</span>
+        <span class="p">]</span>
+
+        <span class="c1"># Plot</span>
+        <span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">labels</span><span class="p">,</span> <span class="n">averages</span><span class="p">,</span> <span class="n">marker</span><span class="o">=</span><span class="s2">&quot;o&quot;</span><span class="p">)</span>
+        <span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">&quot;Lambda&quot;</span><span class="p">)</span>
+        <span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s2">&quot;Balanced Accuracy&quot;</span><span class="p">)</span>
+        <span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s2">&quot;Lambda vs. Average BAC&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Adjust x-axis labels to only show integer powers</span>
+        <span class="n">int_powers</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="n">label</span> <span class="k">for</span> <span class="n">label</span> <span class="ow">in</span> <span class="n">labels</span> <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">log10</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">label</span><span class="p">))</span><span class="o">.</span><span class="n">is_integer</span><span class="p">()</span>
+        <span class="p">]</span>
+        <span class="n">plt</span><span class="o">.</span><span class="n">xticks</span><span class="p">(</span>
+            <span class="n">int_powers</span><span class="p">,</span>
+            <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;$10^</span><span class="se">{{</span><span class="si">{</span><span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">log10</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">label</span><span class="p">)))</span><span class="si">}</span><span class="se">}}</span><span class="s2">$&quot;</span> <span class="k">for</span> <span class="n">label</span> <span class="ow">in</span> <span class="n">int_powers</span><span class="p">],</span>
+        <span class="p">)</span>
+
+        <span class="n">plt</span><span class="o">.</span><span class="n">grid</span><span class="p">(</span><span class="kc">True</span><span class="p">,</span> <span class="n">which</span><span class="o">=</span><span class="s2">&quot;both&quot;</span><span class="p">,</span> <span class="n">ls</span><span class="o">=</span><span class="s2">&quot;--&quot;</span><span class="p">,</span> <span class="n">c</span><span class="o">=</span><span class="s2">&quot;0.8&quot;</span><span class="p">)</span>
+        <span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span></div></div>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2023, Yiming Zhang.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

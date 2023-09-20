@@ -1,0 +1,193 @@
+:py:mod:`quantbullet.research`
+==============================
+
+.. py:module:: quantbullet.research
+
+
+Submodules
+----------
+.. toctree::
+   :titlesonly:
+   :maxdepth: 1
+
+   jump_model/index.rst
+
+
+Package Contents
+----------------
+
+Classes
+~~~~~~~
+
+.. autoapisummary::
+
+   quantbullet.research.DiscreteJumpModel
+
+
+
+
+.. py:class:: DiscreteJumpModel
+
+
+   Statistical Jump Model with Discrete States
+
+   .. py:method:: fixed_states_optimize(y, s, theta_guess=None, k=2)
+
+      Optimize the parameters of a discrete jump model with fixed states
+
+      :param y: observed data (T x n_features)
+      :type y: np.ndarray
+      :param s: state sequence (T x 1)
+      :type s: np.ndarray
+      :param theta_guess: initial guess for theta (k x n_features)
+      :type theta_guess: np.ndarray
+      :param k: number of states
+      :type k: int
+
+      :returns: optimized parameters
+                objective_value (float): optimal value of the objective function
+      :rtype: theta (np.ndarray)
+
+
+   .. py:method:: generate_loss_matrix(y, theta, k=2)
+
+      Generate the loss matrix for a discrete jump model for fixed theta
+
+      :param y: observed data (T x n_features)
+      :type y: np.ndarray
+      :param theta: parameters (k x n_features)
+      :type theta: np.ndarray
+      :param k: number of states
+      :type k: int
+
+      :returns: loss matrix (T x k)
+      :rtype: loss (np.ndarray)
+
+
+   .. py:method:: fixed_theta_optimize(lossMatrix, lambda_, k=2)
+
+      Optimize the state sequence of a discrete jump model with fixed parameters
+
+      :param lossMatrix: loss matrix (T x k)
+      :type lossMatrix: np.ndarray
+      :param lambda_: regularization parameter
+      :type lambda_: float
+      :param k: number of states
+      :type k: int
+
+      :returns: optimal state sequence (T,)
+                v (float): optimal value of the objective function
+      :rtype: s (np.ndarray)
+
+
+   .. py:method:: initialize_kmeans_plusplus(data, k)
+
+      Initialize the centroids using the k-means++ method.
+
+      Parameters:
+      - data: ndarray of shape (n_samples, n_features)
+      - k: number of clusters
+
+      Returns:
+      - centroids: ndarray of shape (k, n_features)
+
+
+   .. py:method:: classify_data_to_states(data, centroids)
+
+      Classify data points to the states based on the centroids.
+
+      Parameters:
+      - data: ndarray of shape (n_samples, n_features)
+      - centroids: centroids or means of the states, ndarray of shape (k, n_features)
+
+      Returns:
+      - state_assignments: ndarray of shape (n_samples,), indices of the states             to which each data point is assigned
+
+
+   .. py:method:: infer_states_stats(ts_returns, states)
+
+      Compute the mean and standard deviation of returns for each state
+
+      :param ts_returns: observed returns (T x 1)
+      :type ts_returns: np.ndarray
+      :param states: state sequence (T x 1)
+      :type states: np.ndarray
+
+      :returns: mean and standard deviation of returns for each state
+      :rtype: state_features (dict)
+
+
+   .. py:method:: remapResults(optimized_s, optimized_theta, ts_returns)
+
+      Remap the results of the optimization.
+
+      We would like the states to be in increasing order of the volatility of returns.
+      This is because vol has smaller variance than returns, a warning is triggered if             the states identified by volatility and returns are different.
+
+
+   .. py:method:: cleanResults(raw_result, ts_returns, rearrange=False)
+
+      Clean the results of the optimization.
+
+      This extracts the best results from the ten trials based on the loss.
+
+
+   .. py:method:: single_run(y, k, lambda_)
+
+      Run a single trial of the optimization. Each trial uses a different             initialization of the centroids.
+
+      :param y: observed data (T x n_features)
+      :type y: np.ndarray
+      :param k: number of states
+      :type k: int
+      :param lambda_: regularization parameter
+      :type lambda_: float
+
+      :returns: optimal state sequence (T x 1)
+                loss (float): optimal value of the objective function
+                cur_theta (np.ndarray): optimal parameters (k x n_features)
+      :rtype: cur_s (np.ndarray)
+
+
+   .. py:method:: fit(y, k=2, lambda_=100, rearrange=False, n_trials=10)
+
+      fit discrete jump model
+
+      NOTE:
+      - A multiprocessing implementation is used to speed up the optimization
+      - Ten trials with k means++ initialization are ran
+
+      :param y: observed data (T x n_features)
+      :type y: np.ndarray
+      :param k: number of states
+      :type k: int
+      :param lambda_: regularization parameter
+      :type lambda_: float
+      :param rearrange: whether to rearrange the states in increasing order of                 volatility
+      :type rearrange: bool
+
+      :returns: optimal state sequence (T x 1)
+                best_loss (float): optimal value of the objective function
+                best_theta (np.ndarray): optimal parameters (k x n_features)
+                optimized_s (list): state sequences from all trials (10 x T)
+                optimized_loss (list): objective function values from all trials (10 x 1)
+                optimized_theta (list): parameters from all trials (10 x k x n_features)
+      :rtype: best_s (np.ndarray)
+
+
+   .. py:method:: evaluate(true, pred, plot=False)
+
+      Evaluate the model using balanced accuracy score
+
+      :param true: true state sequence (T x 1)
+      :type true: np.ndarray
+      :param pred: predicted state sequence (T x 1)
+      :type pred: np.ndarray
+      :param plot: whether to plot the true and predicted state sequences
+      :type plot: bool
+
+      :returns: evaluation results
+      :rtype: res (dict)
+
+
+

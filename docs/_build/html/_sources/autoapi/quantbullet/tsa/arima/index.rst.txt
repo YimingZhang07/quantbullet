@@ -1,0 +1,6 @@
+:py:mod:`quantbullet.tsa.arima`
+===============================
+
+.. py:module:: quantbullet.tsa.arima
+
+

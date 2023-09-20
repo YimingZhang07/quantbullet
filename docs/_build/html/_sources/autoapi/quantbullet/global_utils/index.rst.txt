@@ -1,0 +1,24 @@
+:py:mod:`quantbullet.global_utils`
+==================================
+
+.. py:module:: quantbullet.global_utils
+
+
+Module Contents
+---------------
+
+
+Functions
+~~~~~~~~~
+
+.. autoapisummary::
+
+   quantbullet.global_utils.set_figsize
+
+
+
+.. py:function:: set_figsize(width, height)
+
+   Temporarily set the figure size using a context manager.
+
+

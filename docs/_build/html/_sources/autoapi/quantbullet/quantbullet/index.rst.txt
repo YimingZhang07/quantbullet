@@ -1,0 +1,6 @@
+:py:mod:`quantbullet.quantbullet`
+=================================
+
+.. py:module:: quantbullet.quantbullet
+
+
