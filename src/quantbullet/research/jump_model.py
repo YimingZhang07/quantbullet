@@ -1,4 +1,3 @@
-import cvxpy as cp
 import numpy as np
 import pandas as pd
 import multiprocessing as mp
@@ -104,7 +103,7 @@ class DiscreteJumpModel:
     #             loss[i, j] = 0.5 * np.linalg.norm(y[i, :] - theta[j, :]) ** 2
     #     return loss
 
-    def generate_loss_matrix(self, y, theta, k=2):
+    def generate_loss_matrix(self, y, theta):
         """
         Generate the loss matrix for a discrete jump model for fixed theta
 
@@ -184,7 +183,8 @@ class DiscreteJumpModel:
             regularization = lambda_ * np.abs(
                 state_choices[:, np.newaxis] - state_choices
             )
-            V[t, :] = lossMatrix[t, :] + (V[t - 1, :] + regularization).min(axis=1)
+            V[t, :] = lossMatrix[t, :] + \
+                (V[t - 1, :] + regularization).min(axis=1)
 
         # backtrack to find optimal state sequence
         v = V[-1, :].min()
@@ -212,7 +212,8 @@ class DiscreteJumpModel:
 
         for _ in range(k - 1):
             squared_distances = np.min(
-                [np.sum((data - centroid) ** 2, axis=1) for centroid in centroids],
+                [np.sum((data - centroid) ** 2, axis=1)
+                 for centroid in centroids],
                 axis=0,
             )
             prob = squared_distances / squared_distances.sum()
@@ -274,7 +275,8 @@ class DiscreteJumpModel:
         for i in range(n):
             # idx = np.argsort(optimized_theta[i][:, 0])[::-1]
             # whichever has the lowest volatility is assigned to state 0
-            states_features = self.infer_states_stats(ts_returns, optimized_s[i])
+            states_features = self.infer_states_stats(
+                ts_returns, optimized_s[i])
             idx_vol = np.argsort(
                 [states_features[state][1] for state in states_features]
             )
@@ -286,7 +288,8 @@ class DiscreteJumpModel:
                     "States identified by volatility ranks and returns ranks are different!"
                 )
             # remap the states
-            idx_mapping = {old_idx: new_idx for new_idx, old_idx in enumerate(idx_vol)}
+            idx_mapping = {old_idx: new_idx for new_idx,
+                           old_idx in enumerate(idx_vol)}
 
             # if only one state, no need to remap
             if len(idx_mapping) == 1:
@@ -353,7 +356,8 @@ class DiscreteJumpModel:
         hist_s = [cur_s]
         # the coordinate descent algorithm
         for i in range(30):
-            cur_theta, _ = self.fixed_states_optimize(y, cur_s, theta_guess=None)
+            cur_theta, _ = self.fixed_states_optimize(
+                y, cur_s, theta_guess=None)
             lossMatrix = self.generate_loss_matrix(y, cur_theta)
             cur_s, loss = self.fixed_theta_optimize(lossMatrix, lambda_)
             if cur_s.tolist() == hist_s[-1].tolist():
@@ -361,7 +365,8 @@ class DiscreteJumpModel:
             else:
                 hist_s.append(cur_s)
 
-        logger.debug(f"Single run completes after {i} iterations with loss {loss}")
+        logger.debug(
+            f"Single run completes after {i} iterations with loss {loss}")
         return cur_s, loss, cur_theta
 
     def fit(self, y, k=2, lambda_=100, rearrange=False, n_trials=10):
@@ -394,8 +399,10 @@ class DiscreteJumpModel:
         pool.close()
 
         res = self.cleanResults(res, y[:, 0], rearrange)
-        states_stats = self.infer_states_stats(y[:, 0], res["best_state_sequence"])
-        logger.info(f"Mean and Volatility by inferred states:\n {states_stats}")
+        states_stats = self.infer_states_stats(
+            y[:, 0], res["best_state_sequence"])
+        logger.info(
+            f"Mean and Volatility by inferred states:\n {states_stats}")
         return res
 
     def evaluate(self, true, pred, plot=False):
@@ -420,8 +427,109 @@ class DiscreteJumpModel:
             plt.ylabel("State")
             plt.legend()
             plt.show()
-        res = {"BAC": balanced_accuracy_score(true[true_len - pred_len :], pred)}
+        res = {"BAC": balanced_accuracy_score(
+            true[true_len - pred_len:], pred)}
         return res
+
+
+class ContinuousJumpModel:
+    """
+    Statistical Jump Model with Discrete States
+    """
+
+    def __init__(self) -> None:
+        pass
+
+    def fixed_states_optimize(self, y, s, theta_guess=None, k=2):
+        """
+        Optimize the parameters of a discrete jump model with fixed states
+
+        Args:
+            y (np.ndarray): observed data (T x n_features)
+            s (np.ndarray): state sequence (T x 1)
+            theta_guess (np.ndarray): initial guess for theta (k x n_features)
+            k (int): number of states
+
+        Returns:
+            theta (np.ndarray): optimized parameters
+            objective_value (float): optimal value of the objective function
+        """
+        if not isinstance(y, np.ndarray) or not isinstance(s, np.ndarray):
+            raise TypeError("y and s must be numpy arrays")
+
+        T, n_features = y.shape
+        theta = np.zeros((k, n_features))
+
+        # Compute the optimal centroids (theta) for each state
+        for state in range(k):
+            assigned_data_points = y[s == state]
+            if assigned_data_points.size > 0:
+                theta[state] = assigned_data_points.mean(axis=0)
+
+        # Compute the objective value
+        objective_value = 0.5 * np.sum(
+            [np.linalg.norm(y[i, :] - theta[s[i], :]) ** 2 for i in range(T)]
+        )
+
+        return theta, objective_value
+
+    def generate_loss_matrix(self, y, theta, k=2):
+        """
+        Generate the loss matrix for a discrete jump model for fixed theta
+
+        Args:
+            y (np.ndarray): observed data (T x n_features)
+            theta (np.ndarray): parameters (k x n_features)
+            k (int): number of states
+
+        Returns:
+            loss (np.ndarray): loss matrix (T x k)
+        """
+
+        # Expand dimensions to broadcast subtraction across y and theta
+        diff = y[:, np.newaxis, :] - theta[np.newaxis, :, :]
+
+        # Compute squared L2 norm along the last axis (n_features)
+        loss = 0.5 * np.sum(diff**2, axis=-1)
+
+        return loss
+
+    def fixed_theta_optimize(self, lossMatrix, lambda_, k=2):
+        """
+        Optimize the state sequence of a discrete jump model with fixed parameters
+
+        Args:
+            lossMatrix (np.ndarray): loss matrix (T x k)
+            lambda_ (float): regularization parameter
+            k (int): number of states
+
+        Returns:
+            s (np.ndarray): optimal state sequence (T,)
+            v (float): optimal value of the objective function
+        """
+        T, n_states = lossMatrix.shape
+        V = np.zeros((T, n_states))
+        V[0, :] = lossMatrix[0, :]
+
+        state_choices = np.arange(n_states)
+
+        for t in range(1, T):
+            # Using broadcasting to compute the regularization term for all states at once
+            regularization = lambda_ * np.abs(
+                state_choices[:, np.newaxis] - state_choices
+            )
+            V[t, :] = lossMatrix[t, :] + \
+                (V[t - 1, :] + regularization).min(axis=1)
+
+        # backtrack to find optimal state sequence
+        v = V[-1, :].min()
+        s = np.zeros(T, dtype=int)
+        s[-1] = state_choices[V[-1, :].argmin()]
+        for t in range(T - 2, -1, -1):
+            s[t] = state_choices[
+                np.argmin(V[t, :] + lambda_ * np.abs(state_choices - s[t + 1]))
+            ]
+        return s, v
 
 
 class FeatureGenerator:
@@ -452,8 +560,10 @@ class FeatureGenerator:
             df[f"centered_std_{w}"] = roll.std()
 
             half_w = w // 2
-            df[f"left_mean_{w}"] = df["ts"].rolling(window=half_w).mean().shift(half_w)
-            df[f"left_std_{w}"] = df["ts"].rolling(window=half_w).std().shift(half_w)
+            df[f"left_mean_{w}"] = df["ts"].rolling(
+                window=half_w).mean().shift(half_w)
+            df[f"left_std_{w}"] = df["ts"].rolling(
+                window=half_w).std().shift(half_w)
 
             df[f"right_mean_{w}"] = df["ts"].rolling(window=half_w).mean()
             df[f"right_std_{w}"] = df["ts"].rolling(window=half_w).std()
@@ -511,7 +621,8 @@ class SimulationGenerator:
         Returns:
         - list: The states at each step.
         """
-        state = np.random.choice(len(initial_distribution), p=initial_distribution)
+        state = np.random.choice(
+            len(initial_distribution), p=initial_distribution)
         states = [state]
 
         for _ in range(steps):
@@ -568,11 +679,14 @@ class SimulationGenerator:
         # sanity check for the simulated states
         count_states = Counter(simulated_states)
         if len(count_states) != len(transition_matrix):
-            logger.info("The simulated states do not cover all states. Re-run.")
+            logger.info(
+                "The simulated states do not cover all states. Re-run.")
             return self.run(steps, transition_matrix, norm_params)
         logger.info(f"Step 2: Simulated states: {count_states}")
-        simulated_data = self.generate_conditional_data(simulated_states, norm_params)
-        logger.info("Step 3: Generate simulated return data conditional on states.")
+        simulated_data = self.generate_conditional_data(
+            simulated_states, norm_params)
+        logger.info(
+            "Step 3: Generate simulated return data conditional on states.")
         return simulated_states, simulated_data
 
 
@@ -640,8 +754,10 @@ class TestingUtils:
                 if val == 1 and start_region is None:
                     start_region = start_shade + i
                 elif val == 0 and start_region is not None:
-                    ax1.axvspan(start_region, start_shade + i, color="gray", alpha=0.3)
-                    ax2.axvspan(start_region, start_shade + i, color="gray", alpha=0.3)
+                    ax1.axvspan(start_region, start_shade +
+                                i, color="gray", alpha=0.3)
+                    ax2.axvspan(start_region, start_shade +
+                                i, color="gray", alpha=0.3)
                     start_region = None
             # If the last cluster extends to the end of the shade_list
             if start_region is not None:
