@@ -37,4 +37,5 @@ html_theme = "sphinx_rtd_theme"
 
 # do not execute notebooks
 # nbsphinx_execute = 'never'
+# for myst-nb, the following is needed
 nb_execution_mode = "off"

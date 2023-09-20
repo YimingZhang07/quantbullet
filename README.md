@@ -15,7 +15,7 @@ $ pip install quantbullet
 
 ## Usage
 
-- TODO
+1. Statistical Jump Models. See [this notebook](./docs/research/jump_model_prod.ipynb) for an example. Statistical jump models are a type of regime-switching model that applies clustering algorithms to temporal financial data, explicitly penalizing jumps between different financial regimes to capture true persistence in underlying regime-switching processes. 
 
 ## Contributing
 
