@@ -31,25 +31,28 @@ Classes
 
    Statistical Jump Model with Discrete States
 
-   .. py:method:: fixed_states_optimize(y, s, theta_guess=None, k=2)
+   .. py:method:: fixed_states_optimize(y, s, k=2)
 
-      Optimize the parameters of a discrete jump model with fixed states
+      Optimize the parameters of a discrete jump model with fixed states.
 
-      :param y: observed data (T x n_features)
+      :param y: Observed data of shape (T x n_features).
       :type y: np.ndarray
-      :param s: state sequence (T x 1)
+      :param s: State sequence of shape (T x 1).
       :type s: np.ndarray
-      :param theta_guess: initial guess for theta (k x n_features)
+      :param theta_guess: Initial guess for theta of shape (k x n_features).
       :type theta_guess: np.ndarray
-      :param k: number of states
+      :param k: Number of states.
       :type k: int
 
-      :returns: optimized parameters
-                objective_value (float): optimal value of the objective function
-      :rtype: theta (np.ndarray)
+      :returns:
+
+                A tuple containing:
+                    - theta (np.ndarray): Optimized parameters.
+                    - prob.value (float): Optimal value of the objective function.
+      :rtype: tuple
 
 
-   .. py:method:: generate_loss_matrix(y, theta, k=2)
+   .. py:method:: generate_loss_matrix(y, theta)
 
       Generate the loss matrix for a discrete jump model for fixed theta
 
@@ -84,24 +87,22 @@ Classes
 
       Initialize the centroids using the k-means++ method.
 
-      Parameters:
-      - data: ndarray of shape (n_samples, n_features)
-      - k: number of clusters
+      :param data: ndarray of shape (n_samples, n_features)
+      :param k: number of clusters
 
-      Returns:
-      - centroids: ndarray of shape (k, n_features)
+      :returns: ndarray of shape (k, n_features)
+      :rtype: centroids
 
 
    .. py:method:: classify_data_to_states(data, centroids)
 
       Classify data points to the states based on the centroids.
 
-      Parameters:
-      - data: ndarray of shape (n_samples, n_features)
-      - centroids: centroids or means of the states, ndarray of shape (k, n_features)
+      :param data: ndarray of shape (n_samples, n_features)
+      :param centroids: centroids or means of the states, ndarray of shape (k, n_features)
 
-      Returns:
-      - state_assignments: ndarray of shape (n_samples,), indices of the states             to which each data point is assigned
+      :returns: ndarray of shape (n_samples,), indices of the states                 to which each data point is assigned
+      :rtype: state_assignments
 
 
    .. py:method:: infer_states_stats(ts_returns, states)
@@ -153,9 +154,10 @@ Classes
 
       fit discrete jump model
 
-      NOTE:
-      - A multiprocessing implementation is used to speed up the optimization
-      - Ten trials with k means++ initialization are ran
+      .. note::
+
+         A multiprocessing implementation is used to speed up the optimization
+         Ten trials with k means++ initialization are ran
 
       :param y: observed data (T x n_features)
       :type y: np.ndarray

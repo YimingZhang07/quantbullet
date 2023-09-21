@@ -18,6 +18,7 @@
         <script src="../../../_static/_sphinx_javascript_frameworks_compat.js"></script>
         <script src="../../../_static/doctools.js"></script>
         <script src="../../../_static/sphinx_highlight.js"></script>
+        <script crossorigin="anonymous" integrity="sha256-Ae2Vz/4ePdIu6ZyI/5ZGsYnb+m0JlOmKPjt6XZ9JJkA=" src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"></script>
     <script src="../../../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../../../genindex.html" />
     <link rel="search" title="Search" href="../../../search.html" /> 
@@ -76,8 +77,7 @@
            <div itemprop="articleBody">
              
   <h1>Source code for quantbullet.research.jump_model</h1><div class="highlight"><pre>
-<span></span><span class="kn">import</span> <span class="nn">cvxpy</span> <span class="k">as</span> <span class="nn">cp</span>
-<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span></span><span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
 <span class="kn">import</span> <span class="nn">pandas</span> <span class="k">as</span> <span class="nn">pd</span>
 <span class="kn">import</span> <span class="nn">multiprocessing</span> <span class="k">as</span> <span class="nn">mp</span>
 <span class="kn">import</span> <span class="nn">matplotlib.pyplot</span> <span class="k">as</span> <span class="nn">plt</span>
@@ -128,19 +128,20 @@
     <span class="c1">#     prob.solve()</span>
     <span class="c1">#     return theta.value, prob.value</span>
 
-<div class="viewcode-block" id="DiscreteJumpModel.fixed_states_optimize"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.DiscreteJumpModel.fixed_states_optimize">[docs]</a>    <span class="k">def</span> <span class="nf">fixed_states_optimize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">s</span><span class="p">,</span> <span class="n">theta_guess</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">2</span><span class="p">):</span>
+<div class="viewcode-block" id="DiscreteJumpModel.fixed_states_optimize"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.DiscreteJumpModel.fixed_states_optimize">[docs]</a>    <span class="k">def</span> <span class="nf">fixed_states_optimize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">s</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">2</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">        Optimize the parameters of a discrete jump model with fixed states</span>
+<span class="sd">        Optimize the parameters of a discrete jump model with fixed states.</span>
 
 <span class="sd">        Args:</span>
-<span class="sd">            y (np.ndarray): observed data (T x n_features)</span>
-<span class="sd">            s (np.ndarray): state sequence (T x 1)</span>
-<span class="sd">            theta_guess (np.ndarray): initial guess for theta (k x n_features)</span>
-<span class="sd">            k (int): number of states</span>
+<span class="sd">            y (np.ndarray): Observed data of shape (T x n_features).</span>
+<span class="sd">            s (np.ndarray): State sequence of shape (T x 1).</span>
+<span class="sd">            theta_guess (np.ndarray): Initial guess for theta of shape (k x n_features).</span>
+<span class="sd">            k (int): Number of states.</span>
 
 <span class="sd">        Returns:</span>
-<span class="sd">            theta (np.ndarray): optimized parameters</span>
-<span class="sd">            objective_value (float): optimal value of the objective function</span>
+<span class="sd">            tuple: A tuple containing:</span>
+<span class="sd">                - theta (np.ndarray): Optimized parameters.</span>
+<span class="sd">                - prob.value (float): Optimal value of the objective function.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">):</span>
             <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s2">&quot;y and s must be numpy arrays&quot;</span><span class="p">)</span>
@@ -182,7 +183,7 @@
     <span class="c1">#             loss[i, j] = 0.5 * np.linalg.norm(y[i, :] - theta[j, :]) ** 2</span>
     <span class="c1">#     return loss</span>
 
-<div class="viewcode-block" id="DiscreteJumpModel.generate_loss_matrix"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.DiscreteJumpModel.generate_loss_matrix">[docs]</a>    <span class="k">def</span> <span class="nf">generate_loss_matrix</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">theta</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">2</span><span class="p">):</span>
+<div class="viewcode-block" id="DiscreteJumpModel.generate_loss_matrix"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.DiscreteJumpModel.generate_loss_matrix">[docs]</a>    <span class="k">def</span> <span class="nf">generate_loss_matrix</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">theta</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Generate the loss matrix for a discrete jump model for fixed theta</span>
 
@@ -262,7 +263,8 @@
             <span class="n">regularization</span> <span class="o">=</span> <span class="n">lambda_</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span>
                 <span class="n">state_choices</span><span class="p">[:,</span> <span class="n">np</span><span class="o">.</span><span class="n">newaxis</span><span class="p">]</span> <span class="o">-</span> <span class="n">state_choices</span>
             <span class="p">)</span>
-            <span class="n">V</span><span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="p">:]</span> <span class="o">=</span> <span class="n">lossMatrix</span><span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="p">:]</span> <span class="o">+</span> <span class="p">(</span><span class="n">V</span><span class="p">[</span><span class="n">t</span> <span class="o">-</span> <span class="mi">1</span><span class="p">,</span> <span class="p">:]</span> <span class="o">+</span> <span class="n">regularization</span><span class="p">)</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+            <span class="n">V</span><span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="p">:]</span> <span class="o">=</span> <span class="n">lossMatrix</span><span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="p">:]</span> <span class="o">+</span> \
+                <span class="p">(</span><span class="n">V</span><span class="p">[</span><span class="n">t</span> <span class="o">-</span> <span class="mi">1</span><span class="p">,</span> <span class="p">:]</span> <span class="o">+</span> <span class="n">regularization</span><span class="p">)</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
 
         <span class="c1"># backtrack to find optimal state sequence</span>
         <span class="n">v</span> <span class="o">=</span> <span class="n">V</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="p">:]</span><span class="o">.</span><span class="n">min</span><span class="p">()</span>
@@ -278,19 +280,20 @@
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Initialize the centroids using the k-means++ method.</span>
 
-<span class="sd">        Parameters:</span>
-<span class="sd">        - data: ndarray of shape (n_samples, n_features)</span>
-<span class="sd">        - k: number of clusters</span>
+<span class="sd">        Args:</span>
+<span class="sd">            data: ndarray of shape (n_samples, n_features)</span>
+<span class="sd">            k: number of clusters</span>
 
 <span class="sd">        Returns:</span>
-<span class="sd">        - centroids: ndarray of shape (k, n_features)</span>
+<span class="sd">            centroids: ndarray of shape (k, n_features)</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">initial_idx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">choice</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">1</span><span class="p">)</span>
         <span class="n">centroids</span> <span class="o">=</span> <span class="p">[</span><span class="n">data</span><span class="p">[</span><span class="n">initial_idx</span><span class="p">]]</span>
 
         <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">k</span> <span class="o">-</span> <span class="mi">1</span><span class="p">):</span>
             <span class="n">squared_distances</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span>
-                <span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">((</span><span class="n">data</span> <span class="o">-</span> <span class="n">centroid</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span> <span class="k">for</span> <span class="n">centroid</span> <span class="ow">in</span> <span class="n">centroids</span><span class="p">],</span>
+                <span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">((</span><span class="n">data</span> <span class="o">-</span> <span class="n">centroid</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+                 <span class="k">for</span> <span class="n">centroid</span> <span class="ow">in</span> <span class="n">centroids</span><span class="p">],</span>
                 <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
             <span class="p">)</span>
             <span class="n">prob</span> <span class="o">=</span> <span class="n">squared_distances</span> <span class="o">/</span> <span class="n">squared_distances</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span>
@@ -303,13 +306,13 @@
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Classify data points to the states based on the centroids.</span>
 
-<span class="sd">        Parameters:</span>
-<span class="sd">        - data: ndarray of shape (n_samples, n_features)</span>
-<span class="sd">        - centroids: centroids or means of the states, ndarray of shape (k, n_features)</span>
+<span class="sd">        Args:</span>
+<span class="sd">            data: ndarray of shape (n_samples, n_features)</span>
+<span class="sd">            centroids: centroids or means of the states, ndarray of shape (k, n_features)</span>
 
 <span class="sd">        Returns:</span>
-<span class="sd">        - state_assignments: ndarray of shape (n_samples,), indices of the states \</span>
-<span class="sd">            to which each data point is assigned</span>
+<span class="sd">            state_assignments: ndarray of shape (n_samples,), indices of the states \</span>
+<span class="sd">                to which each data point is assigned</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">distances</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span>
             <span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">((</span><span class="n">data</span> <span class="o">-</span> <span class="n">centroid</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span> <span class="k">for</span> <span class="n">centroid</span> <span class="ow">in</span> <span class="n">centroids</span><span class="p">]</span>
@@ -352,7 +355,8 @@
         <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
             <span class="c1"># idx = np.argsort(optimized_theta[i][:, 0])[::-1]</span>
             <span class="c1"># whichever has the lowest volatility is assigned to state 0</span>
-            <span class="n">states_features</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">infer_states_stats</span><span class="p">(</span><span class="n">ts_returns</span><span class="p">,</span> <span class="n">optimized_s</span><span class="p">[</span><span class="n">i</span><span class="p">])</span>
+            <span class="n">states_features</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">infer_states_stats</span><span class="p">(</span>
+                <span class="n">ts_returns</span><span class="p">,</span> <span class="n">optimized_s</span><span class="p">[</span><span class="n">i</span><span class="p">])</span>
             <span class="n">idx_vol</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argsort</span><span class="p">(</span>
                 <span class="p">[</span><span class="n">states_features</span><span class="p">[</span><span class="n">state</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span> <span class="k">for</span> <span class="n">state</span> <span class="ow">in</span> <span class="n">states_features</span><span class="p">]</span>
             <span class="p">)</span>
@@ -364,7 +368,8 @@
                     <span class="s2">&quot;States identified by volatility ranks and returns ranks are different!&quot;</span>
                 <span class="p">)</span>
             <span class="c1"># remap the states</span>
-            <span class="n">idx_mapping</span> <span class="o">=</span> <span class="p">{</span><span class="n">old_idx</span><span class="p">:</span> <span class="n">new_idx</span> <span class="k">for</span> <span class="n">new_idx</span><span class="p">,</span> <span class="n">old_idx</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">idx_vol</span><span class="p">)}</span>
+            <span class="n">idx_mapping</span> <span class="o">=</span> <span class="p">{</span><span class="n">old_idx</span><span class="p">:</span> <span class="n">new_idx</span> <span class="k">for</span> <span class="n">new_idx</span><span class="p">,</span>
+                           <span class="n">old_idx</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">idx_vol</span><span class="p">)}</span>
 
             <span class="c1"># if only one state, no need to remap</span>
             <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">idx_mapping</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
@@ -431,7 +436,7 @@
         <span class="n">hist_s</span> <span class="o">=</span> <span class="p">[</span><span class="n">cur_s</span><span class="p">]</span>
         <span class="c1"># the coordinate descent algorithm</span>
         <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">30</span><span class="p">):</span>
-            <span class="n">cur_theta</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fixed_states_optimize</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="n">cur_s</span><span class="p">,</span> <span class="n">theta_guess</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+            <span class="n">cur_theta</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fixed_states_optimize</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="n">cur_s</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="n">k</span><span class="p">)</span>
             <span class="n">lossMatrix</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">generate_loss_matrix</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="n">cur_theta</span><span class="p">)</span>
             <span class="n">cur_s</span><span class="p">,</span> <span class="n">loss</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fixed_theta_optimize</span><span class="p">(</span><span class="n">lossMatrix</span><span class="p">,</span> <span class="n">lambda_</span><span class="p">)</span>
             <span class="k">if</span> <span class="n">cur_s</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span> <span class="o">==</span> <span class="n">hist_s</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">():</span>
@@ -439,7 +444,8 @@
             <span class="k">else</span><span class="p">:</span>
                 <span class="n">hist_s</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">cur_s</span><span class="p">)</span>
 
-        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Single run completes after </span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2"> iterations with loss </span><span class="si">{</span><span class="n">loss</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Single run completes after </span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2"> iterations with loss </span><span class="si">{</span><span class="n">loss</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">cur_s</span><span class="p">,</span> <span class="n">loss</span><span class="p">,</span> <span class="n">cur_theta</span></div>
 
 <div class="viewcode-block" id="DiscreteJumpModel.fit"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.DiscreteJumpModel.fit">[docs]</a>    <span class="k">def</span> <span class="nf">fit</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">lambda_</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">rearrange</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">n_trials</span><span class="o">=</span><span class="mi">10</span><span class="p">):</span>
@@ -447,8 +453,8 @@
 <span class="sd">        fit discrete jump model</span>
 
 <span class="sd">        NOTE:</span>
-<span class="sd">        - A multiprocessing implementation is used to speed up the optimization</span>
-<span class="sd">        - Ten trials with k means++ initialization are ran</span>
+<span class="sd">            A multiprocessing implementation is used to speed up the optimization</span>
+<span class="sd">            Ten trials with k means++ initialization are ran</span>
 
 <span class="sd">        Args:</span>
 <span class="sd">            y (np.ndarray): observed data (T x n_features)</span>
@@ -472,8 +478,10 @@
         <span class="n">pool</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
 
         <span class="n">res</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">cleanResults</span><span class="p">(</span><span class="n">res</span><span class="p">,</span> <span class="n">y</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">rearrange</span><span class="p">)</span>
-        <span class="n">states_stats</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">infer_states_stats</span><span class="p">(</span><span class="n">y</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">res</span><span class="p">[</span><span class="s2">&quot;best_state_sequence&quot;</span><span class="p">])</span>
-        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Mean and Volatility by inferred states:</span><span class="se">\n</span><span class="s2"> </span><span class="si">{</span><span class="n">states_stats</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">states_stats</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">infer_states_stats</span><span class="p">(</span>
+            <span class="n">y</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">res</span><span class="p">[</span><span class="s2">&quot;best_state_sequence&quot;</span><span class="p">])</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Mean and Volatility by inferred states:</span><span class="se">\n</span><span class="s2"> </span><span class="si">{</span><span class="n">states_stats</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">res</span></div>
 
 <div class="viewcode-block" id="DiscreteJumpModel.evaluate"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.DiscreteJumpModel.evaluate">[docs]</a>    <span class="k">def</span> <span class="nf">evaluate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">true</span><span class="p">,</span> <span class="n">pred</span><span class="p">,</span> <span class="n">plot</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
@@ -498,8 +506,99 @@
             <span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s2">&quot;State&quot;</span><span class="p">)</span>
             <span class="n">plt</span><span class="o">.</span><span class="n">legend</span><span class="p">()</span>
             <span class="n">plt</span><span class="o">.</span><span class="n">show</span><span class="p">()</span>
-        <span class="n">res</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;BAC&quot;</span><span class="p">:</span> <span class="n">balanced_accuracy_score</span><span class="p">(</span><span class="n">true</span><span class="p">[</span><span class="n">true_len</span> <span class="o">-</span> <span class="n">pred_len</span> <span class="p">:],</span> <span class="n">pred</span><span class="p">)}</span>
+        <span class="n">res</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;BAC&quot;</span><span class="p">:</span> <span class="n">balanced_accuracy_score</span><span class="p">(</span>
+            <span class="n">true</span><span class="p">[</span><span class="n">true_len</span> <span class="o">-</span> <span class="n">pred_len</span><span class="p">:],</span> <span class="n">pred</span><span class="p">)}</span>
         <span class="k">return</span> <span class="n">res</span></div></div>
+
+
+<div class="viewcode-block" id="ContinuousJumpModel"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.ContinuousJumpModel">[docs]</a><span class="k">class</span> <span class="nc">ContinuousJumpModel</span><span class="p">(</span><span class="n">DiscreteJumpModel</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Continuous Jump Model with Soft State Assignments</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="ContinuousJumpModel.fixed_states_optimize"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.ContinuousJumpModel.fixed_states_optimize">[docs]</a>    <span class="k">def</span> <span class="nf">fixed_states_optimize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">s</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Optimize theta given fixed states</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            y: (T, n_features) array of observations</span>
+<span class="sd">            s: (T, k) array of state assignments</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            theta: (k, n_features) array of optimal parameters</span>
+
+<span class="sd">        Note:</span>
+<span class="sd">            s is assumed to have each row sum to 1</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">T</span><span class="p">,</span> <span class="n">n_features</span> <span class="o">=</span> <span class="n">y</span><span class="o">.</span><span class="n">shape</span>
+        <span class="n">_</span><span class="p">,</span> <span class="n">k</span> <span class="o">=</span> <span class="n">s</span><span class="o">.</span><span class="n">shape</span>
+        <span class="n">theta</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">k</span><span class="p">,</span> <span class="n">n_features</span><span class="p">))</span>
+
+        <span class="k">for</span> <span class="n">state</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">k</span><span class="p">):</span>
+            <span class="n">weights</span> <span class="o">=</span> <span class="n">s</span><span class="p">[:,</span> <span class="n">state</span><span class="p">]</span>
+            <span class="n">theta</span><span class="p">[</span><span class="n">state</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span>
+                <span class="n">y</span> <span class="o">*</span> <span class="n">weights</span><span class="p">[:,</span> <span class="n">np</span><span class="o">.</span><span class="n">newaxis</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span> <span class="o">/</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">weights</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">theta</span></div>
+
+<div class="viewcode-block" id="ContinuousJumpModel.generate_loss_matrix"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.ContinuousJumpModel.generate_loss_matrix">[docs]</a>    <span class="k">def</span> <span class="nf">generate_loss_matrix</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">theta</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Identical to the loss function in the discrete case</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">diff</span> <span class="o">=</span> <span class="n">y</span><span class="p">[:,</span> <span class="n">np</span><span class="o">.</span><span class="n">newaxis</span><span class="p">,</span> <span class="p">:]</span> <span class="o">-</span> <span class="n">theta</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">newaxis</span><span class="p">,</span> <span class="p">:,</span> <span class="p">:]</span>
+        <span class="n">loss</span> <span class="o">=</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">diff</span><span class="o">**</span><span class="mi">2</span><span class="p">,</span> <span class="n">axis</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">loss</span></div>
+
+<div class="viewcode-block" id="ContinuousJumpModel.generate_C"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.ContinuousJumpModel.generate_C">[docs]</a>    <span class="k">def</span> <span class="nf">generate_C</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">grid_size</span><span class="o">=</span><span class="mf">0.05</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Uniformly sample of states distributed on a grid</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            K (int): number of states</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            matrix (np.ndarray): K x N matrix of states</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">N</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="mi">1</span> <span class="o">/</span> <span class="n">grid_size</span><span class="p">)</span> <span class="o">**</span> <span class="n">K</span>
+        <span class="n">matrix</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">rand</span><span class="p">(</span><span class="n">K</span><span class="p">,</span> <span class="n">N</span><span class="p">)</span>
+        <span class="n">matrix</span> <span class="o">/=</span> <span class="n">matrix</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">matrix</span></div>
+
+<div class="viewcode-block" id="ContinuousJumpModel.fixed_theta_optimize"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.ContinuousJumpModel.fixed_theta_optimize">[docs]</a>    <span class="k">def</span> <span class="nf">fixed_theta_optimize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">lossMatrix</span><span class="p">,</span> <span class="n">lambda_</span><span class="p">,</span> <span class="n">C</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Optimize the state sequence of a continuous jump model with fixed parameters</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            lossMatrix (np.ndarray): loss matrix (T x K)</span>
+<span class="sd">            C (np.ndarray): K x N matrix of states</span>
+<span class="sd">            lambda_ (float): regularization parameter</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            s_hat (np.ndarray): optimal state sequence with probability dist (T x K)</span>
+<span class="sd">            v_hat (float): loss value</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">T</span><span class="p">,</span> <span class="n">K</span> <span class="o">=</span> <span class="n">lossMatrix</span><span class="o">.</span><span class="n">shape</span>
+        <span class="n">_</span><span class="p">,</span> <span class="n">N</span> <span class="o">=</span> <span class="n">C</span><span class="o">.</span><span class="n">shape</span>
+
+        <span class="n">L_tilde</span> <span class="o">=</span> <span class="n">lossMatrix</span> <span class="o">@</span> <span class="n">C</span>
+        <span class="n">Lambda</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span>
+            <span class="p">[[</span><span class="n">lambda_</span> <span class="o">/</span> <span class="mi">4</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">c_i</span> <span class="o">-</span> <span class="n">c_j</span><span class="p">,</span> <span class="nb">ord</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span><span class="o">**</span><span class="mi">2</span> <span class="k">for</span> <span class="n">c_j</span> <span class="ow">in</span> <span class="n">C</span><span class="o">.</span><span class="n">T</span><span class="p">]</span> <span class="k">for</span> <span class="n">c_i</span> <span class="ow">in</span> <span class="n">C</span><span class="o">.</span><span class="n">T</span><span class="p">])</span>
+
+        <span class="n">V_tilde</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">T</span><span class="p">,</span> <span class="n">N</span><span class="p">))</span>
+        <span class="n">V_tilde</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="p">:]</span> <span class="o">=</span> <span class="n">L_tilde</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="p">:]</span>
+
+        <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">T</span><span class="p">):</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">N</span><span class="p">):</span>
+                <span class="n">V_tilde</span><span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">L_tilde</span><span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="n">i</span><span class="p">]</span> <span class="o">+</span> \
+                    <span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">V_tilde</span><span class="p">[</span><span class="n">t</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="p">:]</span> <span class="o">+</span> <span class="n">Lambda</span><span class="p">[:,</span> <span class="n">i</span><span class="p">])</span>
+
+        <span class="n">s_hat</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">T</span><span class="p">,</span> <span class="n">K</span><span class="p">))</span>
+        <span class="n">i_hat</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argmin</span><span class="p">(</span><span class="n">V_tilde</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="p">:])</span>
+        <span class="n">v_hat</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">V_tilde</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="p">:])</span>
+        <span class="n">s_hat</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">C</span><span class="p">[:,</span> <span class="n">i_hat</span><span class="p">]</span>
+
+        <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">T</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">):</span>
+            <span class="n">i_hat</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argmin</span><span class="p">(</span><span class="n">V_tilde</span><span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="p">:]</span> <span class="o">+</span> <span class="n">Lambda</span><span class="p">[:,</span> <span class="n">i_hat</span><span class="p">])</span>
+            <span class="n">s_hat</span><span class="p">[</span><span class="n">t</span><span class="p">]</span> <span class="o">=</span> <span class="n">C</span><span class="p">[:,</span> <span class="n">i_hat</span><span class="p">]</span>
+
+        <span class="k">return</span> <span class="n">s_hat</span><span class="p">,</span> <span class="n">v_hat</span></div></div>
 
 
 <div class="viewcode-block" id="FeatureGenerator"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.FeatureGenerator">[docs]</a><span class="k">class</span> <span class="nc">FeatureGenerator</span><span class="p">:</span>
@@ -530,8 +629,10 @@
             <span class="n">df</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;centered_std_</span><span class="si">{</span><span class="n">w</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">roll</span><span class="o">.</span><span class="n">std</span><span class="p">()</span>
 
             <span class="n">half_w</span> <span class="o">=</span> <span class="n">w</span> <span class="o">//</span> <span class="mi">2</span>
-            <span class="n">df</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;left_mean_</span><span class="si">{</span><span class="n">w</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;ts&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">rolling</span><span class="p">(</span><span class="n">window</span><span class="o">=</span><span class="n">half_w</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span><span class="o">.</span><span class="n">shift</span><span class="p">(</span><span class="n">half_w</span><span class="p">)</span>
-            <span class="n">df</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;left_std_</span><span class="si">{</span><span class="n">w</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;ts&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">rolling</span><span class="p">(</span><span class="n">window</span><span class="o">=</span><span class="n">half_w</span><span class="p">)</span><span class="o">.</span><span class="n">std</span><span class="p">()</span><span class="o">.</span><span class="n">shift</span><span class="p">(</span><span class="n">half_w</span><span class="p">)</span>
+            <span class="n">df</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;left_mean_</span><span class="si">{</span><span class="n">w</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;ts&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">rolling</span><span class="p">(</span>
+                <span class="n">window</span><span class="o">=</span><span class="n">half_w</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span><span class="o">.</span><span class="n">shift</span><span class="p">(</span><span class="n">half_w</span><span class="p">)</span>
+            <span class="n">df</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;left_std_</span><span class="si">{</span><span class="n">w</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;ts&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">rolling</span><span class="p">(</span>
+                <span class="n">window</span><span class="o">=</span><span class="n">half_w</span><span class="p">)</span><span class="o">.</span><span class="n">std</span><span class="p">()</span><span class="o">.</span><span class="n">shift</span><span class="p">(</span><span class="n">half_w</span><span class="p">)</span>
 
             <span class="n">df</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;right_mean_</span><span class="si">{</span><span class="n">w</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;ts&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">rolling</span><span class="p">(</span><span class="n">window</span><span class="o">=</span><span class="n">half_w</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
             <span class="n">df</span><span class="p">[</span><span class="sa">f</span><span class="s2">&quot;right_std_</span><span class="si">{</span><span class="n">w</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">&quot;ts&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">rolling</span><span class="p">(</span><span class="n">window</span><span class="o">=</span><span class="n">half_w</span><span class="p">)</span><span class="o">.</span><span class="n">std</span><span class="p">()</span>
@@ -559,11 +660,11 @@
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Computes the stationary distribution for a given Markov transition matrix.</span>
 
-<span class="sd">        Parameters:</span>
-<span class="sd">        - transition_matrix (numpy array): The Markov transition matrix.</span>
+<span class="sd">        Args:</span>
+<span class="sd">            transition_matrix (numpy array): The Markov transition matrix.</span>
 
 <span class="sd">        Returns:</span>
-<span class="sd">        - numpy array: The stationary distribution.</span>
+<span class="sd">            numpy array: The stationary distribution.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">size</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">transition_matrix</span><span class="p">)</span>
         <span class="c1"># Create a matrix subtracted from the identity matrix</span>
@@ -581,15 +682,16 @@
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Simulates a Markov process.</span>
 
-<span class="sd">        Parameters:</span>
-<span class="sd">        - transition_matrix (numpy array): The Markov transition matrix.</span>
-<span class="sd">        - initial_distribution (numpy array): The initial state distribution.</span>
-<span class="sd">        - steps (int): The number of steps to simulate.</span>
+<span class="sd">        Args:</span>
+<span class="sd">            transition_matrix (numpy array): The Markov transition matrix.</span>
+<span class="sd">            initial_distribution (numpy array): The initial state distribution.</span>
+<span class="sd">            steps (int): The number of steps to simulate.</span>
 
 <span class="sd">        Returns:</span>
-<span class="sd">        - list: The states at each step.</span>
+<span class="sd">            states (list): The states at each step.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="n">state</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">choice</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">initial_distribution</span><span class="p">),</span> <span class="n">p</span><span class="o">=</span><span class="n">initial_distribution</span><span class="p">)</span>
+        <span class="n">state</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">choice</span><span class="p">(</span>
+            <span class="nb">len</span><span class="p">(</span><span class="n">initial_distribution</span><span class="p">),</span> <span class="n">p</span><span class="o">=</span><span class="n">initial_distribution</span><span class="p">)</span>
         <span class="n">states</span> <span class="o">=</span> <span class="p">[</span><span class="n">state</span><span class="p">]</span>
 
         <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">steps</span><span class="p">):</span>
@@ -604,13 +706,13 @@
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Generate data using normal distribution conditional on the states.</span>
 
-<span class="sd">        Parameters:</span>
-<span class="sd">        - states (list): The list of states</span>
-<span class="sd">        - parameters (dict): Parameters for each state with means and \</span>
-<span class="sd">            standard deviations</span>
+<span class="sd">        Args:</span>
+<span class="sd">            states (list): The list of states</span>
+<span class="sd">            parameters (dict): Parameters for each state with means and \</span>
+<span class="sd">                standard deviations</span>
 
 <span class="sd">        Returns:</span>
-<span class="sd">        - list: Simulated data conditional on the states.</span>
+<span class="sd">            data (list): Simulated data conditional on the states.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">data</span> <span class="o">=</span> <span class="p">[]</span>
         <span class="k">for</span> <span class="n">state</span> <span class="ow">in</span> <span class="n">states</span><span class="p">:</span>
@@ -624,7 +726,7 @@
 <span class="sd">        Run the simulation, return the simulated states and conditional data</span>
 
 <span class="sd">        NOTE:</span>
-<span class="sd">        - States are forced to cover all states, if not, re-run the simulation</span>
+<span class="sd">            States are forced to cover all states, if not, re-run the simulation</span>
 
 <span class="sd">        Args:</span>
 <span class="sd">            steps (int): number of steps to simulate</span>
@@ -646,11 +748,14 @@
         <span class="c1"># sanity check for the simulated states</span>
         <span class="n">count_states</span> <span class="o">=</span> <span class="n">Counter</span><span class="p">(</span><span class="n">simulated_states</span><span class="p">)</span>
         <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">count_states</span><span class="p">)</span> <span class="o">!=</span> <span class="nb">len</span><span class="p">(</span><span class="n">transition_matrix</span><span class="p">):</span>
-            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;The simulated states do not cover all states. Re-run.&quot;</span><span class="p">)</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+                <span class="s2">&quot;The simulated states do not cover all states. Re-run.&quot;</span><span class="p">)</span>
             <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">steps</span><span class="p">,</span> <span class="n">transition_matrix</span><span class="p">,</span> <span class="n">norm_params</span><span class="p">)</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Step 2: Simulated states: </span><span class="si">{</span><span class="n">count_states</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-        <span class="n">simulated_data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">generate_conditional_data</span><span class="p">(</span><span class="n">simulated_states</span><span class="p">,</span> <span class="n">norm_params</span><span class="p">)</span>
-        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Step 3: Generate simulated return data conditional on states.&quot;</span><span class="p">)</span>
+        <span class="n">simulated_data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">generate_conditional_data</span><span class="p">(</span>
+            <span class="n">simulated_states</span><span class="p">,</span> <span class="n">norm_params</span><span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+            <span class="s2">&quot;Step 3: Generate simulated return data conditional on states.&quot;</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">simulated_states</span><span class="p">,</span> <span class="n">simulated_data</span></div></div>
 
 
@@ -718,8 +823,10 @@
                 <span class="k">if</span> <span class="n">val</span> <span class="o">==</span> <span class="mi">1</span> <span class="ow">and</span> <span class="n">start_region</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
                     <span class="n">start_region</span> <span class="o">=</span> <span class="n">start_shade</span> <span class="o">+</span> <span class="n">i</span>
                 <span class="k">elif</span> <span class="n">val</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">start_region</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-                    <span class="n">ax1</span><span class="o">.</span><span class="n">axvspan</span><span class="p">(</span><span class="n">start_region</span><span class="p">,</span> <span class="n">start_shade</span> <span class="o">+</span> <span class="n">i</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s2">&quot;gray&quot;</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.3</span><span class="p">)</span>
-                    <span class="n">ax2</span><span class="o">.</span><span class="n">axvspan</span><span class="p">(</span><span class="n">start_region</span><span class="p">,</span> <span class="n">start_shade</span> <span class="o">+</span> <span class="n">i</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s2">&quot;gray&quot;</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.3</span><span class="p">)</span>
+                    <span class="n">ax1</span><span class="o">.</span><span class="n">axvspan</span><span class="p">(</span><span class="n">start_region</span><span class="p">,</span> <span class="n">start_shade</span> <span class="o">+</span>
+                                <span class="n">i</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s2">&quot;gray&quot;</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.3</span><span class="p">)</span>
+                    <span class="n">ax2</span><span class="o">.</span><span class="n">axvspan</span><span class="p">(</span><span class="n">start_region</span><span class="p">,</span> <span class="n">start_shade</span> <span class="o">+</span>
+                                <span class="n">i</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s2">&quot;gray&quot;</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.3</span><span class="p">)</span>
                     <span class="n">start_region</span> <span class="o">=</span> <span class="kc">None</span>
             <span class="c1"># If the last cluster extends to the end of the shade_list</span>
             <span class="k">if</span> <span class="n">start_region</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>

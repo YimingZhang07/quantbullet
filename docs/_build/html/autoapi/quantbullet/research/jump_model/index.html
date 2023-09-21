@@ -19,6 +19,7 @@
         <script src="../../../../_static/_sphinx_javascript_frameworks_compat.js"></script>
         <script src="../../../../_static/doctools.js"></script>
         <script src="../../../../_static/sphinx_highlight.js"></script>
+        <script crossorigin="anonymous" integrity="sha256-Ae2Vz/4ePdIu6ZyI/5ZGsYnb+m0JlOmKPjt6XZ9JJkA=" src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"></script>
     <script src="../../../../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../../../../genindex.html" />
     <link rel="search" title="Search" href="../../../../search.html" />
@@ -103,13 +104,16 @@
 <tr class="row-odd"><td><p><a class="reference internal" href="#quantbullet.research.jump_model.DiscreteJumpModel" title="quantbullet.research.jump_model.DiscreteJumpModel"><code class="xref py py-obj docutils literal notranslate"><span class="pre">DiscreteJumpModel</span></code></a></p></td>
 <td><p>Statistical Jump Model with Discrete States</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="#quantbullet.research.jump_model.FeatureGenerator" title="quantbullet.research.jump_model.FeatureGenerator"><code class="xref py py-obj docutils literal notranslate"><span class="pre">FeatureGenerator</span></code></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#quantbullet.research.jump_model.ContinuousJumpModel" title="quantbullet.research.jump_model.ContinuousJumpModel"><code class="xref py py-obj docutils literal notranslate"><span class="pre">ContinuousJumpModel</span></code></a></p></td>
+<td><p>Continuous Jump Model with Soft State Assignments</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#quantbullet.research.jump_model.FeatureGenerator" title="quantbullet.research.jump_model.FeatureGenerator"><code class="xref py py-obj docutils literal notranslate"><span class="pre">FeatureGenerator</span></code></a></p></td>
 <td><p></p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="#quantbullet.research.jump_model.SimulationGenerator" title="quantbullet.research.jump_model.SimulationGenerator"><code class="xref py py-obj docutils literal notranslate"><span class="pre">SimulationGenerator</span></code></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#quantbullet.research.jump_model.SimulationGenerator" title="quantbullet.research.jump_model.SimulationGenerator"><code class="xref py py-obj docutils literal notranslate"><span class="pre">SimulationGenerator</span></code></a></p></td>
 <td><p></p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="#quantbullet.research.jump_model.TestingUtils" title="quantbullet.research.jump_model.TestingUtils"><code class="xref py py-obj docutils literal notranslate"><span class="pre">TestingUtils</span></code></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="#quantbullet.research.jump_model.TestingUtils" title="quantbullet.research.jump_model.TestingUtils"><code class="xref py py-obj docutils literal notranslate"><span class="pre">TestingUtils</span></code></a></p></td>
 <td><p></p></td>
 </tr>
 </tbody>
@@ -135,30 +139,36 @@
 <dd><p>Statistical Jump Model with Discrete States</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="quantbullet.research.jump_model.DiscreteJumpModel.fixed_states_optimize">
-<span class="sig-name descname"><span class="pre">fixed_states_optimize</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">theta_guess</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.fixed_states_optimize"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.jump_model.DiscreteJumpModel.fixed_states_optimize" title="Permalink to this definition"></a></dt>
-<dd><p>Optimize the parameters of a discrete jump model with fixed states</p>
+<span class="sig-name descname"><span class="pre">fixed_states_optimize</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.fixed_states_optimize"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.jump_model.DiscreteJumpModel.fixed_states_optimize" title="Permalink to this definition"></a></dt>
+<dd><p>Optimize the parameters of a discrete jump model with fixed states.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>y</strong> (<em>np.ndarray</em>) – observed data (T x n_features)</p></li>
-<li><p><strong>s</strong> (<em>np.ndarray</em>) – state sequence (T x 1)</p></li>
-<li><p><strong>theta_guess</strong> (<em>np.ndarray</em>) – initial guess for theta (k x n_features)</p></li>
-<li><p><strong>k</strong> (<em>int</em>) – number of states</p></li>
+<li><p><strong>y</strong> (<em>np.ndarray</em>) – Observed data of shape (T x n_features).</p></li>
+<li><p><strong>s</strong> (<em>np.ndarray</em>) – State sequence of shape (T x 1).</p></li>
+<li><p><strong>theta_guess</strong> (<em>np.ndarray</em>) – Initial guess for theta of shape (k x n_features).</p></li>
+<li><p><strong>k</strong> (<em>int</em>) – Number of states.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>optimized parameters
-objective_value (float): optimal value of the objective function</p>
+<dd class="field-even"><p><dl class="simple">
+<dt>A tuple containing:</dt><dd><ul class="simple">
+<li><p>theta (np.ndarray): Optimized parameters.</p></li>
+<li><p>prob.value (float): Optimal value of the objective function.</p></li>
+</ul>
+</dd>
+</dl>
+</p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>theta (np.ndarray)</p>
+<dd class="field-odd"><p>tuple</p>
 </dd>
 </dl>
 </dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="quantbullet.research.jump_model.DiscreteJumpModel.generate_loss_matrix">
-<span class="sig-name descname"><span class="pre">generate_loss_matrix</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">theta</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.generate_loss_matrix"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.jump_model.DiscreteJumpModel.generate_loss_matrix" title="Permalink to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">generate_loss_matrix</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">theta</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.generate_loss_matrix"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.jump_model.DiscreteJumpModel.generate_loss_matrix" title="Permalink to this definition"></a></dt>
 <dd><p>Generate the loss matrix for a discrete jump model for fixed theta</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
@@ -203,22 +213,40 @@ v (float): optimal value of the objective function</p>
 <dt class="sig sig-object py" id="quantbullet.research.jump_model.DiscreteJumpModel.initialize_kmeans_plusplus">
 <span class="sig-name descname"><span class="pre">initialize_kmeans_plusplus</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.initialize_kmeans_plusplus"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.jump_model.DiscreteJumpModel.initialize_kmeans_plusplus" title="Permalink to this definition"></a></dt>
 <dd><p>Initialize the centroids using the k-means++ method.</p>
-<p>Parameters:
-- data: ndarray of shape (n_samples, n_features)
-- k: number of clusters</p>
-<p>Returns:
-- centroids: ndarray of shape (k, n_features)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>data</strong> – ndarray of shape (n_samples, n_features)</p></li>
+<li><p><strong>k</strong> – number of clusters</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>ndarray of shape (k, n_features)</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>centroids</p>
+</dd>
+</dl>
 </dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="quantbullet.research.jump_model.DiscreteJumpModel.classify_data_to_states">
 <span class="sig-name descname"><span class="pre">classify_data_to_states</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">centroids</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.classify_data_to_states"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.jump_model.DiscreteJumpModel.classify_data_to_states" title="Permalink to this definition"></a></dt>
 <dd><p>Classify data points to the states based on the centroids.</p>
-<p>Parameters:
-- data: ndarray of shape (n_samples, n_features)
-- centroids: centroids or means of the states, ndarray of shape (k, n_features)</p>
-<p>Returns:
-- state_assignments: ndarray of shape (n_samples,), indices of the states             to which each data point is assigned</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>data</strong> – ndarray of shape (n_samples, n_features)</p></li>
+<li><p><strong>centroids</strong> – centroids or means of the states, ndarray of shape (k, n_features)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>ndarray of shape (n_samples,), indices of the states                 to which each data point is assigned</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>state_assignments</p>
+</dd>
+</dl>
 </dd></dl>
 
 <dl class="py method">
@@ -283,9 +311,11 @@ cur_theta (np.ndarray): optimal parameters (k x n_features)</p>
 <dt class="sig sig-object py" id="quantbullet.research.jump_model.DiscreteJumpModel.fit">
 <span class="sig-name descname"><span class="pre">fit</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lambda_</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">100</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rearrange</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_trials</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.fit"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.jump_model.DiscreteJumpModel.fit" title="Permalink to this definition"></a></dt>
 <dd><p>fit discrete jump model</p>
-<p>NOTE:
-- A multiprocessing implementation is used to speed up the optimization
-- Ten trials with k means++ initialization are ran</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>A multiprocessing implementation is used to speed up the optimization
+Ten trials with k means++ initialization are ran</p>
+</div>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
@@ -333,6 +363,82 @@ optimized_theta (list): parameters from all trials (10 x k x n_features)</p>
 </dd></dl>
 
 <dl class="py class">
+<dt class="sig sig-object py" id="quantbullet.research.jump_model.ContinuousJumpModel">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">quantbullet.research.jump_model.</span></span><span class="sig-name descname"><span class="pre">ContinuousJumpModel</span></span><a class="reference internal" href="../../../../_modules/quantbullet/research/jump_model.html#ContinuousJumpModel"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.jump_model.ContinuousJumpModel" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#quantbullet.research.jump_model.DiscreteJumpModel" title="quantbullet.research.jump_model.DiscreteJumpModel"><code class="xref py py-obj docutils literal notranslate"><span class="pre">DiscreteJumpModel</span></code></a></p>
+<p>Continuous Jump Model with Soft State Assignments</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="quantbullet.research.jump_model.ContinuousJumpModel.fixed_states_optimize">
+<span class="sig-name descname"><span class="pre">fixed_states_optimize</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../_modules/quantbullet/research/jump_model.html#ContinuousJumpModel.fixed_states_optimize"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.jump_model.ContinuousJumpModel.fixed_states_optimize" title="Permalink to this definition"></a></dt>
+<dd><p>Optimize theta given fixed states</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>y</strong> – (T, n_features) array of observations</p></li>
+<li><p><strong>s</strong> – (T, k) array of state assignments</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>(k, n_features) array of optimal parameters</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>theta</p>
+</dd>
+</dl>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>s is assumed to have each row sum to 1</p>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="quantbullet.research.jump_model.ContinuousJumpModel.generate_loss_matrix">
+<span class="sig-name descname"><span class="pre">generate_loss_matrix</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">theta</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../_modules/quantbullet/research/jump_model.html#ContinuousJumpModel.generate_loss_matrix"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.jump_model.ContinuousJumpModel.generate_loss_matrix" title="Permalink to this definition"></a></dt>
+<dd><p>Identical to the loss function in the discrete case</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="quantbullet.research.jump_model.ContinuousJumpModel.generate_C">
+<span class="sig-name descname"><span class="pre">generate_C</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">K</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">grid_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.05</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../_modules/quantbullet/research/jump_model.html#ContinuousJumpModel.generate_C"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.jump_model.ContinuousJumpModel.generate_C" title="Permalink to this definition"></a></dt>
+<dd><p>Uniformly sample of states distributed on a grid</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>K</strong> (<em>int</em>) – number of states</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>K x N matrix of states</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>matrix (np.ndarray)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="quantbullet.research.jump_model.ContinuousJumpModel.fixed_theta_optimize">
+<span class="sig-name descname"><span class="pre">fixed_theta_optimize</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lossMatrix</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lambda_</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">C</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../_modules/quantbullet/research/jump_model.html#ContinuousJumpModel.fixed_theta_optimize"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.jump_model.ContinuousJumpModel.fixed_theta_optimize" title="Permalink to this definition"></a></dt>
+<dd><p>Optimize the state sequence of a continuous jump model with fixed parameters</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>lossMatrix</strong> (<em>np.ndarray</em>) – loss matrix (T x K)</p></li>
+<li><p><strong>C</strong> (<em>np.ndarray</em>) – K x N matrix of states</p></li>
+<li><p><strong>lambda</strong> (<em>float</em>) – regularization parameter</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>optimal state sequence with probability dist (T x K)
+v_hat (float): loss value</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>s_hat (np.ndarray)</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
 <dt class="sig sig-object py" id="quantbullet.research.jump_model.FeatureGenerator">
 <em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">quantbullet.research.jump_model.</span></span><span class="sig-name descname"><span class="pre">FeatureGenerator</span></span><a class="reference internal" href="../../../../_modules/quantbullet/research/jump_model.html#FeatureGenerator"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.jump_model.FeatureGenerator" title="Permalink to this definition"></a></dt>
 <dd><dl class="py method">
@@ -367,41 +473,68 @@ optimized_theta (list): parameters from all trials (10 x k x n_features)</p>
 <dt class="sig sig-object py" id="quantbullet.research.jump_model.SimulationGenerator.stationary_distribution">
 <span class="sig-name descname"><span class="pre">stationary_distribution</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">transition_matrix</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../_modules/quantbullet/research/jump_model.html#SimulationGenerator.stationary_distribution"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.jump_model.SimulationGenerator.stationary_distribution" title="Permalink to this definition"></a></dt>
 <dd><p>Computes the stationary distribution for a given Markov transition matrix.</p>
-<p>Parameters:
-- transition_matrix (numpy array): The Markov transition matrix.</p>
-<p>Returns:
-- numpy array: The stationary distribution.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>transition_matrix</strong> (<em>numpy array</em>) – The Markov transition matrix.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The stationary distribution.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>numpy array</p>
+</dd>
+</dl>
 </dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="quantbullet.research.jump_model.SimulationGenerator.simulate_markov">
 <span class="sig-name descname"><span class="pre">simulate_markov</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">transition_matrix</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">initial_distribution</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">steps</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../_modules/quantbullet/research/jump_model.html#SimulationGenerator.simulate_markov"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.jump_model.SimulationGenerator.simulate_markov" title="Permalink to this definition"></a></dt>
 <dd><p>Simulates a Markov process.</p>
-<p>Parameters:
-- transition_matrix (numpy array): The Markov transition matrix.
-- initial_distribution (numpy array): The initial state distribution.
-- steps (int): The number of steps to simulate.</p>
-<p>Returns:
-- list: The states at each step.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>transition_matrix</strong> (<em>numpy array</em>) – The Markov transition matrix.</p></li>
+<li><p><strong>initial_distribution</strong> (<em>numpy array</em>) – The initial state distribution.</p></li>
+<li><p><strong>steps</strong> (<em>int</em>) – The number of steps to simulate.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>The states at each step.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>states (list)</p>
+</dd>
+</dl>
 </dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="quantbullet.research.jump_model.SimulationGenerator.generate_conditional_data">
 <span class="sig-name descname"><span class="pre">generate_conditional_data</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">states</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parameters</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../_modules/quantbullet/research/jump_model.html#SimulationGenerator.generate_conditional_data"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.jump_model.SimulationGenerator.generate_conditional_data" title="Permalink to this definition"></a></dt>
 <dd><p>Generate data using normal distribution conditional on the states.</p>
-<p>Parameters:
-- states (list): The list of states
-- parameters (dict): Parameters for each state with means and             standard deviations</p>
-<p>Returns:
-- list: Simulated data conditional on the states.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>states</strong> (<em>list</em>) – The list of states</p></li>
+<li><p><strong>parameters</strong> (<em>dict</em>) – Parameters for each state with means and                 standard deviations</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Simulated data conditional on the states.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>data (list)</p>
+</dd>
+</dl>
 </dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="quantbullet.research.jump_model.SimulationGenerator.run">
 <span class="sig-name descname"><span class="pre">run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">steps</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">transition_matrix</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">norm_params</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../_modules/quantbullet/research/jump_model.html#SimulationGenerator.run"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.jump_model.SimulationGenerator.run" title="Permalink to this definition"></a></dt>
 <dd><p>Run the simulation, return the simulated states and conditional data</p>
-<p>NOTE:
-- States are forced to cover all states, if not, re-run the simulation</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>States are forced to cover all states, if not, re-run the simulation</p>
+</div>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">

@@ -13,6 +13,7 @@ Classes
 .. autoapisummary::
 
    quantbullet.research.jump_model.DiscreteJumpModel
+   quantbullet.research.jump_model.ContinuousJumpModel
    quantbullet.research.jump_model.FeatureGenerator
    quantbullet.research.jump_model.SimulationGenerator
    quantbullet.research.jump_model.TestingUtils
@@ -37,25 +38,28 @@ Attributes
 
    Statistical Jump Model with Discrete States
 
-   .. py:method:: fixed_states_optimize(y, s, theta_guess=None, k=2)
+   .. py:method:: fixed_states_optimize(y, s, k=2)
 
-      Optimize the parameters of a discrete jump model with fixed states
+      Optimize the parameters of a discrete jump model with fixed states.
 
-      :param y: observed data (T x n_features)
+      :param y: Observed data of shape (T x n_features).
       :type y: np.ndarray
-      :param s: state sequence (T x 1)
+      :param s: State sequence of shape (T x 1).
       :type s: np.ndarray
-      :param theta_guess: initial guess for theta (k x n_features)
+      :param theta_guess: Initial guess for theta of shape (k x n_features).
       :type theta_guess: np.ndarray
-      :param k: number of states
+      :param k: Number of states.
       :type k: int
 
-      :returns: optimized parameters
-                objective_value (float): optimal value of the objective function
-      :rtype: theta (np.ndarray)
+      :returns:
+
+                A tuple containing:
+                    - theta (np.ndarray): Optimized parameters.
+                    - prob.value (float): Optimal value of the objective function.
+      :rtype: tuple
 
 
-   .. py:method:: generate_loss_matrix(y, theta, k=2)
+   .. py:method:: generate_loss_matrix(y, theta)
 
       Generate the loss matrix for a discrete jump model for fixed theta
 
@@ -90,24 +94,22 @@ Attributes
 
       Initialize the centroids using the k-means++ method.
 
-      Parameters:
-      - data: ndarray of shape (n_samples, n_features)
-      - k: number of clusters
+      :param data: ndarray of shape (n_samples, n_features)
+      :param k: number of clusters
 
-      Returns:
-      - centroids: ndarray of shape (k, n_features)
+      :returns: ndarray of shape (k, n_features)
+      :rtype: centroids
 
 
    .. py:method:: classify_data_to_states(data, centroids)
 
       Classify data points to the states based on the centroids.
 
-      Parameters:
-      - data: ndarray of shape (n_samples, n_features)
-      - centroids: centroids or means of the states, ndarray of shape (k, n_features)
+      :param data: ndarray of shape (n_samples, n_features)
+      :param centroids: centroids or means of the states, ndarray of shape (k, n_features)
 
-      Returns:
-      - state_assignments: ndarray of shape (n_samples,), indices of the states             to which each data point is assigned
+      :returns: ndarray of shape (n_samples,), indices of the states                 to which each data point is assigned
+      :rtype: state_assignments
 
 
    .. py:method:: infer_states_stats(ts_returns, states)
@@ -159,9 +161,10 @@ Attributes
 
       fit discrete jump model
 
-      NOTE:
-      - A multiprocessing implementation is used to speed up the optimization
-      - Ten trials with k means++ initialization are ran
+      .. note::
+
+         A multiprocessing implementation is used to speed up the optimization
+         Ten trials with k means++ initialization are ran
 
       :param y: observed data (T x n_features)
       :type y: np.ndarray
@@ -197,6 +200,60 @@ Attributes
 
 
 
+.. py:class:: ContinuousJumpModel
+
+
+   Bases: :py:obj:`DiscreteJumpModel`
+
+   Continuous Jump Model with Soft State Assignments
+
+   .. py:method:: fixed_states_optimize(y, s, k=None)
+
+      Optimize theta given fixed states
+
+      :param y: (T, n_features) array of observations
+      :param s: (T, k) array of state assignments
+
+      :returns: (k, n_features) array of optimal parameters
+      :rtype: theta
+
+      .. note:: s is assumed to have each row sum to 1
+
+
+   .. py:method:: generate_loss_matrix(y, theta)
+
+      Identical to the loss function in the discrete case
+
+
+
+   .. py:method:: generate_C(K, grid_size=0.05)
+
+      Uniformly sample of states distributed on a grid
+
+      :param K: number of states
+      :type K: int
+
+      :returns: K x N matrix of states
+      :rtype: matrix (np.ndarray)
+
+
+   .. py:method:: fixed_theta_optimize(lossMatrix, lambda_, C)
+
+      Optimize the state sequence of a continuous jump model with fixed parameters
+
+      :param lossMatrix: loss matrix (T x K)
+      :type lossMatrix: np.ndarray
+      :param C: K x N matrix of states
+      :type C: np.ndarray
+      :param lambda_: regularization parameter
+      :type lambda_: float
+
+      :returns: optimal state sequence with probability dist (T x K)
+                v_hat (float): loss value
+      :rtype: s_hat (np.ndarray)
+
+
+
 .. py:class:: FeatureGenerator
 
 
@@ -224,44 +281,46 @@ Attributes
 
       Computes the stationary distribution for a given Markov transition matrix.
 
-      Parameters:
-      - transition_matrix (numpy array): The Markov transition matrix.
+      :param transition_matrix: The Markov transition matrix.
+      :type transition_matrix: numpy array
 
-      Returns:
-      - numpy array: The stationary distribution.
+      :returns: The stationary distribution.
+      :rtype: numpy array
 
 
    .. py:method:: simulate_markov(transition_matrix, initial_distribution, steps)
 
       Simulates a Markov process.
 
-      Parameters:
-      - transition_matrix (numpy array): The Markov transition matrix.
-      - initial_distribution (numpy array): The initial state distribution.
-      - steps (int): The number of steps to simulate.
+      :param transition_matrix: The Markov transition matrix.
+      :type transition_matrix: numpy array
+      :param initial_distribution: The initial state distribution.
+      :type initial_distribution: numpy array
+      :param steps: The number of steps to simulate.
+      :type steps: int
 
-      Returns:
-      - list: The states at each step.
+      :returns: The states at each step.
+      :rtype: states (list)
 
 
    .. py:method:: generate_conditional_data(states, parameters)
 
       Generate data using normal distribution conditional on the states.
 
-      Parameters:
-      - states (list): The list of states
-      - parameters (dict): Parameters for each state with means and             standard deviations
+      :param states: The list of states
+      :type states: list
+      :param parameters: Parameters for each state with means and                 standard deviations
+      :type parameters: dict
 
-      Returns:
-      - list: Simulated data conditional on the states.
+      :returns: Simulated data conditional on the states.
+      :rtype: data (list)
 
 
    .. py:method:: run(steps, transition_matrix, norm_params)
 
       Run the simulation, return the simulated states and conditional data
 
-      NOTE:
-      - States are forced to cover all states, if not, re-run the simulation
+      .. note:: States are forced to cover all states, if not, re-run the simulation
 
       :param steps: number of steps to simulate
       :type steps: int

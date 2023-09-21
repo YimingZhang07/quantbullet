@@ -19,6 +19,7 @@
         <script src="../_static/_sphinx_javascript_frameworks_compat.js"></script>
         <script src="../_static/doctools.js"></script>
         <script src="../_static/sphinx_highlight.js"></script>
+        <script crossorigin="anonymous" integrity="sha256-Ae2Vz/4ePdIu6ZyI/5ZGsYnb+m0JlOmKPjt6XZ9JJkA=" src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"></script>
     <script src="../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
@@ -49,6 +50,7 @@
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Statistical Jump Model</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#basic-tutorial">Basic Tutorial</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#find-the-best-penalty-parameter">Find the best Penalty parameter</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#continuous-jump-model">Continuous Jump Model</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="../changelog.html">Changelog</a></li>
@@ -105,6 +107,7 @@
 </div>
 </div>
 </div>
+<p>Implementation ana API of the model is all at <a class="reference internal" href="../autoapi/quantbullet/research/jump_model/index.html#module-quantbullet.research.jump_model" title="quantbullet.research.jump_model"><code class="xref py py-mod docutils literal notranslate"><span class="pre">quantbullet.research.jump_model</span></code></a>.</p>
 <section id="basic-tutorial">
 <h2>Basic Tutorial<a class="headerlink" href="#basic-tutorial" title="Permalink to this heading"></a></h2>
 <p>Default parameters can be loaded using <code class="docutils literal notranslate"><span class="pre">TestingParams</span></code> class. This loads the same simulation inputs as the related literature. The transition matrix controls the probability of transitioning from one state to another, and the normal distribution parameters control the mean and standard deviation for each state.</p>
@@ -137,9 +140,9 @@
 </div>
 </div>
 <div class="cell_output docutils container">
-<div class="output stderr highlight-myst-ansi notranslate"><div class="highlight"><pre><span></span>09-20 00:47:01 INFO Step 1: Initial (stationary) distribution: [0.84997341 0.15002659]
-09-20 00:47:01 INFO Step 2: Simulated states: Counter({0: 633, 1: 368})
-09-20 00:47:01 INFO Step 3: Generate simulated return data conditional on states.
+<div class="output stderr highlight-myst-ansi notranslate"><div class="highlight"><pre><span></span>09-21 04:37:48 INFO Step 1: Initial (stationary) distribution: [0.84997341 0.15002659]
+09-21 04:37:48 INFO Step 2: Simulated states: Counter({0: 633, 1: 368})
+09-21 04:37:48 INFO Step 3: Generate simulated return data conditional on states.
 </pre></div>
 </div>
 <img alt="../_images/9c37caf4564b34783e1683f3277d15857cf9e437996a281dc0d07ac4186cc96a.png" src="../_images/9c37caf4564b34783e1683f3277d15857cf9e437996a281dc0d07ac4186cc96a.png" />
@@ -173,7 +176,7 @@
 </div>
 </div>
 <div class="cell_output docutils container">
-<div class="output stderr highlight-myst-ansi notranslate"><div class="highlight"><pre><span></span>09-20 00:47:02 INFO Mean and Volatility by inferred states:
+<div class="output stderr highlight-myst-ansi notranslate"><div class="highlight"><pre><span></span>09-21 04:37:54 INFO Mean and Volatility by inferred states:
  {0: (0.028637970131994296, 0.7088256592365949), 1: (-0.05710237680864317, 1.4096882064420155)}
 </pre></div>
 </div>
@@ -231,6 +234,77 @@
 </div>
 <div class="cell_output docutils container">
 <img alt="../_images/da032814e16d662cd8049cae3fdd68c1d30c58c61892369c3eb0b93ce2856f0d.png" src="../_images/da032814e16d662cd8049cae3fdd68c1d30c58c61892369c3eb0b93ce2856f0d.png" />
+</div>
+</div>
+</section>
+<section id="continuous-jump-model">
+<h2>Continuous Jump Model<a class="headerlink" href="#continuous-jump-model" title="Permalink to this heading"></a></h2>
+<p>The continuous version of the jump model follows roughly the same procedure as the discrete version, but estimates a sequence of state probabilities instead of a discrete state. The algorithm is generally slower.</p>
+<p>Here, we fit the model using the same simulated data and penalty parameter. Without bothering with many initializations and trials, we fit the model until no improvement is observed.</p>
+<p>The model is shown to be more dynamic, and indeed captures the pattern we didn’t see in the discrete version.</p>
+<div class="cell docutils container">
+<div class="cell_input docutils container">
+<div class="highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="c1"># initialize centroids using k-means++</span>
+<span class="n">ctsJump</span> <span class="o">=</span> <span class="n">jm</span><span class="o">.</span><span class="n">ContinuousJumpModel</span><span class="p">()</span>
+<span class="n">centroids</span> <span class="o">=</span> <span class="n">ctsJump</span><span class="o">.</span><span class="n">initialize_kmeans_plusplus</span><span class="p">(</span><span class="n">enriched_returns</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+<span class="n">cur_s</span> <span class="o">=</span> <span class="n">ctsJump</span><span class="o">.</span><span class="n">classify_data_to_states</span><span class="p">(</span><span class="n">enriched_returns</span><span class="p">,</span> <span class="n">centroids</span><span class="p">)</span>
+<span class="n">second_col</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">-</span> <span class="n">cur_s</span>
+<span class="n">cur_s</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">column_stack</span><span class="p">((</span><span class="n">cur_s</span><span class="p">,</span> <span class="n">second_col</span><span class="p">))</span>
+</pre></div>
+</div>
+</div>
+</div>
+<div class="cell docutils container">
+<div class="cell_input docutils container">
+<div class="highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="n">tol</span> <span class="o">=</span> <span class="mi">100</span>
+<span class="n">max_iter</span> <span class="o">=</span> <span class="mi">100</span>
+<span class="n">cur_loss</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="s1">&#39;inf&#39;</span><span class="p">)</span>
+<span class="n">best_states</span> <span class="o">=</span> <span class="n">cur_s</span>
+<span class="n">best_loss</span> <span class="o">=</span> <span class="n">cur_loss</span>
+<span class="n">no_improvement_counter</span> <span class="o">=</span> <span class="mi">0</span>  <span class="c1"># Counter for consecutive iterations without improvement</span>
+
+<span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">max_iter</span><span class="p">):</span>
+    <span class="n">cur_theta</span> <span class="o">=</span> <span class="n">ctsJump</span><span class="o">.</span><span class="n">fixed_states_optimize</span><span class="p">(</span><span class="n">enriched_returns</span><span class="p">,</span> <span class="n">cur_s</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>  <span class="c1"># Assuming 2 states</span>
+    <span class="n">lossMatrix</span> <span class="o">=</span> <span class="n">ctsJump</span><span class="o">.</span><span class="n">generate_loss_matrix</span><span class="p">(</span><span class="n">enriched_returns</span><span class="p">,</span> <span class="n">cur_theta</span><span class="p">)</span>
+    <span class="n">C</span> <span class="o">=</span> <span class="n">ctsJump</span><span class="o">.</span><span class="n">generate_C</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+    <span class="n">cur_s</span><span class="p">,</span> <span class="n">cur_loss</span> <span class="o">=</span> <span class="n">ctsJump</span><span class="o">.</span><span class="n">fixed_theta_optimize</span><span class="p">(</span><span class="n">lossMatrix</span><span class="p">,</span> <span class="n">lambda_</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">C</span><span class="o">=</span><span class="n">C</span><span class="p">)</span>
+    
+    <span class="c1"># Check if the current solution is better than the best known solution</span>
+    <span class="k">if</span> <span class="n">cur_loss</span> <span class="o">&lt;</span> <span class="n">best_loss</span><span class="p">:</span>
+        <span class="n">best_loss</span> <span class="o">=</span> <span class="n">cur_loss</span>
+        <span class="n">best_states</span> <span class="o">=</span> <span class="n">cur_s</span>
+        <span class="n">no_improvement_counter</span> <span class="o">=</span> <span class="mi">0</span>  <span class="c1"># Reset the counter if there&#39;s improvement</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">no_improvement_counter</span> <span class="o">+=</span> <span class="mi">1</span>  <span class="c1"># Increment the counter if no improvement</span>
+
+    <span class="c1"># Check for convergence</span>
+    <span class="k">if</span> <span class="n">no_improvement_counter</span> <span class="o">&gt;=</span> <span class="mi">3</span><span class="p">:</span>
+        <span class="k">break</span>
+    
+<span class="nb">print</span><span class="p">(</span><span class="n">best_loss</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="cell_output docutils container">
+<div class="output stream highlight-myst-ansi notranslate"><div class="highlight"><pre><span></span>5828.895542745576
+</pre></div>
+</div>
+</div>
+</div>
+<div class="cell docutils container">
+<div class="cell_input docutils container">
+<div class="highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="k">with</span> <span class="n">set_figsize</span><span class="p">(</span><span class="mi">6</span><span class="p">,</span> <span class="mi">4</span><span class="p">):</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">cur_s</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">label</span><span class="o">=</span><span class="s1">&#39;Estimated&#39;</span><span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">sim_states</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s1">&#39;True&#39;</span><span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s1">&#39;True vs Estimated States in Probability&#39;</span><span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s1">&#39;Time&#39;</span><span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s1">&#39;State Probability&#39;</span><span class="p">)</span>
+    <span class="n">plt</span><span class="o">.</span><span class="n">legend</span><span class="p">()</span>
+</pre></div>
+</div>
+</div>
+<div class="cell_output docutils container">
+<img alt="../_images/51d938fca411b61e42ec53f1467df3ea5188dde06cee4f96f26199ef938657ff.png" src="../_images/51d938fca411b61e42ec53f1467df3ea5188dde06cee4f96f26199ef938657ff.png" />
 </div>
 </div>
 </section>

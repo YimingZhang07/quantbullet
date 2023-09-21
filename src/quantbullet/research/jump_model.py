@@ -49,19 +49,20 @@ class DiscreteJumpModel:
     #     prob.solve()
     #     return theta.value, prob.value
 
-    def fixed_states_optimize(self, y, s, theta_guess=None, k=2):
+    def fixed_states_optimize(self, y, s, k=2):
         """
-        Optimize the parameters of a discrete jump model with fixed states
+        Optimize the parameters of a discrete jump model with fixed states.
 
         Args:
-            y (np.ndarray): observed data (T x n_features)
-            s (np.ndarray): state sequence (T x 1)
-            theta_guess (np.ndarray): initial guess for theta (k x n_features)
-            k (int): number of states
+            y (np.ndarray): Observed data of shape (T x n_features).
+            s (np.ndarray): State sequence of shape (T x 1).
+            theta_guess (np.ndarray): Initial guess for theta of shape (k x n_features).
+            k (int): Number of states.
 
         Returns:
-            theta (np.ndarray): optimized parameters
-            objective_value (float): optimal value of the objective function
+            tuple: A tuple containing:
+                - theta (np.ndarray): Optimized parameters.
+                - prob.value (float): Optimal value of the objective function.
         """
         if not isinstance(y, np.ndarray) or not isinstance(s, np.ndarray):
             raise TypeError("y and s must be numpy arrays")
@@ -200,12 +201,12 @@ class DiscreteJumpModel:
         """
         Initialize the centroids using the k-means++ method.
 
-        Parameters:
-        - data: ndarray of shape (n_samples, n_features)
-        - k: number of clusters
+        Args:
+            data: ndarray of shape (n_samples, n_features)
+            k: number of clusters
 
         Returns:
-        - centroids: ndarray of shape (k, n_features)
+            centroids: ndarray of shape (k, n_features)
         """
         initial_idx = np.random.choice(data.shape[0], 1)
         centroids = [data[initial_idx]]
@@ -226,13 +227,13 @@ class DiscreteJumpModel:
         """
         Classify data points to the states based on the centroids.
 
-        Parameters:
-        - data: ndarray of shape (n_samples, n_features)
-        - centroids: centroids or means of the states, ndarray of shape (k, n_features)
+        Args:
+            data: ndarray of shape (n_samples, n_features)
+            centroids: centroids or means of the states, ndarray of shape (k, n_features)
 
         Returns:
-        - state_assignments: ndarray of shape (n_samples,), indices of the states \
-            to which each data point is assigned
+            state_assignments: ndarray of shape (n_samples,), indices of the states \
+                to which each data point is assigned
         """
         distances = np.array(
             [np.sum((data - centroid) ** 2, axis=1) for centroid in centroids]
@@ -356,8 +357,7 @@ class DiscreteJumpModel:
         hist_s = [cur_s]
         # the coordinate descent algorithm
         for i in range(30):
-            cur_theta, _ = self.fixed_states_optimize(
-                y, cur_s, theta_guess=None)
+            cur_theta, _ = self.fixed_states_optimize(y, cur_s, k=k)
             lossMatrix = self.generate_loss_matrix(y, cur_theta)
             cur_s, loss = self.fixed_theta_optimize(lossMatrix, lambda_)
             if cur_s.tolist() == hist_s[-1].tolist():
@@ -374,8 +374,8 @@ class DiscreteJumpModel:
         fit discrete jump model
 
         NOTE:
-        - A multiprocessing implementation is used to speed up the optimization
-        - Ten trials with k means++ initialization are ran
+            A multiprocessing implementation is used to speed up the optimization
+            Ten trials with k means++ initialization are ran
 
         Args:
             y (np.ndarray): observed data (T x n_features)
@@ -432,104 +432,94 @@ class DiscreteJumpModel:
         return res
 
 
-class ContinuousJumpModel:
+class ContinuousJumpModel(DiscreteJumpModel):
     """
-    Statistical Jump Model with Discrete States
+    Continuous Jump Model with Soft State Assignments
     """
 
-    def __init__(self) -> None:
-        pass
-
-    def fixed_states_optimize(self, y, s, theta_guess=None, k=2):
+    def fixed_states_optimize(self, y, s, k=None):
         """
-        Optimize the parameters of a discrete jump model with fixed states
+        Optimize theta given fixed states
 
         Args:
-            y (np.ndarray): observed data (T x n_features)
-            s (np.ndarray): state sequence (T x 1)
-            theta_guess (np.ndarray): initial guess for theta (k x n_features)
-            k (int): number of states
+            y: (T, n_features) array of observations
+            s: (T, k) array of state assignments
 
         Returns:
-            theta (np.ndarray): optimized parameters
-            objective_value (float): optimal value of the objective function
-        """
-        if not isinstance(y, np.ndarray) or not isinstance(s, np.ndarray):
-            raise TypeError("y and s must be numpy arrays")
+            theta: (k, n_features) array of optimal parameters
 
+        Note:
+            s is assumed to have each row sum to 1
+        """
         T, n_features = y.shape
+        _, k = s.shape
         theta = np.zeros((k, n_features))
 
-        # Compute the optimal centroids (theta) for each state
         for state in range(k):
-            assigned_data_points = y[s == state]
-            if assigned_data_points.size > 0:
-                theta[state] = assigned_data_points.mean(axis=0)
+            weights = s[:, state]
+            theta[state] = np.sum(
+                y * weights[:, np.newaxis], axis=0) / np.sum(weights)
 
-        # Compute the objective value
-        objective_value = 0.5 * np.sum(
-            [np.linalg.norm(y[i, :] - theta[s[i], :]) ** 2 for i in range(T)]
-        )
+        return theta
 
-        return theta, objective_value
-
-    def generate_loss_matrix(self, y, theta, k=2):
+    def generate_loss_matrix(self, y, theta):
+        """Identical to the loss function in the discrete case
         """
-        Generate the loss matrix for a discrete jump model for fixed theta
-
-        Args:
-            y (np.ndarray): observed data (T x n_features)
-            theta (np.ndarray): parameters (k x n_features)
-            k (int): number of states
-
-        Returns:
-            loss (np.ndarray): loss matrix (T x k)
-        """
-
-        # Expand dimensions to broadcast subtraction across y and theta
         diff = y[:, np.newaxis, :] - theta[np.newaxis, :, :]
-
-        # Compute squared L2 norm along the last axis (n_features)
         loss = 0.5 * np.sum(diff**2, axis=-1)
-
         return loss
 
-    def fixed_theta_optimize(self, lossMatrix, lambda_, k=2):
-        """
-        Optimize the state sequence of a discrete jump model with fixed parameters
+    def generate_C(self, K, grid_size=0.05):
+        """Uniformly sample of states distributed on a grid
 
         Args:
-            lossMatrix (np.ndarray): loss matrix (T x k)
-            lambda_ (float): regularization parameter
-            k (int): number of states
+            K (int): number of states
 
         Returns:
-            s (np.ndarray): optimal state sequence (T,)
-            v (float): optimal value of the objective function
+            matrix (np.ndarray): K x N matrix of states
         """
-        T, n_states = lossMatrix.shape
-        V = np.zeros((T, n_states))
-        V[0, :] = lossMatrix[0, :]
+        N = int(1 / grid_size) ** K
+        matrix = np.random.rand(K, N)
+        matrix /= matrix.sum(axis=0)
+        return matrix
 
-        state_choices = np.arange(n_states)
+    def fixed_theta_optimize(self, lossMatrix, lambda_, C):
+        """Optimize the state sequence of a continuous jump model with fixed parameters
+
+        Args:
+            lossMatrix (np.ndarray): loss matrix (T x K)
+            C (np.ndarray): K x N matrix of states
+            lambda_ (float): regularization parameter
+
+        Returns:
+            s_hat (np.ndarray): optimal state sequence with probability dist (T x K)
+            v_hat (float): loss value
+        """
+        T, K = lossMatrix.shape
+        _, N = C.shape
+
+        L_tilde = lossMatrix @ C
+        Lambda = np.array(
+            [[lambda_ / 4 * np.linalg.norm(c_i - c_j, ord=1)**2 for c_j in C.T] for c_i in C.T])
+
+        V_tilde = np.zeros((T, N))
+        V_tilde[0, :] = L_tilde[0, :]
 
         for t in range(1, T):
-            # Using broadcasting to compute the regularization term for all states at once
-            regularization = lambda_ * np.abs(
-                state_choices[:, np.newaxis] - state_choices
-            )
-            V[t, :] = lossMatrix[t, :] + \
-                (V[t - 1, :] + regularization).min(axis=1)
+            for i in range(N):
+                V_tilde[t, i] = L_tilde[t, i] + \
+                    np.min(V_tilde[t-1, :] + Lambda[:, i])
 
-        # backtrack to find optimal state sequence
-        v = V[-1, :].min()
-        s = np.zeros(T, dtype=int)
-        s[-1] = state_choices[V[-1, :].argmin()]
-        for t in range(T - 2, -1, -1):
-            s[t] = state_choices[
-                np.argmin(V[t, :] + lambda_ * np.abs(state_choices - s[t + 1]))
-            ]
-        return s, v
+        s_hat = np.zeros((T, K))
+        i_hat = np.argmin(V_tilde[-1, :])
+        v_hat = np.min(V_tilde[-1, :])
+        s_hat[-1] = C[:, i_hat]
+
+        for t in range(T-2, -1, -1):
+            i_hat = np.argmin(V_tilde[t, :] + Lambda[:, i_hat])
+            s_hat[t] = C[:, i_hat]
+
+        return s_hat, v_hat
 
 
 class FeatureGenerator:
@@ -591,11 +581,11 @@ class SimulationGenerator:
         """
         Computes the stationary distribution for a given Markov transition matrix.
 
-        Parameters:
-        - transition_matrix (numpy array): The Markov transition matrix.
+        Args:
+            transition_matrix (numpy array): The Markov transition matrix.
 
         Returns:
-        - numpy array: The stationary distribution.
+            numpy array: The stationary distribution.
         """
         size = len(transition_matrix)
         # Create a matrix subtracted from the identity matrix
@@ -613,13 +603,13 @@ class SimulationGenerator:
         """
         Simulates a Markov process.
 
-        Parameters:
-        - transition_matrix (numpy array): The Markov transition matrix.
-        - initial_distribution (numpy array): The initial state distribution.
-        - steps (int): The number of steps to simulate.
+        Args:
+            transition_matrix (numpy array): The Markov transition matrix.
+            initial_distribution (numpy array): The initial state distribution.
+            steps (int): The number of steps to simulate.
 
         Returns:
-        - list: The states at each step.
+            states (list): The states at each step.
         """
         state = np.random.choice(
             len(initial_distribution), p=initial_distribution)
@@ -637,13 +627,13 @@ class SimulationGenerator:
         """
         Generate data using normal distribution conditional on the states.
 
-        Parameters:
-        - states (list): The list of states
-        - parameters (dict): Parameters for each state with means and \
-            standard deviations
+        Args:
+            states (list): The list of states
+            parameters (dict): Parameters for each state with means and \
+                standard deviations
 
         Returns:
-        - list: Simulated data conditional on the states.
+            data (list): Simulated data conditional on the states.
         """
         data = []
         for state in states:
@@ -657,7 +647,7 @@ class SimulationGenerator:
         Run the simulation, return the simulated states and conditional data
 
         NOTE:
-        - States are forced to cover all states, if not, re-run the simulation
+            States are forced to cover all states, if not, re-run the simulation
 
         Args:
             steps (int): number of steps to simulate
