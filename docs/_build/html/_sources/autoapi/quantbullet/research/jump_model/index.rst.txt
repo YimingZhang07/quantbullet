@@ -51,11 +51,8 @@ Attributes
       :param k: Number of states.
       :type k: int
 
-      :returns:
-
-                A tuple containing:
-                    - theta (np.ndarray): Optimized parameters.
-                    - prob.value (float): Optimal value of the objective function.
+      :returns:     - np.ndarray: Optimized parameters of shape (k x n_features).
+                    - float: Optimal value of the objective function.
       :rtype: tuple
 
 
@@ -253,9 +250,38 @@ Attributes
       :rtype: s_hat (np.ndarray)
 
 
+   .. py:method:: fit(y, k=2, lambda_=100, rearrange=False, n_trials=10, max_iter=20)
+
+      fit discrete jump model
+
+      .. note::
+
+         A multiprocessing implementation is used to speed up the optimization
+         Ten trials with k means++ initialization are ran
+
+      :param y: observed data (T x n_features)
+      :type y: np.ndarray
+      :param k: number of states
+      :type k: int
+      :param lambda_: regularization parameter
+      :type lambda_: float
+      :param rearrange: whether to rearrange the states in increasing order of                 volatility
+      :type rearrange: bool
+
+      :returns: optimal state sequence (T x 1)
+                best_loss (float): optimal value of the objective function
+                best_theta (np.ndarray): optimal parameters (k x n_features)
+                optimized_s (list): state sequences from all trials (10 x T)
+                optimized_loss (list): objective function values from all trials (10 x 1)
+                optimized_theta (list): parameters from all trials (10 x k x n_features)
+      :rtype: best_s (np.ndarray)
+
+
 
 .. py:class:: FeatureGenerator
 
+
+   Enrich univaraite time series with features
 
    .. py:method:: enrich_features(time_series)
 
@@ -276,6 +302,8 @@ Attributes
 
 .. py:class:: SimulationGenerator
 
+
+   Generate simulated returns that follows a Hidden Markov process.
 
    .. py:method:: stationary_distribution(transition_matrix)
 
@@ -338,6 +366,8 @@ Attributes
 .. py:class:: TestingUtils
 
 
+   Parameters and plotting functions for testing
+
    .. py:method:: daily()
 
       Parameters for simulated daily return data, sourced from the paper
@@ -349,6 +379,15 @@ Attributes
 
       :param returns: An array of returns.
       :type returns: np.ndarray
+
+
+   .. py:method:: plot_state_probs(states, prices)
+
+      plot the state probabilities and stock prices on the same plot
+      :param states: An n x k array of state probabilities.
+      :type states: np.ndarray
+      :param prices: A series of prices, indexed by date.
+      :type prices: pd.DataFrame
 
 
    .. py:method:: plot_averages(data_dict)

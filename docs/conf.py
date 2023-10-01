@@ -33,10 +33,53 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "**/*_dev.ipynb"]
 
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
-#
-html_theme = "sphinx_rtd_theme"
+# html_theme = "sphinx_rtd_theme"
+html_theme = "pydata_sphinx_theme"
 
 # do not execute notebooks
 # nbsphinx_execute = 'never'
 # for myst-nb, the following is needed
 nb_execution_mode = "off"
+
+# -- View on Github ------------------------------------------------------
+
+# The following is used by sphinx.ext.linkcode to provide links to github
+# github_version has to be master/docs/ for the link to work
+# for sphinx_rtd_theme, the following is needed
+# html_context = {
+#   'display_github': True,
+#   'github_user': 'YimingZhang07',
+#   'github_repo': 'quantbullet',
+#   'github_version': 'master/docs/',
+# }
+
+# for pydata_sphinx_theme, the following is needed
+
+html_context = {
+  'default_mode': 'light',
+  'github_user': 'YimingZhang07',
+  'github_repo': 'quantbullet',
+  'github_version': 'master',
+  'doc_path': 'docs',
+}
+
+html_theme_options = {
+    "icon_links": [
+        {
+            # Label for this link
+            "name": "GitHub",
+            # URL where the link will redirect
+            "url": "https://github.com/YimingZhang07/quantbullet",  # required
+            # Icon class (if "type": "fontawesome"), or path to local image (if "type": "local")
+            "icon": "fa-brands fa-square-github",
+            # The type of image to be used (see below for details)
+            "type": "fontawesome",
+        },
+        {
+            "name": "My Website",
+            "url": "https://yimingzhang.netlify.app/",
+            "icon": "fa-solid fa-blog",
+            "type": "fontawesome",
+        }
+   ]
+}

@@ -44,11 +44,8 @@ Classes
       :param k: Number of states.
       :type k: int
 
-      :returns:
-
-                A tuple containing:
-                    - theta (np.ndarray): Optimized parameters.
-                    - prob.value (float): Optimal value of the objective function.
+      :returns:     - np.ndarray: Optimized parameters of shape (k x n_features).
+                    - float: Optimal value of the objective function.
       :rtype: tuple
 
 

@@ -1,101 +1,457 @@
-<!DOCTYPE html>
-<html class="writer-html5" lang="en" >
-<head>
-  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
 
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>quantbullet.research &mdash; quantbullet  documentation</title>
-      <link rel="stylesheet" href="../../../_static/pygments.css" type="text/css" />
-      <link rel="stylesheet" href="../../../_static/css/theme.css" type="text/css" />
-      <link rel="stylesheet" href="../../../_static/mystnb.4510f1fc1dee50b3e5859aac5469c37c29e427902b24a333a5f9fcb2f0b3ac41.css" type="text/css" />
-      <link rel="stylesheet" href="../../../_static/graphviz.css" type="text/css" />
-  <!--[if lt IE 9]>
-    <script src="../../../_static/js/html5shiv.min.js"></script>
-  <![endif]-->
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-theme="light">
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
+
+    <title>quantbullet.research &#8212; quantbullet  documentation</title>
   
-        <script data-url_root="../../../" id="documentation_options" src="../../../_static/documentation_options.js"></script>
-        <script src="../../../_static/jquery.js"></script>
-        <script src="../../../_static/underscore.js"></script>
-        <script src="../../../_static/_sphinx_javascript_frameworks_compat.js"></script>
-        <script src="../../../_static/doctools.js"></script>
-        <script src="../../../_static/sphinx_highlight.js"></script>
-        <script crossorigin="anonymous" integrity="sha256-Ae2Vz/4ePdIu6ZyI/5ZGsYnb+m0JlOmKPjt6XZ9JJkA=" src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"></script>
-    <script src="../../../_static/js/theme.js"></script>
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "light";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "light";
+  </script>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=ac02cc09edc035673794" rel="stylesheet" />
+<link href="../../../_static/styles/bootstrap.css?digest=ac02cc09edc035673794" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=ac02cc09edc035673794" rel="stylesheet" />
+
+  
+  <link href="../../../_static/vendor/fontawesome/6.1.2/css/all.min.css?digest=ac02cc09edc035673794" rel="stylesheet" />
+  <link rel="preload" as="font" type="font/woff2" crossorigin href="../../../_static/vendor/fontawesome/6.1.2/webfonts/fa-solid-900.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="../../../_static/vendor/fontawesome/6.1.2/webfonts/fa-brands-400.woff2" />
+<link rel="preload" as="font" type="font/woff2" crossorigin href="../../../_static/vendor/fontawesome/6.1.2/webfonts/fa-regular-400.woff2" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/mystnb.4510f1fc1dee50b3e5859aac5469c37c29e427902b24a333a5f9fcb2f0b3ac41.css" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/graphviz.css" />
+  
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=ac02cc09edc035673794" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=ac02cc09edc035673794" />
+  <script src="../../../_static/vendor/fontawesome/6.1.2/js/all.min.js?digest=ac02cc09edc035673794"></script>
+
+    <script data-url_root="../../../" id="documentation_options" src="../../../_static/documentation_options.js"></script>
+    <script src="../../../_static/jquery.js"></script>
+    <script src="../../../_static/underscore.js"></script>
+    <script src="../../../_static/_sphinx_javascript_frameworks_compat.js"></script>
+    <script src="../../../_static/doctools.js"></script>
+    <script src="../../../_static/sphinx_highlight.js"></script>
+    <script crossorigin="anonymous" integrity="sha256-Ae2Vz/4ePdIu6ZyI/5ZGsYnb+m0JlOmKPjt6XZ9JJkA=" src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'autoapi/quantbullet/research/index';</script>
     <link rel="index" title="Index" href="../../../genindex.html" />
     <link rel="search" title="Search" href="../../../search.html" />
     <link rel="next" title="quantbullet.research.jump_model" href="jump_model/index.html" />
-    <link rel="prev" title="quantbullet" href="../index.html" /> 
-</head>
+    <link rel="prev" title="quantbullet" href="../index.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="light">
 
-<body class="wy-body-for-nav"> 
-  <div class="wy-grid-for-nav">
-    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
-      <div class="wy-side-scroll">
-        <div class="wy-side-nav-search" >
+  
+  
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+  
+  <div id="pst-scroll-pixel-helper"></div>
 
-          
-          
-          <a href="../../../index.html" class="icon icon-home">
-            quantbullet
-          </a>
-<div role="search">
-  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
-    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
-    <input type="hidden" name="check_keywords" value="yes" />
-    <input type="hidden" name="area" value="default" />
-  </form>
-</div>
-        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
-              <ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="../../../research/jump_model_prod.html">Statistical Jump Model</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../changelog.html">Changelog</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../contributing.html">Contributing</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../../../conduct.html">Code of Conduct</a></li>
-<li class="toctree-l1 current"><a class="reference internal" href="../../index.html">API Reference</a><ul class="current">
-<li class="toctree-l2 current"><a class="reference internal" href="../index.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">quantbullet</span></code></a><ul class="current">
-<li class="toctree-l3 current"><a class="reference internal" href="../index.html#subpackages">Subpackages</a><ul class="current">
-<li class="toctree-l4 current"><a class="current reference internal" href="#"><code class="xref py py-mod docutils literal notranslate"><span class="pre">quantbullet.research</span></code></a></li>
-<li class="toctree-l4"><a class="reference internal" href="../tsa/index.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">quantbullet.tsa</span></code></a></li>
-</ul>
-</li>
-<li class="toctree-l3"><a class="reference internal" href="../index.html#submodules">Submodules</a></li>
-<li class="toctree-l3"><a class="reference internal" href="../index.html#package-contents">Package Contents</a></li>
-</ul>
-</li>
-</ul>
-</li>
-</ul>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>
+    Back to top
+  </button>
 
-        </div>
-      </div>
-    </nav>
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          name="__primary"
+          id="__primary"/>
+  <label class="overlay overlay-primary" for="__primary"></label>
+  
+  <input type="checkbox"
+          class="sidebar-toggle"
+          name="__secondary"
+          id="__secondary"/>
+  <label class="overlay overlay-secondary" for="__secondary"></label>
+  
+  <div class="search-button__wrapper">
+    <div class="search-button__overlay"></div>
+    <div class="search-button__search-container">
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         id="search-input"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form></div>
+  </div>
+  
+    <nav class="bd-header navbar navbar-expand-lg bd-navbar">
+<div class="bd-header__inner bd-page-width">
+  <label class="sidebar-toggle primary-toggle" for="__primary">
+    <span class="fa-solid fa-bars"></span>
+  </label>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+  
 
-    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
-          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
-          <a href="../../../index.html">quantbullet</a>
-      </nav>
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+    <p class="title logo__title">quantbullet  documentation</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item"><nav class="navbar-nav">
+  <p class="sidebar-header-items__title"
+     role="heading"
+     aria-level="1"
+     aria-label="Site Navigation">
+    Site Navigation
+  </p>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+                    <li class="nav-item">
+                      <a class="nav-link nav-internal" href="../../../research/jump_model_prod.html">
+                        Statistical Jump Model
+                      </a>
+                    </li>
+                
 
-      <div class="wy-nav-content">
-        <div class="rst-content">
-          <div role="navigation" aria-label="Page navigation">
-  <ul class="wy-breadcrumbs">
-      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
-          <li class="breadcrumb-item"><a href="../../index.html">API Reference</a></li>
-          <li class="breadcrumb-item"><a href="../index.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">quantbullet</span></code></a></li>
-      <li class="breadcrumb-item active"><code class="xref py py-mod docutils literal notranslate"><span class="pre">quantbullet.research</span></code></li>
-      <li class="wy-breadcrumbs-aside">
-            <a href="../../../_sources/autoapi/quantbullet/research/index.rst.txt" rel="nofollow"> View page source</a>
-      </li>
+                    <li class="nav-item">
+                      <a class="nav-link nav-internal" href="../../../changelog.html">
+                        Changelog
+                      </a>
+                    </li>
+                
+
+                    <li class="nav-item">
+                      <a class="nav-link nav-internal" href="../../../contributing.html">
+                        Contributing
+                      </a>
+                    </li>
+                
+
+                    <li class="nav-item">
+                      <a class="nav-link nav-internal" href="../../../conduct.html">
+                        Code of Conduct
+                      </a>
+                    </li>
+                
+
+                    <li class="nav-item current active">
+                      <a class="nav-link nav-internal" href="../../index.html">
+                        API Reference
+                      </a>
+                    </li>
+                
   </ul>
-  <hr/>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+ <script>
+ document.write(`
+   <button class="btn navbar-btn search-button-field search-button__button" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass"></i>
+    <span class="search-button__default-text">Search</span>
+    <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+   </button>
+ `);
+ </script>
+        </div>
+      
+      
+        <div class="navbar-item">
+<script>
+document.write(`
+  <button class="btn btn-sm navbar-btn theme-switch-button" title="light/dark" aria-label="light/dark" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <span class="theme-switch nav-link" data-mode="light"><i class="fa-solid fa-sun fa-lg"></i></span>
+    <span class="theme-switch nav-link" data-mode="dark"><i class="fa-solid fa-moon fa-lg"></i></span>
+    <span class="theme-switch nav-link" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg"></i></span>
+  </button>
+`);
+</script></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links navbar-nav"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/YimingZhang07/quantbullet" title="GitHub" class="nav-link" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><span><i class="fa-brands fa-square-github fa-lg" aria-hidden="true"></i></span>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://yimingzhang.netlify.app/" title="My Website" class="nav-link" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><span><i class="fa-solid fa-blog fa-lg" aria-hidden="true"></i></span>
+            <span class="sr-only">My Website</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+ <script>
+ document.write(`
+   <button class="btn navbar-btn search-button-field search-button__button" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <i class="fa-solid fa-magnifying-glass"></i>
+    <span class="search-button__default-text">Search</span>
+    <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+   </button>
+ `);
+ </script>
+    </div>
+  
+
+  
+    <label class="sidebar-toggle secondary-toggle" for="__secondary" tabindex="0">
+      <span class="fa-solid fa-outdent"></span>
+    </label>
+  
 </div>
-          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
-           <div itemprop="articleBody">
-             
+
+    </nav>
+  
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      <div class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          <div class="navbar-item"><nav class="navbar-nav">
+  <p class="sidebar-header-items__title"
+     role="heading"
+     aria-level="1"
+     aria-label="Site Navigation">
+    Site Navigation
+  </p>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+                    <li class="nav-item">
+                      <a class="nav-link nav-internal" href="../../../research/jump_model_prod.html">
+                        Statistical Jump Model
+                      </a>
+                    </li>
+                
+
+                    <li class="nav-item">
+                      <a class="nav-link nav-internal" href="../../../changelog.html">
+                        Changelog
+                      </a>
+                    </li>
+                
+
+                    <li class="nav-item">
+                      <a class="nav-link nav-internal" href="../../../contributing.html">
+                        Contributing
+                      </a>
+                    </li>
+                
+
+                    <li class="nav-item">
+                      <a class="nav-link nav-internal" href="../../../conduct.html">
+                        Code of Conduct
+                      </a>
+                    </li>
+                
+
+                    <li class="nav-item current active">
+                      <a class="nav-link nav-internal" href="../../index.html">
+                        API Reference
+                      </a>
+                    </li>
+                
+  </ul>
+</nav></div>
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<script>
+document.write(`
+  <button class="btn btn-sm navbar-btn theme-switch-button" title="light/dark" aria-label="light/dark" data-bs-placement="bottom" data-bs-toggle="tooltip">
+    <span class="theme-switch nav-link" data-mode="light"><i class="fa-solid fa-sun fa-lg"></i></span>
+    <span class="theme-switch nav-link" data-mode="dark"><i class="fa-solid fa-moon fa-lg"></i></span>
+    <span class="theme-switch nav-link" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg"></i></span>
+  </button>
+`);
+</script></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links navbar-nav"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/YimingZhang07/quantbullet" title="GitHub" class="nav-link" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><span><i class="fa-brands fa-square-github fa-lg" aria-hidden="true"></i></span>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://yimingzhang.netlify.app/" title="My Website" class="nav-link" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><span><i class="fa-solid fa-blog fa-lg" aria-hidden="true"></i></span>
+            <span class="sr-only">My Website</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item"><nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="../index.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">quantbullet</span></code></a><input checked="" class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" type="checkbox"/><label class="toctree-toggle" for="toctree-checkbox-1"><i class="fa-solid fa-chevron-down"></i></label><ul class="current">
+<li class="toctree-l2 current active has-children"><a class="current reference internal" href="#"><code class="xref py py-mod docutils literal notranslate"><span class="pre">quantbullet.research</span></code></a><input checked="" class="toctree-checkbox" id="toctree-checkbox-2" name="toctree-checkbox-2" type="checkbox"/><label class="toctree-toggle" for="toctree-checkbox-2"><i class="fa-solid fa-chevron-down"></i></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="jump_model/index.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">quantbullet.research.jump_model</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../tsa/index.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">quantbullet.tsa</span></code></a><input class="toctree-checkbox" id="toctree-checkbox-3" name="toctree-checkbox-3" type="checkbox"/><label class="toctree-toggle" for="toctree-checkbox-3"><i class="fa-solid fa-chevron-down"></i></label><ul>
+<li class="toctree-l3"><a class="reference internal" href="../tsa/arima/index.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">quantbullet.tsa.arima</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../global_utils/index.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">quantbullet.global_utils</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../log_config/index.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">quantbullet.log_config</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quantbullet/index.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">quantbullet.quantbullet</span></code></a></li>
+</ul>
+</li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+  </div>
+  
+  <div id="rtd-footer-container"></div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+
+
+<nav aria-label="Breadcrumb">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">API Reference</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link"><code class="xref py py-mod docutils literal notranslate"><span class="pre">quantbullet</span></code></a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><code...</li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article" role="main">
+                  
   <section id="module-quantbullet.research">
-<span id="quantbullet-research"></span><h1><a class="reference internal" href="#module-quantbullet.research" title="quantbullet.research"><code class="xref py py-mod docutils literal notranslate"><span class="pre">quantbullet.research</span></code></a><a class="headerlink" href="#module-quantbullet.research" title="Permalink to this heading"></a></h1>
+<span id="quantbullet-research"></span><h1><a class="reference internal" href="#module-quantbullet.research" title="quantbullet.research"><code class="xref py py-mod docutils literal notranslate"><span class="pre">quantbullet.research</span></code></a><a class="headerlink" href="#module-quantbullet.research" title="Permalink to this heading">#</a></h1>
 <section id="submodules">
-<h2>Submodules<a class="headerlink" href="#submodules" title="Permalink to this heading"></a></h2>
+<h2>Submodules<a class="headerlink" href="#submodules" title="Permalink to this heading">#</a></h2>
 <div class="toctree-wrapper compound">
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="jump_model/index.html"><code class="xref py py-mod docutils literal notranslate"><span class="pre">quantbullet.research.jump_model</span></code></a></li>
@@ -103,10 +459,10 @@
 </div>
 </section>
 <section id="package-contents">
-<h2>Package Contents<a class="headerlink" href="#package-contents" title="Permalink to this heading"></a></h2>
+<h2>Package Contents<a class="headerlink" href="#package-contents" title="Permalink to this heading">#</a></h2>
 <section id="classes">
-<h3>Classes<a class="headerlink" href="#classes" title="Permalink to this heading"></a></h3>
-<table class="autosummary longtable docutils align-default">
+<h3>Classes<a class="headerlink" href="#classes" title="Permalink to this heading">#</a></h3>
+<table class="autosummary longtable table autosummary">
 <tbody>
 <tr class="row-odd"><td><p><a class="reference internal" href="#quantbullet.research.DiscreteJumpModel" title="quantbullet.research.DiscreteJumpModel"><code class="xref py py-obj docutils literal notranslate"><span class="pre">DiscreteJumpModel</span></code></a></p></td>
 <td><p>Statistical Jump Model with Discrete States</p></td>
@@ -115,11 +471,11 @@
 </table>
 <dl class="py class">
 <dt class="sig sig-object py" id="quantbullet.research.DiscreteJumpModel">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">quantbullet.research.</span></span><span class="sig-name descname"><span class="pre">DiscreteJumpModel</span></span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel" title="Permalink to this definition"></a></dt>
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">quantbullet.research.</span></span><span class="sig-name descname"><span class="pre">DiscreteJumpModel</span></span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel" title="Permalink to this definition">#</a></dt>
 <dd><p>Statistical Jump Model with Discrete States</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="quantbullet.research.DiscreteJumpModel.fixed_states_optimize">
-<span class="sig-name descname"><span class="pre">fixed_states_optimize</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.fixed_states_optimize"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.fixed_states_optimize" title="Permalink to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">fixed_states_optimize</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.fixed_states_optimize"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.fixed_states_optimize" title="Permalink to this definition">#</a></dt>
 <dd><p>Optimize the parameters of a discrete jump model with fixed states.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
@@ -131,13 +487,10 @@
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p><dl class="simple">
-<dt>A tuple containing:</dt><dd><ul class="simple">
-<li><p>theta (np.ndarray): Optimized parameters.</p></li>
-<li><p>prob.value (float): Optimal value of the objective function.</p></li>
+<dd class="field-even"><p><ul class="simple">
+<li><p>np.ndarray: Optimized parameters of shape (k x n_features).</p></li>
+<li><p>float: Optimal value of the objective function.</p></li>
 </ul>
-</dd>
-</dl>
 </p>
 </dd>
 <dt class="field-odd">Return type<span class="colon">:</span></dt>
@@ -148,7 +501,7 @@
 
 <dl class="py method">
 <dt class="sig sig-object py" id="quantbullet.research.DiscreteJumpModel.generate_loss_matrix">
-<span class="sig-name descname"><span class="pre">generate_loss_matrix</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">theta</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.generate_loss_matrix"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.generate_loss_matrix" title="Permalink to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">generate_loss_matrix</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">theta</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.generate_loss_matrix"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.generate_loss_matrix" title="Permalink to this definition">#</a></dt>
 <dd><p>Generate the loss matrix for a discrete jump model for fixed theta</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
@@ -169,7 +522,7 @@
 
 <dl class="py method">
 <dt class="sig sig-object py" id="quantbullet.research.DiscreteJumpModel.fixed_theta_optimize">
-<span class="sig-name descname"><span class="pre">fixed_theta_optimize</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lossMatrix</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lambda_</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.fixed_theta_optimize"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.fixed_theta_optimize" title="Permalink to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">fixed_theta_optimize</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lossMatrix</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lambda_</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.fixed_theta_optimize"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.fixed_theta_optimize" title="Permalink to this definition">#</a></dt>
 <dd><p>Optimize the state sequence of a discrete jump model with fixed parameters</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
@@ -191,7 +544,7 @@ v (float): optimal value of the objective function</p>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="quantbullet.research.DiscreteJumpModel.initialize_kmeans_plusplus">
-<span class="sig-name descname"><span class="pre">initialize_kmeans_plusplus</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.initialize_kmeans_plusplus"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.initialize_kmeans_plusplus" title="Permalink to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">initialize_kmeans_plusplus</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.initialize_kmeans_plusplus"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.initialize_kmeans_plusplus" title="Permalink to this definition">#</a></dt>
 <dd><p>Initialize the centroids using the k-means++ method.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
@@ -211,7 +564,7 @@ v (float): optimal value of the objective function</p>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="quantbullet.research.DiscreteJumpModel.classify_data_to_states">
-<span class="sig-name descname"><span class="pre">classify_data_to_states</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">centroids</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.classify_data_to_states"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.classify_data_to_states" title="Permalink to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">classify_data_to_states</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">centroids</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.classify_data_to_states"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.classify_data_to_states" title="Permalink to this definition">#</a></dt>
 <dd><p>Classify data points to the states based on the centroids.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
@@ -231,7 +584,7 @@ v (float): optimal value of the objective function</p>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="quantbullet.research.DiscreteJumpModel.infer_states_stats">
-<span class="sig-name descname"><span class="pre">infer_states_stats</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ts_returns</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">states</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.infer_states_stats"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.infer_states_stats" title="Permalink to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">infer_states_stats</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ts_returns</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">states</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.infer_states_stats"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.infer_states_stats" title="Permalink to this definition">#</a></dt>
 <dd><p>Compute the mean and standard deviation of returns for each state</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
@@ -251,7 +604,7 @@ v (float): optimal value of the objective function</p>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="quantbullet.research.DiscreteJumpModel.remapResults">
-<span class="sig-name descname"><span class="pre">remapResults</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">optimized_s</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">optimized_theta</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ts_returns</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.remapResults"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.remapResults" title="Permalink to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">remapResults</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">optimized_s</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">optimized_theta</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ts_returns</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.remapResults"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.remapResults" title="Permalink to this definition">#</a></dt>
 <dd><p>Remap the results of the optimization.</p>
 <p>We would like the states to be in increasing order of the volatility of returns.
 This is because vol has smaller variance than returns, a warning is triggered if             the states identified by volatility and returns are different.</p>
@@ -259,14 +612,14 @@ This is because vol has smaller variance than returns, a warning is triggered if
 
 <dl class="py method">
 <dt class="sig sig-object py" id="quantbullet.research.DiscreteJumpModel.cleanResults">
-<span class="sig-name descname"><span class="pre">cleanResults</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">raw_result</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ts_returns</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rearrange</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.cleanResults"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.cleanResults" title="Permalink to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">cleanResults</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">raw_result</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ts_returns</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rearrange</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.cleanResults"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.cleanResults" title="Permalink to this definition">#</a></dt>
 <dd><p>Clean the results of the optimization.</p>
 <p>This extracts the best results from the ten trials based on the loss.</p>
 </dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="quantbullet.research.DiscreteJumpModel.single_run">
-<span class="sig-name descname"><span class="pre">single_run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lambda_</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.single_run"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.single_run" title="Permalink to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">single_run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lambda_</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.single_run"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.single_run" title="Permalink to this definition">#</a></dt>
 <dd><p>Run a single trial of the optimization. Each trial uses a different             initialization of the centroids.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
@@ -289,7 +642,7 @@ cur_theta (np.ndarray): optimal parameters (k x n_features)</p>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="quantbullet.research.DiscreteJumpModel.fit">
-<span class="sig-name descname"><span class="pre">fit</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lambda_</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">100</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rearrange</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_trials</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.fit"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.fit" title="Permalink to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">fit</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lambda_</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">100</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rearrange</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_trials</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.fit"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.fit" title="Permalink to this definition">#</a></dt>
 <dd><p>fit discrete jump model</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
@@ -321,7 +674,7 @@ optimized_theta (list): parameters from all trials (10 x k x n_features)</p>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="quantbullet.research.DiscreteJumpModel.evaluate">
-<span class="sig-name descname"><span class="pre">evaluate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">true</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pred</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">plot</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.evaluate"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.evaluate" title="Permalink to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">evaluate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">true</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pred</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">plot</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.evaluate"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.evaluate" title="Permalink to this definition">#</a></dt>
 <dd><p>Evaluate the model using balanced accuracy score</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
@@ -347,34 +700,131 @@ optimized_theta (list): parameters from all trials (10 x k x n_features)</p>
 </section>
 
 
-           </div>
-          </div>
-          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="../index.html" class="btn btn-neutral float-left" title="quantbullet" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="jump_model/index.html" class="btn btn-neutral float-right" title="quantbullet.research.jump_model" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
-    </div>
-
-  <hr/>
-
-  <div role="contentinfo">
-    <p>&#169; Copyright 2023, Yiming Zhang.</p>
-  </div>
-
-  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
-    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
-    provided by <a href="https://readthedocs.org">Read the Docs</a>.
-   
-
-</footer>
-        </div>
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer">
+                  <!-- Previous / next buttons -->
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="../index.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title"><code class="xref py py-mod docutils literal notranslate"><span class="pre">quantbullet</span></code></p>
       </div>
-    </section>
-  </div>
-  <script>
-      jQuery(function () {
-          SphinxRtdTheme.Navigation.enable(true);
-      });
-  </script> 
+    </a>
+    <a class="right-next"
+       href="jump_model/index.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title"><code class="xref py py-mod docutils literal notranslate"><span class="pre">quantbullet.research.jump_model</span></code></p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <div class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
 
-</body>
+  <div class="sidebar-secondary-item">
+  <div class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#submodules">Submodules</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#package-contents">Package Contents</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#classes">Classes</a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#quantbullet.research.DiscreteJumpModel"><code class="docutils literal notranslate"><span class="pre">DiscreteJumpModel</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#quantbullet.research.DiscreteJumpModel.fixed_states_optimize"><code class="docutils literal notranslate"><span class="pre">DiscreteJumpModel.fixed_states_optimize()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#quantbullet.research.DiscreteJumpModel.generate_loss_matrix"><code class="docutils literal notranslate"><span class="pre">DiscreteJumpModel.generate_loss_matrix()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#quantbullet.research.DiscreteJumpModel.fixed_theta_optimize"><code class="docutils literal notranslate"><span class="pre">DiscreteJumpModel.fixed_theta_optimize()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#quantbullet.research.DiscreteJumpModel.initialize_kmeans_plusplus"><code class="docutils literal notranslate"><span class="pre">DiscreteJumpModel.initialize_kmeans_plusplus()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#quantbullet.research.DiscreteJumpModel.classify_data_to_states"><code class="docutils literal notranslate"><span class="pre">DiscreteJumpModel.classify_data_to_states()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#quantbullet.research.DiscreteJumpModel.infer_states_stats"><code class="docutils literal notranslate"><span class="pre">DiscreteJumpModel.infer_states_stats()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#quantbullet.research.DiscreteJumpModel.remapResults"><code class="docutils literal notranslate"><span class="pre">DiscreteJumpModel.remapResults()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#quantbullet.research.DiscreteJumpModel.cleanResults"><code class="docutils literal notranslate"><span class="pre">DiscreteJumpModel.cleanResults()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#quantbullet.research.DiscreteJumpModel.single_run"><code class="docutils literal notranslate"><span class="pre">DiscreteJumpModel.single_run()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#quantbullet.research.DiscreteJumpModel.fit"><code class="docutils literal notranslate"><span class="pre">DiscreteJumpModel.fit()</span></code></a></li>
+<li class="toc-h5 nav-item toc-entry"><a class="reference internal nav-link" href="#quantbullet.research.DiscreteJumpModel.evaluate"><code class="docutils literal notranslate"><span class="pre">DiscreteJumpModel.evaluate()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+  <div class="tocsection sourcelink">
+    <a href="../../../_sources/autoapi/quantbullet/research/index.rst.txt">
+      <i class="fa-solid fa-file-lines"></i> Show Source
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script src="../../../_static/scripts/bootstrap.js?digest=ac02cc09edc035673794"></script>
+<script src="../../../_static/scripts/pydata-sphinx-theme.js?digest=ac02cc09edc035673794"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+  <p class="copyright">
+    
+      © Copyright 2023, Yiming Zhang.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 5.3.0.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item"><p class="theme-version">
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.14.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
 </html>

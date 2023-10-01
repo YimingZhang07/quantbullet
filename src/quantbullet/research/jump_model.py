@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import multiprocessing as mp
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 from collections import Counter
 from operator import itemgetter
 from sklearn import preprocessing
@@ -60,9 +61,9 @@ class DiscreteJumpModel:
             k (int): Number of states.
 
         Returns:
-            tuple: A tuple containing:
-                - theta (np.ndarray): Optimized parameters.
-                - prob.value (float): Optimal value of the objective function.
+            tuple:
+                - np.ndarray: Optimized parameters of shape (k x n_features).
+                - float: Optimal value of the objective function.
         """
         if not isinstance(y, np.ndarray) or not isinstance(s, np.ndarray):
             raise TypeError("y and s must be numpy arrays")
@@ -520,9 +521,56 @@ class ContinuousJumpModel(DiscreteJumpModel):
             s_hat[t] = C[:, i_hat]
 
         return s_hat, v_hat
+    
+    def fit(self, y, k=2, lambda_=100, rearrange=False, n_trials=10, max_iter=20):
+        if rearrange:
+            raise NotImplementedError("The rearrange function has not been \
+                                      implemented.")
+        # lists to keep best loss and state sequence across trials
+        best_trial_loss = list()
+        best_trial_states = list()
+
+        for _ in range(n_trials):
+            centroids = self.initialize_kmeans_plusplus(y, k)
+            cur_s = self.classify_data_to_states(y, centroids)
+            second_col = 1 - cur_s
+            cur_s = np.column_stack((cur_s, second_col))
+            cur_loss = float('inf')
+            best_states = cur_s
+            best_loss = cur_loss
+            no_improvement_counter = 0  # Counter for consecutive iterations without improvement
+            for _ in range(max_iter):
+                cur_theta = self.fixed_states_optimize(y, cur_s, k)  # Assuming 2 states
+                lossMatrix = self.generate_loss_matrix(y, cur_theta)
+                C = self.generate_C(k)
+                cur_s, cur_loss = self.fixed_theta_optimize(lossMatrix,
+                                                            lambda_=lambda_,
+                                                            C=C)
+                
+                # Check if the current solution is better than the best known solution
+                if cur_loss < best_loss:
+                    best_loss = cur_loss
+                    best_states = cur_s
+                    no_improvement_counter = 0  # Reset the counter if there's improvement
+                else:
+                    no_improvement_counter += 1  # Increment the counter if no improvement
+
+                # Check for convergence
+                if no_improvement_counter >= 3:
+                    best_trial_loss.append(best_loss)
+                    best_trial_states.append(best_states)
+                    break
+
+        final_best_loss = min(best_trial_loss)
+        final_best_states = best_trial_states[best_trial_loss.index(final_best_loss)]
+        return final_best_states, final_best_loss
+    
 
 
 class FeatureGenerator:
+    """
+    Enrich univaraite time series with features
+    """
     def __init__(self) -> None:
         pass
 
@@ -574,6 +622,9 @@ class FeatureGenerator:
 
 
 class SimulationGenerator:
+    """
+    Generate simulated returns that follows a Hidden Markov process.
+    """
     def __init__(self) -> None:
         pass
 
@@ -681,6 +732,9 @@ class SimulationGenerator:
 
 
 class TestingUtils:
+    """
+    Parameters and plotting functions for testing
+    """
     def __init__(self) -> None:
         pass
 
@@ -760,6 +814,38 @@ class TestingUtils:
 
         fig.tight_layout()
         plt.show()
+
+    def plot_state_probs(self, states, prices):
+        """plot the state probabilities and stock prices on the same plot
+        Args:
+            states (np.ndarray): An n x k array of state probabilities.
+            prices (pd.DataFrame): A series of prices, indexed by date.
+        """
+        if not isinstance(states, np.ndarray):
+            states = np.array(states)
+        
+        if not isinstance(prices.index, pd.DatetimeIndex):
+            raise ValueError("The index of prices must be a DatetimeIndex.")
+
+        fig, ax = plt.subplots()
+        ax.plot(prices.index[len(prices) - len(states):], states[:, 1], label='State Probability')
+        ax.set_xlabel('Time')
+        ax.set_ylabel('State Probability')
+
+        ax2 = ax.twinx()
+        ax2.plot(prices.index, prices.values, color='green', label='Stock Price')
+        ax2.set_ylabel('Price')
+
+        # Use AutoDateLocator and DateFormatter for x-axis labels
+        locator = mdates.AutoDateLocator()
+        formatter = mdates.DateFormatter("%Y-%b")
+        ax.xaxis.set_major_locator(locator)
+        ax.xaxis.set_major_formatter(formatter)
+        fig.autofmt_xdate()  # Rotate and align the tick labels
+
+        handles, labels = ax.get_legend_handles_labels()
+        handles2, labels2 = ax2.get_legend_handles_labels()
+        ax.legend(handles + handles2, labels + labels2, loc='upper right')
 
     def plot_averages(self, data_dict):
         """
