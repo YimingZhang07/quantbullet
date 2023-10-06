@@ -3,6 +3,11 @@
 
 .. py:module:: quantbullet.research.jump_model
 
+.. autoapi-nested-parse::
+
+   Module for statistical jump models
+
+
 
 Module Contents
 ---------------
@@ -40,7 +45,7 @@ Attributes
 
    .. py:method:: fixed_states_optimize(y, s, k=2)
 
-      Optimize the parameters of a discrete jump model with fixed states.
+      Optimize the parameters of a discrete jump model with states fixed first.
 
       :param y: Observed data of shape (T x n_features).
       :type y: np.ndarray
@@ -71,7 +76,7 @@ Attributes
       :rtype: loss (np.ndarray)
 
 
-   .. py:method:: fixed_theta_optimize(lossMatrix, lambda_, k=2)
+   .. py:method:: fixed_theta_optimize(lossMatrix, lambda_)
 
       Optimize the state sequence of a discrete jump model with fixed parameters
 
@@ -79,8 +84,6 @@ Attributes
       :type lossMatrix: np.ndarray
       :param lambda_: regularization parameter
       :type lambda_: float
-      :param k: number of states
-      :type k: int
 
       :returns: optimal state sequence (T,)
                 v (float): optimal value of the objective function
@@ -223,12 +226,12 @@ Attributes
 
 
 
-   .. py:method:: generate_C(K, grid_size=0.05)
+   .. py:method:: generate_C(k, grid_size=0.05)
 
       Uniformly sample of states distributed on a grid
 
-      :param K: number of states
-      :type K: int
+      :param k: number of states
+      :type k: int
 
       :returns: K x N matrix of states
       :rtype: matrix (np.ndarray)
@@ -373,7 +376,7 @@ Attributes
       Parameters for simulated daily return data, sourced from the paper
 
 
-   .. py:method:: plot_returns(returns, shade_list=[])
+   .. py:method:: plot_returns(returns, shade_list=None)
 
       Plot both the cumulative returns and returns on separate subplots sharing the x-axis.
 

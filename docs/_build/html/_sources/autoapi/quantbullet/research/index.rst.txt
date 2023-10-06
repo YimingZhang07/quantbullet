@@ -33,7 +33,7 @@ Classes
 
    .. py:method:: fixed_states_optimize(y, s, k=2)
 
-      Optimize the parameters of a discrete jump model with fixed states.
+      Optimize the parameters of a discrete jump model with states fixed first.
 
       :param y: Observed data of shape (T x n_features).
       :type y: np.ndarray
@@ -64,7 +64,7 @@ Classes
       :rtype: loss (np.ndarray)
 
 
-   .. py:method:: fixed_theta_optimize(lossMatrix, lambda_, k=2)
+   .. py:method:: fixed_theta_optimize(lossMatrix, lambda_)
 
       Optimize the state sequence of a discrete jump model with fixed parameters
 
@@ -72,8 +72,6 @@ Classes
       :type lossMatrix: np.ndarray
       :param lambda_: regularization parameter
       :type lambda_: float
-      :param k: number of states
-      :type k: int
 
       :returns: optimal state sequence (T,)
                 v (float): optimal value of the objective function

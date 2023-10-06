@@ -1,3 +1,6 @@
+"""
+Module for statistical jump models
+"""
 import numpy as np
 import pandas as pd
 import multiprocessing as mp
@@ -52,7 +55,7 @@ class DiscreteJumpModel:
 
     def fixed_states_optimize(self, y, s, k=2):
         """
-        Optimize the parameters of a discrete jump model with fixed states.
+        Optimize the parameters of a discrete jump model with states fixed first.
 
         Args:
             y (np.ndarray): Observed data of shape (T x n_features).
@@ -161,14 +164,13 @@ class DiscreteJumpModel:
     #         ]
     #     return s, v
 
-    def fixed_theta_optimize(self, lossMatrix, lambda_, k=2):
+    def fixed_theta_optimize(self, lossMatrix, lambda_):
         """
         Optimize the state sequence of a discrete jump model with fixed parameters
 
         Args:
             lossMatrix (np.ndarray): loss matrix (T x k)
             lambda_ (float): regularization parameter
-            k (int): number of states
 
         Returns:
             s (np.ndarray): optimal state sequence (T,)
@@ -421,8 +423,8 @@ class DiscreteJumpModel:
         true_len = len(true)
         pred_len = len(pred)
         if plot:
-            plt.plot(true, label="true")
-            plt.plot(pred, label="pred")
+            plt.plot(true, label="True")
+            plt.plot(pred, label="Pred")
             plt.title("True and Predicted State Sequences")
             plt.xlabel("Time")
             plt.ylabel("State")
@@ -452,7 +454,7 @@ class ContinuousJumpModel(DiscreteJumpModel):
         Note:
             s is assumed to have each row sum to 1
         """
-        T, n_features = y.shape
+        _, n_features = y.shape
         _, k = s.shape
         theta = np.zeros((k, n_features))
 
@@ -470,17 +472,17 @@ class ContinuousJumpModel(DiscreteJumpModel):
         loss = 0.5 * np.sum(diff**2, axis=-1)
         return loss
 
-    def generate_C(self, K, grid_size=0.05):
+    def generate_C(self, k, grid_size=0.05):
         """Uniformly sample of states distributed on a grid
 
         Args:
-            K (int): number of states
+            k (int): number of states
 
         Returns:
             matrix (np.ndarray): K x N matrix of states
         """
-        N = int(1 / grid_size) ** K
-        matrix = np.random.rand(K, N)
+        N = int(1 / grid_size) ** k
+        matrix = np.random.rand(k, N)
         matrix /= matrix.sum(axis=0)
         return matrix
 
@@ -755,7 +757,7 @@ class TestingUtils:
 
         return transition_matrix, norm_parameters
 
-    def plot_returns(self, returns, shade_list=[]):
+    def plot_returns(self, returns, shade_list=None):
         """
         Plot both the cumulative returns and returns on separate subplots sharing the x-axis.
 
@@ -790,7 +792,7 @@ class TestingUtils:
         ax2.set_ylabel("Returns")
         ax2.set_title("Returns")
 
-        if len(shade_list) > 0:
+        if shade_list is not None:
             # Shade regions corresponding to clusters of 1s in the shade_list
             start_shade = len(returns) - len(shade_list)
             start_region = None

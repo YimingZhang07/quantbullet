@@ -476,7 +476,7 @@ document.write(`
 <dl class="py method">
 <dt class="sig sig-object py" id="quantbullet.research.DiscreteJumpModel.fixed_states_optimize">
 <span class="sig-name descname"><span class="pre">fixed_states_optimize</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">s</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.fixed_states_optimize"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.fixed_states_optimize" title="Permalink to this definition">#</a></dt>
-<dd><p>Optimize the parameters of a discrete jump model with fixed states.</p>
+<dd><p>Optimize the parameters of a discrete jump model with states fixed first.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
@@ -522,14 +522,13 @@ document.write(`
 
 <dl class="py method">
 <dt class="sig sig-object py" id="quantbullet.research.DiscreteJumpModel.fixed_theta_optimize">
-<span class="sig-name descname"><span class="pre">fixed_theta_optimize</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lossMatrix</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lambda_</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">k</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.fixed_theta_optimize"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.fixed_theta_optimize" title="Permalink to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">fixed_theta_optimize</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lossMatrix</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lambda_</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../_modules/quantbullet/research/jump_model.html#DiscreteJumpModel.fixed_theta_optimize"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#quantbullet.research.DiscreteJumpModel.fixed_theta_optimize" title="Permalink to this definition">#</a></dt>
 <dd><p>Optimize the state sequence of a discrete jump model with fixed parameters</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>lossMatrix</strong> (<em>np.ndarray</em>) – loss matrix (T x k)</p></li>
 <li><p><strong>lambda</strong> (<em>float</em>) – regularization parameter</p></li>
-<li><p><strong>k</strong> (<em>int</em>) – number of states</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>

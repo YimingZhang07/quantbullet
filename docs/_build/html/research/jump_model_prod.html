@@ -431,18 +431,8 @@ document.write(`
 </pre></div>
 </div>
 </div>
-<div class="cell_output docutils container">
-<div class="output stream highlight-myst-ansi notranslate"><div class="highlight"><pre><span></span>+-------------------------+
-|  Package : quantbullet  |
-|  Author  : Yiming Zhang |
-|  Version : 0.1.0        |
-|  Note    : BETA version |
-+-------------------------+
-</pre></div>
 </div>
-</div>
-</div>
-<p>Implementation ana API of the model is all at <a class="reference internal" href="../autoapi/quantbullet/research/jump_model/index.html#module-quantbullet.research.jump_model" title="quantbullet.research.jump_model"><code class="xref py py-mod docutils literal notranslate"><span class="pre">quantbullet.research.jump_model</span></code></a>.</p>
+<p>Implementation and API of the model are all at <a class="reference internal" href="../autoapi/quantbullet/research/jump_model/index.html#module-quantbullet.research.jump_model" title="quantbullet.research.jump_model"><code class="xref py py-mod docutils literal notranslate"><span class="pre">quantbullet.research.jump_model</span></code></a>.</p>
 <section id="discrete-jump-model-basic-tutorial">
 <h2>Discrete Jump Model: Basic Tutorial<a class="headerlink" href="#discrete-jump-model-basic-tutorial" title="Permalink to this heading">#</a></h2>
 <p>Default parameters can be loaded using <code class="docutils literal notranslate"><span class="pre">TestingParams</span></code> class. This loads the same simulation inputs as the related literature. The transition matrix controls the probability of transitioning from one state to another, and the normal distribution parameters control the mean and standard deviation for each state.</p>
@@ -469,15 +459,15 @@ document.write(`
 <div class="highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="mi">999</span><span class="p">)</span>
 <span class="n">sim_states</span><span class="p">,</span> <span class="n">sim_returns</span> <span class="o">=</span> <span class="n">jm</span><span class="o">.</span><span class="n">SimulationGenerator</span><span class="p">()</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
     <span class="n">steps</span><span class="o">=</span><span class="mi">1000</span><span class="p">,</span> <span class="n">transition_matrix</span><span class="o">=</span><span class="n">transition_matrix</span><span class="p">,</span> <span class="n">norm_params</span><span class="o">=</span><span class="n">norm_params</span>
-<span class="p">)</span>
+    <span class="p">)</span>
 <span class="n">jm</span><span class="o">.</span><span class="n">TestingUtils</span><span class="p">()</span><span class="o">.</span><span class="n">plot_returns</span><span class="p">(</span><span class="n">sim_returns</span><span class="p">)</span>
 </pre></div>
 </div>
 </div>
 <div class="cell_output docutils container">
-<div class="output stderr highlight-myst-ansi notranslate"><div class="highlight"><pre><span></span>09-27 21:39:53 INFO Step 1: Initial (stationary) distribution: [0.84997341 0.15002659]
-09-27 21:39:54 INFO Step 2: Simulated states: Counter({0: 633, 1: 368})
-09-27 21:39:54 INFO Step 3: Generate simulated return data conditional on states.
+<div class="output stderr highlight-myst-ansi notranslate"><div class="highlight"><pre><span></span>10-06 17:42:40 INFO Step 1: Initial (stationary) distribution: [0.84997341 0.15002659]
+10-06 17:42:40 INFO Step 2: Simulated states: Counter({0: 633, 1: 368})
+10-06 17:42:40 INFO Step 3: Generate simulated return data conditional on states.
 </pre></div>
 </div>
 <img alt="../_images/9c37caf4564b34783e1683f3277d15857cf9e437996a281dc0d07ac4186cc96a.png" src="../_images/9c37caf4564b34783e1683f3277d15857cf9e437996a281dc0d07ac4186cc96a.png" />
@@ -511,11 +501,11 @@ document.write(`
 </div>
 </div>
 <div class="cell_output docutils container">
-<div class="output stderr highlight-myst-ansi notranslate"><div class="highlight"><pre><span></span>09-21 04:37:54 INFO Mean and Volatility by inferred states:
+<div class="output stderr highlight-myst-ansi notranslate"><div class="highlight"><pre><span></span>10-06 17:42:44 INFO Mean and Volatility by inferred states:
  {0: (0.028637970131994296, 0.7088256592365949), 1: (-0.05710237680864317, 1.4096882064420155)}
 </pre></div>
 </div>
-<img alt="../_images/e49ecb5fb346f0c4e85d3e40c2b7dffa84f1aae2b01c8237c939e8cb40cfa44c.png" src="../_images/e49ecb5fb346f0c4e85d3e40c2b7dffa84f1aae2b01c8237c939e8cb40cfa44c.png" />
+<img alt="../_images/e6077036b5f4cdc1bb08eb72efe487102c676839768de69f21d348218bd9e37a.png" src="../_images/e6077036b5f4cdc1bb08eb72efe487102c676839768de69f21d348218bd9e37a.png" />
 <div class="output stream highlight-myst-ansi notranslate"><div class="highlight"><pre><span></span>{&#39;BAC&#39;: 0.9310483870967742}
 </pre></div>
 </div>
@@ -598,9 +588,9 @@ document.write(`
 <span class="n">no_improvement_counter</span> <span class="o">=</span> <span class="mi">0</span>  <span class="c1"># Counter for consecutive iterations without improvement</span>
 
 <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">max_iter</span><span class="p">):</span>
-    <span class="n">cur_theta</span> <span class="o">=</span> <span class="n">ctsJump</span><span class="o">.</span><span class="n">fixed_states_optimize</span><span class="p">(</span><span class="n">enriched_returns</span><span class="p">,</span> <span class="n">cur_s</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>  <span class="c1"># Assuming 2 states</span>
+    <span class="n">cur_theta</span> <span class="o">=</span> <span class="n">ctsJump</span><span class="o">.</span><span class="n">fixed_states_optimize</span><span class="p">(</span><span class="n">enriched_returns</span><span class="p">,</span> <span class="n">cur_s</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>  <span class="c1"># Assuming 2 states</span>
     <span class="n">lossMatrix</span> <span class="o">=</span> <span class="n">ctsJump</span><span class="o">.</span><span class="n">generate_loss_matrix</span><span class="p">(</span><span class="n">enriched_returns</span><span class="p">,</span> <span class="n">cur_theta</span><span class="p">)</span>
-    <span class="n">C</span> <span class="o">=</span> <span class="n">ctsJump</span><span class="o">.</span><span class="n">generate_C</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+    <span class="n">C</span> <span class="o">=</span> <span class="n">ctsJump</span><span class="o">.</span><span class="n">generate_C</span><span class="p">(</span><span class="n">k</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
     <span class="n">cur_s</span><span class="p">,</span> <span class="n">cur_loss</span> <span class="o">=</span> <span class="n">ctsJump</span><span class="o">.</span><span class="n">fixed_theta_optimize</span><span class="p">(</span><span class="n">lossMatrix</span><span class="p">,</span> <span class="n">lambda_</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span> <span class="n">C</span><span class="o">=</span><span class="n">C</span><span class="p">)</span>
     
     <span class="c1"># Check if the current solution is better than the best known solution</span>
@@ -638,7 +628,7 @@ document.write(`
 </section>
 <section id="working-with-real-data">
 <h2>Working with Real Data<a class="headerlink" href="#working-with-real-data" title="Permalink to this heading">#</a></h2>
-<p>To work with real data, we use the daily returns of a stock, and fit the model using $\lambda=100$ as we have found.</p>
+<p>To work with real data, we also use the daily returns of a stock, and fit the model using $\lambda=100$ as we have found to be the best in the simulation testing. For other frequencies, the model needs to be re-calibrated to find the best penalty parameter.</p>
 <div class="cell docutils container">
 <div class="cell_input docutils container">
 <div class="highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">yfinance</span> <span class="k">as</span> <span class="nn">yf</span>
@@ -676,6 +666,7 @@ document.write(`
 <div class="cell docutils container">
 <div class="cell_input docutils container">
 <div class="highlight-ipython3 notranslate"><div class="highlight"><pre><span></span><span class="k">with</span> <span class="n">set_figsize</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">4</span><span class="p">):</span>
+    <span class="c1"># Two states maybe flipped, so we need to rearrange them</span>
     <span class="n">jm</span><span class="o">.</span><span class="n">TestingUtils</span><span class="p">()</span><span class="o">.</span><span class="n">plot_state_probs</span><span class="p">(</span><span class="n">best_states</span><span class="p">[:,</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">]],</span> <span class="n">data</span><span class="p">[</span><span class="s1">&#39;Adj Close&#39;</span><span class="p">])</span>
 </pre></div>
 </div>

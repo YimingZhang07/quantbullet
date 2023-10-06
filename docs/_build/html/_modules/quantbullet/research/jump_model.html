@@ -418,7 +418,10 @@ document.write(`
                 <article class="bd-article" role="main">
                   
   <h1>Source code for quantbullet.research.jump_model</h1><div class="highlight"><pre>
-<span></span><span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Module for statistical jump models</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
 <span class="kn">import</span> <span class="nn">pandas</span> <span class="k">as</span> <span class="nn">pd</span>
 <span class="kn">import</span> <span class="nn">multiprocessing</span> <span class="k">as</span> <span class="nn">mp</span>
 <span class="kn">import</span> <span class="nn">matplotlib.pyplot</span> <span class="k">as</span> <span class="nn">plt</span>
@@ -472,7 +475,7 @@ document.write(`
 
 <div class="viewcode-block" id="DiscreteJumpModel.fixed_states_optimize"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.DiscreteJumpModel.fixed_states_optimize">[docs]</a>    <span class="k">def</span> <span class="nf">fixed_states_optimize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">s</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">2</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
-<span class="sd">        Optimize the parameters of a discrete jump model with fixed states.</span>
+<span class="sd">        Optimize the parameters of a discrete jump model with states fixed first.</span>
 
 <span class="sd">        Args:</span>
 <span class="sd">            y (np.ndarray): Observed data of shape (T x n_features).</span>
@@ -581,14 +584,13 @@ document.write(`
     <span class="c1">#         ]</span>
     <span class="c1">#     return s, v</span>
 
-<div class="viewcode-block" id="DiscreteJumpModel.fixed_theta_optimize"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.DiscreteJumpModel.fixed_theta_optimize">[docs]</a>    <span class="k">def</span> <span class="nf">fixed_theta_optimize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">lossMatrix</span><span class="p">,</span> <span class="n">lambda_</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">2</span><span class="p">):</span>
+<div class="viewcode-block" id="DiscreteJumpModel.fixed_theta_optimize"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.DiscreteJumpModel.fixed_theta_optimize">[docs]</a>    <span class="k">def</span> <span class="nf">fixed_theta_optimize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">lossMatrix</span><span class="p">,</span> <span class="n">lambda_</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Optimize the state sequence of a discrete jump model with fixed parameters</span>
 
 <span class="sd">        Args:</span>
 <span class="sd">            lossMatrix (np.ndarray): loss matrix (T x k)</span>
 <span class="sd">            lambda_ (float): regularization parameter</span>
-<span class="sd">            k (int): number of states</span>
 
 <span class="sd">        Returns:</span>
 <span class="sd">            s (np.ndarray): optimal state sequence (T,)</span>
@@ -841,8 +843,8 @@ document.write(`
         <span class="n">true_len</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">true</span><span class="p">)</span>
         <span class="n">pred_len</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">pred</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">plot</span><span class="p">:</span>
-            <span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">true</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;true&quot;</span><span class="p">)</span>
-            <span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">pred</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;pred&quot;</span><span class="p">)</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">true</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;True&quot;</span><span class="p">)</span>
+            <span class="n">plt</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">pred</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;Pred&quot;</span><span class="p">)</span>
             <span class="n">plt</span><span class="o">.</span><span class="n">title</span><span class="p">(</span><span class="s2">&quot;True and Predicted State Sequences&quot;</span><span class="p">)</span>
             <span class="n">plt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">&quot;Time&quot;</span><span class="p">)</span>
             <span class="n">plt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s2">&quot;State&quot;</span><span class="p">)</span>
@@ -872,7 +874,7 @@ document.write(`
 <span class="sd">        Note:</span>
 <span class="sd">            s is assumed to have each row sum to 1</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="n">T</span><span class="p">,</span> <span class="n">n_features</span> <span class="o">=</span> <span class="n">y</span><span class="o">.</span><span class="n">shape</span>
+        <span class="n">_</span><span class="p">,</span> <span class="n">n_features</span> <span class="o">=</span> <span class="n">y</span><span class="o">.</span><span class="n">shape</span>
         <span class="n">_</span><span class="p">,</span> <span class="n">k</span> <span class="o">=</span> <span class="n">s</span><span class="o">.</span><span class="n">shape</span>
         <span class="n">theta</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">k</span><span class="p">,</span> <span class="n">n_features</span><span class="p">))</span>
 
@@ -890,17 +892,17 @@ document.write(`
         <span class="n">loss</span> <span class="o">=</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">diff</span><span class="o">**</span><span class="mi">2</span><span class="p">,</span> <span class="n">axis</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">loss</span></div>
 
-<div class="viewcode-block" id="ContinuousJumpModel.generate_C"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.ContinuousJumpModel.generate_C">[docs]</a>    <span class="k">def</span> <span class="nf">generate_C</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">K</span><span class="p">,</span> <span class="n">grid_size</span><span class="o">=</span><span class="mf">0.05</span><span class="p">):</span>
+<div class="viewcode-block" id="ContinuousJumpModel.generate_C"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.ContinuousJumpModel.generate_C">[docs]</a>    <span class="k">def</span> <span class="nf">generate_C</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">grid_size</span><span class="o">=</span><span class="mf">0.05</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Uniformly sample of states distributed on a grid</span>
 
 <span class="sd">        Args:</span>
-<span class="sd">            K (int): number of states</span>
+<span class="sd">            k (int): number of states</span>
 
 <span class="sd">        Returns:</span>
 <span class="sd">            matrix (np.ndarray): K x N matrix of states</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="n">N</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="mi">1</span> <span class="o">/</span> <span class="n">grid_size</span><span class="p">)</span> <span class="o">**</span> <span class="n">K</span>
-        <span class="n">matrix</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">rand</span><span class="p">(</span><span class="n">K</span><span class="p">,</span> <span class="n">N</span><span class="p">)</span>
+        <span class="n">N</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="mi">1</span> <span class="o">/</span> <span class="n">grid_size</span><span class="p">)</span> <span class="o">**</span> <span class="n">k</span>
+        <span class="n">matrix</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">rand</span><span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="n">N</span><span class="p">)</span>
         <span class="n">matrix</span> <span class="o">/=</span> <span class="n">matrix</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">matrix</span></div>
 
@@ -1175,7 +1177,7 @@ document.write(`
 
         <span class="k">return</span> <span class="n">transition_matrix</span><span class="p">,</span> <span class="n">norm_parameters</span></div>
 
-<div class="viewcode-block" id="TestingUtils.plot_returns"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.TestingUtils.plot_returns">[docs]</a>    <span class="k">def</span> <span class="nf">plot_returns</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">returns</span><span class="p">,</span> <span class="n">shade_list</span><span class="o">=</span><span class="p">[]):</span>
+<div class="viewcode-block" id="TestingUtils.plot_returns"><a class="viewcode-back" href="../../../autoapi/quantbullet/research/jump_model/index.html#quantbullet.research.TestingUtils.plot_returns">[docs]</a>    <span class="k">def</span> <span class="nf">plot_returns</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">returns</span><span class="p">,</span> <span class="n">shade_list</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Plot both the cumulative returns and returns on separate subplots sharing the x-axis.</span>
 
@@ -1210,7 +1212,7 @@ document.write(`
         <span class="n">ax2</span><span class="o">.</span><span class="n">set_ylabel</span><span class="p">(</span><span class="s2">&quot;Returns&quot;</span><span class="p">)</span>
         <span class="n">ax2</span><span class="o">.</span><span class="n">set_title</span><span class="p">(</span><span class="s2">&quot;Returns&quot;</span><span class="p">)</span>
 
-        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">shade_list</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">shade_list</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="c1"># Shade regions corresponding to clusters of 1s in the shade_list</span>
             <span class="n">start_shade</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">returns</span><span class="p">)</span> <span class="o">-</span> <span class="nb">len</span><span class="p">(</span><span class="n">shade_list</span><span class="p">)</span>
             <span class="n">start_region</span> <span class="o">=</span> <span class="kc">None</span>
