@@ -11,7 +11,14 @@
     },
     "pylint.args": [
         "--max-line-length=100",
-        "--disable=C0411, W1203, C0115, C0103"
+        // C0301 - line too long
+        // C0303 - trailing whitespace
+        // C0401 - wildcard import
+        // W0201 - attribute defined outside __init__
+        // W0611 - unused import
+        // W0613 - unused argument
+        // E1101 - no member
+        "--disable=C0411, W1203, C0114, C0115, C0116, C0103, C0301, C0303, C0401, W0201, W0611, W0613, E1101",
     ],
     "python.testing.pytestArgs": [
         "tests"
