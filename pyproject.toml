@@ -17,6 +17,7 @@ statsmodels = "^0.14.0"
 importlib-resources = "^6.1.0"
 xgboost = "^2.0.2"
 seaborn = "^0.13.0"
+optuna = "^3.4.0"
 
 [tool.poetry.dev-dependencies]
 
