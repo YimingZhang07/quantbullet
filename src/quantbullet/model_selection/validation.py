@@ -96,7 +96,8 @@ class OptunaCVOptimizer:
         def objective(trial):
             params.update({k: trial.suggest_categorical(k, v) for k, v in tuning_params.items()})
             self.model.set_params(objective=self.objective, **params)
-            return sklearn.model_selection.cross_val_score(self.model, self.X, self.y, scoring=self.scoring).mean()
+            score = sklearn.model_selection.cross_val_score(self.model, self.X, self.y, cv = self.cv, scoring=self.scoring).mean()
+            return score
         return objective
     
     def optimize(self, fixed_params: dict = None, tuning_params: dict = None, n_trials: int = 100):
