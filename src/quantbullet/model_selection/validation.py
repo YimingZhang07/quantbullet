@@ -60,6 +60,10 @@ class OptunaCVOptimizer:
     @property
     def best_params(self):
         return self.study.best_params
+    
+    @property
+    def best_model(self):
+        return self.model.set_params(**self.best_params)
 
     def setup_objective(self, fixed_params: dict = None, tuning_params: dict = None):
         """Setup the objective function for Optuna.

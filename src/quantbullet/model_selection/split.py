@@ -4,16 +4,18 @@ import datetime
 from typing import List, Tuple, Iterator
 
 class TimeSeriesDailyRollingSplit:
+    """a backtesting split that rolls forward daily, compatible with sklearn's cross_val_score."""
     def __init__(self,
                  min_train_size: int=None,
                  max_train_size: int=None) -> None:
         self.min_train_size = min_train_size
         self.max_train_size = max_train_size
+
     
     def split(self,
               df: pd.DataFrame,
               reference_column: str = 'date') -> List[Tuple[pd.DataFrame, pd.DataFrame]]:
-        """Split a dataframe into train and test sets based on a date column, which is rolled forward daily.
+        """generate train and test set indices for a dataframe.
         
         Parameters
         ----------
@@ -29,9 +31,10 @@ class TimeSeriesDailyRollingSplit:
         """
         if reference_column not in df.columns:
             raise ValueError(f"Column {reference_column} not in dataframe.")
-        df = df.sort_values(by=reference_column)
-        df = df.reset_index(drop=True)
-        df[reference_column] = pd.to_datetime(df[reference_column])
+        if not df[reference_column].is_monotonic_increasing:
+            raise ValueError(f"Column {reference_column} is not sorted in ascending order.")
+        if not df.index.equals(pd.RangeIndex(start=0, stop=len(df))):
+            raise ValueError("Dataframe index is not a RangeIndex from 0.")
         min_train_size = self.min_train_size if self.min_train_size else 0
         max_train_size = self.max_train_size if self.max_train_size else len(df)
         unique_dates = df[reference_column].unique()
