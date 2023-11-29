@@ -36,4 +36,7 @@
         }
     },
     "terminal.integrated.defaultProfile.linux": "bash",
+    "cSpell.enableFiletypes": [
+        "!python"
+    ],
 }
