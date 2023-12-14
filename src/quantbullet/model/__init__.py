@@ -10,3 +10,7 @@ from .last_value_estimator import(
 from .time_weighted_xgboost import(
     TimeWeightedXGBRegressor
 )
+
+from .neighbors import(
+    weightedDistanceKNRegressor
+)

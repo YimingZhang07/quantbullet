@@ -1,10 +1,11 @@
+import numpy as np
 import pandas as pd
 import optuna
 import matplotlib.pyplot as plt
 from typing import List
 import sklearn
 
-from xgboost import cv
+from ..utils.validation import validate_range_index
 
 class OptunaStudyResult:
     def __init__(self, study) -> None:
@@ -47,6 +48,11 @@ class OptunaStudyResult:
 
             plt.tight_layout()
             plt.show()
+
+    def trials_dataframe(self):
+        df = self.study.trials_dataframe()
+        df = df.sort_values(by='value', ascending=False)
+        return df
                 
 class OptunaCVOptimizer:
     def __init__(self, X, y, model, cv, objective: str=None, scoring: str=None):
@@ -221,3 +227,48 @@ class CrossValidationResult:
             plt.legend(loc="best")
             plt.title("Cross validation scores")
             plt.show()
+
+def mean_absolute_error_ignore_nan(y_true, y_pred):
+    """Calculate the Mean Absolute Error between two arrays, ignoring any NaN values."""
+    # Calculate absolute differences
+    abs_diff = np.abs(y_true - y_pred)
+
+    # Calculate mean while ignoring NaN values
+    mae = np.nanmean(abs_diff)
+
+    return mae
+
+def time_series_cv_predict(model, X, y, cv):
+    """Perform time series cross validation and return the predictions.
+
+    NOTE : currently, X and y must be pandas objects for easy indexing.
+    
+    Parameters
+    ----------
+    model : sklearn estimator
+        Model to fit.
+    X : array-like
+        Features.
+    y : array-like
+        Target.
+    cv : list of (train, test) tuples
+        Cross validation splits.
+    scoring : str
+        Scoring function.
+
+    Returns
+    -------
+    np.array
+        Predictions.
+    """
+    if isinstance(X, pd.DataFrame):
+        validate_range_index(X)
+    if isinstance(y, pd.Series):
+        validate_range_index(y)
+    if isinstance(X, np.ndarray) or isinstance(y, np.ndarray):
+        raise TypeError("X and y must be pandas objects.")
+    y_pred = np.full(len(y), np.nan)
+    for train_idx, test_idx in cv:
+        model.fit(X.iloc[train_idx], y.iloc[train_idx])
+        y_pred[test_idx] = model.predict(X.iloc[test_idx])
+    return y_pred

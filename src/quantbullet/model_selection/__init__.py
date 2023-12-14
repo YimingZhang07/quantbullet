@@ -2,5 +2,6 @@ from .split import TimeSeriesDailyRollingSplit
 from .validation import (
     CrossValidationResult,
     OptunaStudyResult,
-    OptunaCVOptimizer
+    OptunaCVOptimizer,
+    time_series_cv_predict
 )

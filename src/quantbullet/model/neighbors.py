@@ -4,16 +4,26 @@ from sklearn.neighbors import KNeighborsRegressor
 from sklearn.preprocessing import StandardScaler
 
 class weightedDistanceKNRegressor(BaseEstimator):
-    def __init__(self, n_neighbors=20, weights=None):
+    """a KNN regressor that allows for weighted features when calculating distances"""
+    def __init__(self, n_neighbors=20, feature_weights=None):
         self.n_neighbors = n_neighbors
-        self.weights = weights
+        self.feature_weights = feature_weights
     
     def fit(self, X, y):
-        self.scaler = StandardScaler()
-        X_scaled = self.scaler.fit_transform(X)
-        if self.weights is None:
-            self.weights = np.ones(X_scaled.shape[1])
-        X_weighted = X_scaled * np.array(self.weights)
-    
+        self.scaler_ = StandardScaler()
+        X_scaled = self.scaler_.fit_transform(X)
+        self.n_features_in_ = X_scaled.shape[1]
+        self.feature_weights_ = self.feature_weights or np.ones(self.n_features_in_)
+        if len(self.feature_weights_) != X_scaled.shape[1]:
+            raise ValueError("weights must be of same length as number of features")
+        X_weighted = X_scaled * np.array(self.feature_weights_)
+
+        # use scaled and weighted features to fit knn
+        self.knn_ = KNeighborsRegressor(n_neighbors=self.n_neighbors)
+        self.knn_.fit(X_weighted, y)
+        return self
+
     def predict(self, X):
-        pass
+        X_scaled = self.scaler_.transform(X)
+        X_weighted = X_scaled * np.array(self.feature_weights_)
+        return self.knn_.predict(X_weighted)
