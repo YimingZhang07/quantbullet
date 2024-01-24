@@ -8,19 +8,28 @@ import sklearn
 from ..utils.validation import validate_range_index
 
 class OptunaStudyResult:
+    """Class to wrap the results of an Optuna study."""
     def __init__(self, study) -> None:
         self.study = study
 
-    def ensure_param_names(self,
+    def _ensure_param_names(self,
                         param_names: List[str],
                         prefix='params_') -> List[str]:
+        """Ensure that the parameter names are prefixed with 'params_'."""
         return [prefix + p if not p.startswith(prefix) else p for p in param_names]
     
-    def partial_cv_scores(self, param_names: str = None):
+    def partial_cv_scores(self, param_names: list = None):
+        """Plot the test scores partialled over parameters.
+        
+        Parameters
+        ----------
+        param_names : list, optional
+            List of parameter names to partial over, by default None
+        """
         param_names = param_names or list(self.study.best_params.keys())
         if not isinstance(param_names, list):
             raise TypeError("metric_names must be a list.")
-        param_names = self.ensure_param_names(param_names)
+        param_names = self._ensure_param_names(param_names)
 
         num_params = len(param_names)
         num_cols = 2
@@ -50,11 +59,13 @@ class OptunaStudyResult:
             plt.show()
 
     def trials_dataframe(self):
+        """Return a dataframe of Optuna trials sorted by value."""
         df = self.study.trials_dataframe()
         df = df.sort_values(by='value', ascending=False)
         return df
                 
 class OptunaCVOptimizer:
+    """Class to wrap the optimization of a model using Optuna."""
     def __init__(self, X, y, model, cv, objective: str=None, scoring: str=None):
         self.X = X
         self.y = y
@@ -65,10 +76,14 @@ class OptunaCVOptimizer:
 
     @property
     def best_params(self):
+        """Return the best parameters found by Optuna."""
+        if not hasattr(self, 'study'):
+            raise ValueError("Please optimize the model first.")
         return self.study.best_params
     
     @property
     def best_model(self):
+        """Return the best model found by Optuna."""
         return self.model.set_params(**self.best_params)
 
     def setup_objective(self, fixed_params: dict = None, tuning_params: dict = None):
@@ -103,6 +118,7 @@ class OptunaCVOptimizer:
             for v in tuning_params.values():
                 if not isinstance(v, list):
                     raise TypeError("tuning_params values must be lists.")
+                
         def objective(trial):
             params.update({k: trial.suggest_categorical(k, v) for k, v in tuning_params.items()})
             self.model.set_params(objective=self.objective, **params)
@@ -111,7 +127,22 @@ class OptunaCVOptimizer:
         return objective
     
     def optimize(self, fixed_params: dict = None, tuning_params: dict = None, n_trials: int = 100):
-        """Optimize the model using Optuna."""
+        """Optimize the model using Optuna.
+        
+        Parameters
+        ----------
+        fixed_params : dict, optional
+            Fixed parameters for the model, by default None
+        tuning_params : dict, optional
+            Tuning parameters for the model, by default None
+        n_trials : int, optional
+            Number of trials to run, by default 100
+        
+        Returns
+        -------
+        OptunaStudyResult
+            Optuna study result wrapper.
+        """
         optuna.logging.set_verbosity(optuna.logging.WARNING)
         objective = self.setup_objective(fixed_params, tuning_params)
         study = optuna.create_study(direction='maximize')
@@ -235,7 +266,6 @@ def mean_absolute_error_ignore_nan(y_true, y_pred):
 
     # Calculate mean while ignoring NaN values
     mae = np.nanmean(abs_diff)
-
     return mae
 
 def time_series_cv_predict(model, X, y, cv):

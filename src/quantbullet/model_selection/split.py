@@ -34,7 +34,7 @@ class TimeSeriesDailyRollingSplit:
         if not df[reference_column].is_monotonic_increasing:
             raise ValueError(f"Column {reference_column} is not sorted in ascending order.")
         if not df.index.equals(pd.RangeIndex(start=0, stop=len(df))):
-            raise ValueError("Dataframe index is not a RangeIndex from 0.")
+            raise ValueError("Dataframe index is not a RangeIndex from 0. Please ensure that the dataframe is not indexed by date.")
         min_train_size = self.min_train_size if self.min_train_size else 0
         max_train_size = self.max_train_size if self.max_train_size else len(df)
         unique_dates = df[reference_column].unique()

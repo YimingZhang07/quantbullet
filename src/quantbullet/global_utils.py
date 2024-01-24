@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 import matplotlib.pyplot as plt
 
+
 @contextmanager
 def set_figsize(width, height):
     """Temporarily set the figure size using a context manager."""

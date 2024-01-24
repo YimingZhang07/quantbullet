@@ -43,7 +43,6 @@ class TimeWeightedXGBRegressor(XGBRegressor):
         return weights
 
     def fit(self, X, y, **kwargs):
-
         # HACK: Suppress warnings from XGBoost during fitting
         # this is because addtional parameters are not used by parent class and will be warned
         with warnings.catch_warnings():
@@ -60,9 +59,12 @@ class TimeWeightedXGBRegressor(XGBRegressor):
             # Call parent class's fit method with weights
             return self.xgb_regressor.fit(X, y, sample_weight=weights, **kwargs)
     
-    def predict(self, X, **kwargs):
+    def predict(self, X, *args, **kwargs):
         # Drop date column
+        # NOTE the original X is not modified
+        # Local X is a copy of the pointer pointing to the dataframe. 
+        # We just assign a new value, making this pointer point to a new dataframe.
         X = X.drop(columns=[ self.reference_column ])
 
         # Call parent class's predict method
-        return self.xgb_regressor.predict(X, **kwargs)
+        return self.xgb_regressor.predict(X, *args, **kwargs)

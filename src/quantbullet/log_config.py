@@ -13,9 +13,7 @@ LEVEL_MAP = {
 
 
 def setup_logger(name):
-    """
-    Setup a logger with a given name.
-    """
+    """Setup a logger with a given name."""
     logger = logging.getLogger(name)
 
     if not logger.hasHandlers():
@@ -26,15 +24,14 @@ def setup_logger(name):
                                 datefmt="%m-%d %H:%M:%S")
         handler.setFormatter(formatter)
         logger.addHandler(handler)
+        # this is just the default log level, it can be changed later
         logger.setLevel(logging.INFO)
 
     return logger
 
 
 def set_package_log_level(level='WARNING'):
-    """
-    Set the log level for all loggers in the package.
-    """
+    """Set the log level for all loggers in the package."""
     level = LEVEL_MAP.get(level.upper(), logging.WARNING)
     top_level_name = __name__.split('.', maxsplit=1)[0]
     for logger_name, logger_instance in logging.root.manager.loggerDict.items():
