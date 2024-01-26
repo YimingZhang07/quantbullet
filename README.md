@@ -29,6 +29,6 @@ Interested in contributing? Check out the contributing guidelines. Please note t
 
 This project developement is generously supported by JetBrains softwares with their Open Source development license.
 
-![JetBrains Logo (Main) logo](https://resources.jetbrains.com/storage/products/company/brand/logos/jb_beam.png)
+<img src="https://resources.jetbrains.com/storage/products/company/brand/logos/jb_beam.png" alt="JetBrains Logo (Main) logo." width=200>
 
 `quantbullet` was created with [`cookiecutter`](https://cookiecutter.readthedocs.io/en/latest/) and the `py-pkgs-cookiecutter` [template](https://github.com/py-pkgs/py-pkgs-cookiecutter). [Python Packages](https://py-pkgs.org/) is an excellent resource for learning how to create and publish Python packages.
