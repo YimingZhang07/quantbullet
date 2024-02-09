@@ -1,6 +1,7 @@
 """
 Module for statistical jump models
 """
+import stat
 import numpy as np
 import pandas as pd
 import multiprocessing as mp
@@ -187,8 +188,7 @@ class DiscreteJumpModel:
             regularization = lambda_ * np.abs(
                 state_choices[:, np.newaxis] - state_choices
             )
-            V[t, :] = lossMatrix[t, :] + \
-                (V[t - 1, :] + regularization).min(axis=1)
+            V[t, :] = lossMatrix[t, :] + (V[t - 1, :] + regularization).min(axis=1)
 
         # backtrack to find optimal state sequence
         v = V[-1, :].min()
@@ -216,8 +216,7 @@ class DiscreteJumpModel:
 
         for _ in range(k - 1):
             squared_distances = np.min(
-                [np.sum((data - centroid) ** 2, axis=1)
-                 for centroid in centroids],
+                [np.sum((data - centroid) ** 2, axis=1) for centroid in centroids],
                 axis=0,
             )
             prob = squared_distances / squared_distances.sum()
@@ -279,8 +278,7 @@ class DiscreteJumpModel:
         for i in range(n):
             # idx = np.argsort(optimized_theta[i][:, 0])[::-1]
             # whichever has the lowest volatility is assigned to state 0
-            states_features = self.infer_states_stats(
-                ts_returns, optimized_s[i])
+            states_features = self.infer_states_stats(ts_returns, optimized_s[i])
             idx_vol = np.argsort(
                 [states_features[state][1] for state in states_features]
             )
@@ -292,8 +290,7 @@ class DiscreteJumpModel:
                     "States identified by volatility ranks and returns ranks are different!"
                 )
             # remap the states
-            idx_mapping = {old_idx: new_idx for new_idx,
-                           old_idx in enumerate(idx_vol)}
+            idx_mapping = {old_idx: new_idx for new_idx, old_idx in enumerate(idx_vol)}
 
             # if only one state, no need to remap
             if len(idx_mapping) == 1:
@@ -368,8 +365,7 @@ class DiscreteJumpModel:
             else:
                 hist_s.append(cur_s)
 
-        logger.debug(
-            f"Single run completes after {i} iterations with loss {loss}")
+        logger.debug(f"Single run completes after {i} iterations with loss {loss}")
         return cur_s, loss, cur_theta
 
     def fit(self, y, k=2, lambda_=100, rearrange=False, n_trials=10):
@@ -402,10 +398,8 @@ class DiscreteJumpModel:
         pool.close()
 
         res = self.cleanResults(res, y[:, 0], rearrange)
-        states_stats = self.infer_states_stats(
-            y[:, 0], res["best_state_sequence"])
-        logger.info(
-            f"Mean and Volatility by inferred states:\n {states_stats}")
+        states_stats = self.infer_states_stats(y[:, 0], res["best_state_sequence"])
+        logger.info(f"Mean and Volatility by inferred states:\n {states_stats}")
         return res
 
     def evaluate(self, true, pred, plot=False):
@@ -430,8 +424,7 @@ class DiscreteJumpModel:
             plt.ylabel("State")
             plt.legend()
             plt.show()
-        res = {"BAC": balanced_accuracy_score(
-            true[true_len - pred_len:], pred)}
+        res = {"BAC": balanced_accuracy_score(true[true_len - pred_len :], pred)}
         return res
 
 
@@ -460,14 +453,12 @@ class ContinuousJumpModel(DiscreteJumpModel):
 
         for state in range(k):
             weights = s[:, state]
-            theta[state] = np.sum(
-                y * weights[:, np.newaxis], axis=0) / np.sum(weights)
+            theta[state] = np.sum(y * weights[:, np.newaxis], axis=0) / np.sum(weights)
 
         return theta
 
     def generate_loss_matrix(self, y, theta):
-        """Identical to the loss function in the discrete case
-        """
+        """Identical to the loss function in the discrete case"""
         diff = y[:, np.newaxis, :] - theta[np.newaxis, :, :]
         loss = 0.5 * np.sum(diff**2, axis=-1)
         return loss
@@ -503,76 +494,136 @@ class ContinuousJumpModel(DiscreteJumpModel):
 
         L_tilde = lossMatrix @ C
         Lambda = np.array(
-            [[lambda_ / 4 * np.linalg.norm(c_i - c_j, ord=1)**2 for c_j in C.T] for c_i in C.T])
+            [
+                [lambda_ / 4 * np.linalg.norm(c_i - c_j, ord=1) ** 2 for c_j in C.T]
+                for c_i in C.T
+            ]
+        )
 
         V_tilde = np.zeros((T, N))
         V_tilde[0, :] = L_tilde[0, :]
 
         for t in range(1, T):
             for i in range(N):
-                V_tilde[t, i] = L_tilde[t, i] + \
-                    np.min(V_tilde[t-1, :] + Lambda[:, i])
+                V_tilde[t, i] = L_tilde[t, i] + np.min(V_tilde[t - 1, :] + Lambda[:, i])
 
         s_hat = np.zeros((T, K))
         i_hat = np.argmin(V_tilde[-1, :])
         v_hat = np.min(V_tilde[-1, :])
         s_hat[-1] = C[:, i_hat]
 
-        for t in range(T-2, -1, -1):
+        for t in range(T - 2, -1, -1):
             i_hat = np.argmin(V_tilde[t, :] + Lambda[:, i_hat])
             s_hat[t] = C[:, i_hat]
 
         return s_hat, v_hat
-    
+
     def fit(self, y, k=2, lambda_=100, rearrange=False, n_trials=10, max_iter=20):
         if rearrange:
-            raise NotImplementedError("The rearrange function has not been \
-                                      implemented.")
+            raise NotImplementedError(
+                "The rearrange function has not been \
+                                      implemented."
+            )
         # lists to keep best loss and state sequence across trials
         best_trial_loss = list()
         best_trial_states = list()
+        best_trial_theta = list()
 
         for _ in range(n_trials):
             centroids = self.initialize_kmeans_plusplus(y, k)
             cur_s = self.classify_data_to_states(y, centroids)
             second_col = 1 - cur_s
             cur_s = np.column_stack((cur_s, second_col))
-            cur_loss = float('inf')
+            cur_loss = float("inf")
             best_states = cur_s
             best_loss = cur_loss
-            no_improvement_counter = 0  # Counter for consecutive iterations without improvement
+            best_theta = None
+            no_improvement_counter = 0
             for _ in range(max_iter):
                 cur_theta = self.fixed_states_optimize(y, cur_s, k)  # Assuming 2 states
                 lossMatrix = self.generate_loss_matrix(y, cur_theta)
                 C = self.generate_C(k)
-                cur_s, cur_loss = self.fixed_theta_optimize(lossMatrix,
-                                                            lambda_=lambda_,
-                                                            C=C)
-                
+                cur_s, cur_loss = self.fixed_theta_optimize(
+                    lossMatrix, lambda_=lambda_, C=C
+                )
+
                 # Check if the current solution is better than the best known solution
                 if cur_loss < best_loss:
                     best_loss = cur_loss
                     best_states = cur_s
-                    no_improvement_counter = 0  # Reset the counter if there's improvement
+                    best_theta = cur_theta
+                    no_improvement_counter = 0
                 else:
-                    no_improvement_counter += 1  # Increment the counter if no improvement
+                    no_improvement_counter += 1
 
                 # Check for convergence
                 if no_improvement_counter >= 3:
                     best_trial_loss.append(best_loss)
                     best_trial_states.append(best_states)
+                    best_trial_theta.append(best_theta)
                     break
 
         final_best_loss = min(best_trial_loss)
         final_best_states = best_trial_states[best_trial_loss.index(final_best_loss)]
-        return final_best_states, final_best_loss
+        final_best_theta = best_trial_theta[best_trial_loss.index(final_best_loss)]
+        return final_best_states, final_best_loss, final_best_theta
     
+    def predict(self, y, theta, lambda_=100):
+        """
+        Predict the state probabilities for a given time series using the learned parameters.
+        """
+        lossMatrix = self.generate_loss_matrix(y, theta)
+        C = self.generate_C(theta.shape[0])
+        state_probs, _ = self.fixed_theta_optimize(lossMatrix, lambda_=lambda_, C=C)
+        return state_probs
 
+
+def arrange_state_prob_by_volatility(returns, state_probs, thetas, threshold=0.5):
+    """
+    Arrange the state probabilities by volatility. Only two states are considered.
+    We hope the second column of state_probs means the probability of high volatility.
+
+    Parameters
+    ----------
+    returns : np.ndarray
+        The returns with shape (T,).
+    state_probs : np.ndarray
+        The state probabilities with shape (T, 2).
+    thetas : np.ndarray
+        The parameters with shape (2, n_features).
+    threshold : float, optional
+        The threshold for volatility. The default is 0.5.
+
+    Returns
+    -------
+    remapped_states : np.ndarray
+        The remapped state probabilities.
+    remapped_thetas : np.ndarray
+        The remapped parameters.
+    """
+    low_vol_subset = state_probs[:, 1] < threshold
+    high_vol_subset = ~low_vol_subset
+
+    low_vol_returns = returns[low_vol_subset]
+    high_vol_returns = returns[high_vol_subset]
+
+    flip = False
+    if np.std(low_vol_returns) > np.std(high_vol_returns): flip = True
+
+    if flip:
+        remapped_states = 1 - state_probs
+        remapped_thetas = thetas[::-1]
+    else:
+        remapped_states = state_probs
+        remapped_thetas = thetas
+
+    return remapped_states, remapped_thetas
 
 class FeatureGenerator:
     """
     Enrich univaraite time series with features
     """
+
     def __init__(self) -> None:
         pass
 
@@ -600,10 +651,8 @@ class FeatureGenerator:
             df[f"centered_std_{w}"] = roll.std()
 
             half_w = w // 2
-            df[f"left_mean_{w}"] = df["ts"].rolling(
-                window=half_w).mean().shift(half_w)
-            df[f"left_std_{w}"] = df["ts"].rolling(
-                window=half_w).std().shift(half_w)
+            df[f"left_mean_{w}"] = df["ts"].rolling(window=half_w).mean().shift(half_w)
+            df[f"left_std_{w}"] = df["ts"].rolling(window=half_w).std().shift(half_w)
 
             df[f"right_mean_{w}"] = df["ts"].rolling(window=half_w).mean()
             df[f"right_std_{w}"] = df["ts"].rolling(window=half_w).std()
@@ -627,6 +676,7 @@ class SimulationGenerator:
     """
     Generate simulated returns that follows a Hidden Markov process.
     """
+
     def __init__(self) -> None:
         pass
 
@@ -664,8 +714,7 @@ class SimulationGenerator:
         Returns:
             states (list): The states at each step.
         """
-        state = np.random.choice(
-            len(initial_distribution), p=initial_distribution)
+        state = np.random.choice(len(initial_distribution), p=initial_distribution)
         states = [state]
 
         for _ in range(steps):
@@ -722,14 +771,11 @@ class SimulationGenerator:
         # sanity check for the simulated states
         count_states = Counter(simulated_states)
         if len(count_states) != len(transition_matrix):
-            logger.info(
-                "The simulated states do not cover all states. Re-run.")
+            logger.info("The simulated states do not cover all states. Re-run.")
             return self.run(steps, transition_matrix, norm_params)
         logger.info(f"Step 2: Simulated states: {count_states}")
-        simulated_data = self.generate_conditional_data(
-            simulated_states, norm_params)
-        logger.info(
-            "Step 3: Generate simulated return data conditional on states.")
+        simulated_data = self.generate_conditional_data(simulated_states, norm_params)
+        logger.info("Step 3: Generate simulated return data conditional on states.")
         return simulated_states, simulated_data
 
 
@@ -737,6 +783,7 @@ class TestingUtils:
     """
     Parameters and plotting functions for testing
     """
+
     def __init__(self) -> None:
         pass
 
@@ -800,10 +847,8 @@ class TestingUtils:
                 if val == 1 and start_region is None:
                     start_region = start_shade + i
                 elif val == 0 and start_region is not None:
-                    ax1.axvspan(start_region, start_shade +
-                                i, color="gray", alpha=0.3)
-                    ax2.axvspan(start_region, start_shade +
-                                i, color="gray", alpha=0.3)
+                    ax1.axvspan(start_region, start_shade + i, color="gray", alpha=0.3)
+                    ax2.axvspan(start_region, start_shade + i, color="gray", alpha=0.3)
                     start_region = None
             # If the last cluster extends to the end of the shade_list
             if start_region is not None:
@@ -825,18 +870,22 @@ class TestingUtils:
         """
         if not isinstance(states, np.ndarray):
             states = np.array(states)
-        
+
         if not isinstance(prices.index, pd.DatetimeIndex):
             raise ValueError("The index of prices must be a DatetimeIndex.")
 
         fig, ax = plt.subplots()
-        ax.plot(prices.index[len(prices) - len(states):], states[:, 1], label='State Probability')
-        ax.set_xlabel('Time')
-        ax.set_ylabel('State Probability')
+        ax.plot(
+            prices.index[len(prices) - len(states) :],
+            states[:, 1],
+            label="State Probability",
+        )
+        ax.set_xlabel("Time")
+        ax.set_ylabel("State Probability")
 
         ax2 = ax.twinx()
-        ax2.plot(prices.index, prices.values, color='green', label='Stock Price')
-        ax2.set_ylabel('Price')
+        ax2.plot(prices.index, prices.values, color="green", label="Stock Price")
+        ax2.set_ylabel("Price")
 
         # Use AutoDateLocator and DateFormatter for x-axis labels
         locator = mdates.AutoDateLocator()
@@ -847,7 +896,7 @@ class TestingUtils:
 
         handles, labels = ax.get_legend_handles_labels()
         handles2, labels2 = ax2.get_legend_handles_labels()
-        ax.legend(handles + handles2, labels + labels2, loc='upper right')
+        ax.legend(handles + handles2, labels + labels2, loc="upper right")
 
     def plot_averages(self, data_dict):
         """
@@ -863,9 +912,7 @@ class TestingUtils:
             data_dict.keys(), key=float
         )  # Sort the keys by their float value
         averages = [
-            sum(values) / len(values)
-            for key in labels
-            for values in [data_dict[key]]
+            sum(values) / len(values) for key in labels for values in [data_dict[key]]
         ]
 
         # Plot
@@ -875,9 +922,7 @@ class TestingUtils:
         plt.title("Lambda vs. Average BAC")
 
         # Adjust x-axis labels to only show integer powers
-        int_powers = [
-            label for label in labels if np.log10(float(label)).is_integer()
-        ]
+        int_powers = [label for label in labels if np.log10(float(label)).is_integer()]
         plt.xticks(
             int_powers,
             [f"$10^{{{int(np.log10(float(label)))}}}$" for label in int_powers],
