@@ -1,1 +1,1 @@
-from quantbullet.research.jump_model import DiscreteJumpModel
+from .jump_model import DiscreteJumpModel
