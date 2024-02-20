@@ -14,3 +14,5 @@ from .time_weighted_xgboost import(
 from .neighbors import(
     weightedDistanceKNRegressor
 )
+
+from .linear_model import ols_regression

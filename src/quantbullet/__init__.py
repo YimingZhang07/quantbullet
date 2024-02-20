@@ -51,3 +51,5 @@ display_package_info(info)
 
 from .log_config import setup_logger, set_package_log_level
 from .global_utils import set_figsize
+from .model import *
+from .utils import *
