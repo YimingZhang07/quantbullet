@@ -101,6 +101,5 @@ def plot_price_with_signal(prices, signals, figsize=(14, 7)):
 
     # plt.xticks(rotation=45)
     plt.tight_layout()
-    plt.show()
     
     return fig, ax

@@ -15,4 +15,7 @@ from .neighbors import(
     weightedDistanceKNRegressor
 )
 
-from .linear_model import ols_regression
+from .linear_model import (
+    ols_regression,
+    arima
+)

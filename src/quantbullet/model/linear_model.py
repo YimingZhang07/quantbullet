@@ -19,3 +19,21 @@ def ols_regression(X, y):
     X_with_constant = sm.add_constant(X, has_constant='add')
     model = sm.OLS(y, X_with_constant).fit()
     return model
+
+def arima(series, order=(1, 0, 0)):
+    """
+    Fit an AR(1) model to a single time series.
+
+    Parameters:
+    -----------
+        series (numpy.ndarray or pandas.Series): The time series data.
+
+    Returns:
+    --------
+        statsmodels.tsa.arima.model.ARIMAResultsWrapper:
+            The fitted AR(1) model.
+    """
+    # Fit AR(1) model
+    ar1_model = sm.tsa.ARIMA(series, order=order).fit()
+
+    return ar1_model
