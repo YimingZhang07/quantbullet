@@ -17,5 +17,6 @@ from .neighbors import(
 
 from .linear_model import (
     ols_regression,
-    arima
+    arima,
+    ar_ols
 )

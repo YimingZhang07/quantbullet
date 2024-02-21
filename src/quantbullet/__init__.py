@@ -1,5 +1,10 @@
 # read version from installed package
 from importlib.metadata import version
+from .log_config import setup_logger, set_package_log_level
+from .global_utils import set_figsize
+from .model import *
+from .utils import *
+from .research import *
 
 # Package details
 __version__ = version("quantbullet")
@@ -47,9 +52,3 @@ info = {
     "Note"   : "BETA version",
 }
 display_package_info(info)
-
-
-from .log_config import setup_logger, set_package_log_level
-from .global_utils import set_figsize
-from .model import *
-from .utils import *

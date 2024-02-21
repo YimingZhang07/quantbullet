@@ -1,5 +1,7 @@
 import matplotlib.pyplot as plt
 import pandas as pd
+import numpy as np
+from .validation import are_only_values_in_series
 
 def plot_shared_x(
     x,
@@ -78,12 +80,15 @@ def plot_price_with_signal(prices, signals, figsize=(14, 7)):
     
     if not isinstance(signals, pd.Series):
         raise ValueError("prices must be a pandas Series with a datetime index")
+
+    if not are_only_values_in_series(signals, [-1, 0, 1, np.nan]):
+        raise ValueError("signals must contain only -1, 0, or 1")
     
     # Plotting
     fig, ax = plt.subplots(figsize=figsize)
 
     # Price data
-    ax.plot(prices.index, prices, label='Price', color='skyblue')
+    ax.plot(prices.index, prices, label='Price')
 
     # Buy signals
     buy_signals = signals[signals == 1]
