@@ -23,3 +23,17 @@ def compute_log_returns(prices):
         return np.log(prices / prices.shift(1)).values
     else:
         raise ValueError("Invalid input type")
+    
+def compute_sharpe_ratio(returns, annualization_factor=252):
+    return np.sqrt(annualization_factor) * returns.mean() / returns.std()
+
+def compute_max_drawdown(returns):
+    cum_returns = (1 + returns).cumprod()
+    return (cum_returns / cum_returns.cummax() - 1).min()
+
+def print_metrics(returns, annualization_factor=252):
+    print(f'Annualized Return: {returns.mean() * annualization_factor:.2%}')
+    print(f'Annualized Volatility: {returns.std() * np.sqrt(annualization_factor):.2%}')
+    print(f'Sharp Ratio: {compute_sharpe_ratio(returns, annualization_factor):.2f}')
+    print(f'Max Drawdown: {compute_max_drawdown(returns):.2%}')
+    print(f'Number of Trades: {returns[returns != 0].count()}')

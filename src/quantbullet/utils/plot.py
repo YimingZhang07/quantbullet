@@ -88,7 +88,7 @@ def plot_price_with_signal(prices, signals, figsize=(14, 7)):
     fig, ax = plt.subplots(figsize=figsize)
 
     # Price data
-    ax.plot(prices.index, prices, label='Price')
+    ax.plot(prices.index, prices, label='Price', alpha=0.7)
 
     # Buy signals
     buy_signals = signals[signals == 1]

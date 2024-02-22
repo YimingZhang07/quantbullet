@@ -1,5 +1,7 @@
 import pandas as pd
 import numpy as np
+import copy
+from tqdm import tqdm
 from .validation import are_only_values_in_series
 
 class BaseDataProvider:
@@ -35,7 +37,7 @@ class SimpleSignalProvider(BaseDataProvider):
         super().__init__(signals)
 
     def get_signal_on_date(self, date):
-        signal = self.data.get_loc(date)
+        signal = self.data.loc[date]
         if np.isnan(signal):
             return 0
         return signal
@@ -45,45 +47,59 @@ class SimplePosition:
         self.date = date
         self.shares = shares
 
+    def set_date(self, date):
+        self.date = date
+
+    def set_shares(self, shares):
+        self.shares = shares
+
     def __str__(self) -> str:
         return f'SimplePosition({self.date}, {self.shares})'
+    
+    def __repr__(self) -> str:
+        return str(self)
 
 class SimpleBacktest:
 
-    __slots__ = ['calendar', 'signal_provider', 'closing_signal_provider', 'current_position', 'position_history']
+    # __slots__ = ['calendar', 'signal_provider', 'closing_signal_provider', 'current_position', 'position_history']
 
     def __init__(self, calendar, signal_provider, closing_signal_provider):
         self.calendar = calendar
         self.signal_provider = signal_provider
         self.closing_signal_provider = closing_signal_provider
         self.current_position = None
+
+    def initialize(self):
         self.position_history = []
 
     def arhive_position(self):
-        self.position_history.append(self.current_position)
+        _current_position = copy.deepcopy(self.current_position)
+        self.position_history.append(_current_position)
 
     def run(self):
+        self.initialize()
         self.current_position = SimplePosition(self.calendar.start, 0)
         self.calendar.fresh_start()
-        for date in self.calendar:
+        for date in tqdm(self.calendar):
             signal = self.signal_provider.get_signal_on_date(date)
             closing_signal = self.closing_signal_provider.get_signal_on_date(date)
+            self.current_position.set_date(date)
             if signal == 1 and self.current_position.shares == 0:
-                self.current_position = SimplePosition(date, 1)
+                self.current_position.set_shares(1)
             elif signal == -1 and self.current_position.shares == 0:
-                self.current_position = SimplePosition(date, -1)
+                self.current_position.set_shares(-1)
             elif signal == 1 and self.current_position.shares == -1:
-                self.current_position = SimplePosition(date, 0)
+                self.current_position.set_shares(0)
             elif signal == -1 and self.current_position.shares == 1:
-                self.current_position = SimplePosition(date, 0)
+                self.current_position.set_shares(0)
             else:
                 pass
             
             if closing_signal == 1:
-                self.current_position = SimplePosition(date, 0)
+                self.current_position.set_shares(0)
             else:
                 pass
-            self.arhive_position(date)
+            self.arhive_position()
 
 
 class BacktestingCalendar:

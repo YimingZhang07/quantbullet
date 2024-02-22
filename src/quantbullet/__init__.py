@@ -51,4 +51,4 @@ info = {
     "Version": __version__,
     "Note"   : "BETA version",
 }
-display_package_info(info)
+# display_package_info(info)
