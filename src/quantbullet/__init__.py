@@ -5,6 +5,7 @@ from .global_utils import set_figsize
 from .model import *
 from .utils import *
 from .research import *
+import quantbullet.tsa
 
 # Package details
 __version__ = version("quantbullet")

@@ -15,6 +15,11 @@ def validate_range_index(x):
     else:
         pass
 
+def is_same_index_range(x, y):
+    if not hasattr(x, 'index') or not hasattr(y, 'index'):
+        raise ValueError("x and y must be pandas Series or DataFrame")
+    return all(x.index == y.index)
+
 def are_columns_in_df(df, columns):
     """Check if columns are in a dataframe."""
     return all(col in df.columns for col in columns)

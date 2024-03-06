@@ -15,3 +15,7 @@ from .backtest import(
     SimpleBacktest,
     BacktestingCalendar,
 )
+
+from .stats import (
+    cross_correlation
+)
