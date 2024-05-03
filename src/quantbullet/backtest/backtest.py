@@ -8,8 +8,8 @@ def take_position_snapshot(func):
         result = func(self, *args, **kwargs)
         timestamp = kwargs.get('timestamp', None)
         if timestamp is not None:
-            comment = kwargs.get('comment', '')
-            self.trackPosition(func.__name__, timestamp, comment=comment)
+            comment = f"{func.__name__}"
+            self.trackPosition(timestamp, comment=comment)
         else:
             raise ValueError("No timestamp is given to track the positions.")
         return result
@@ -17,18 +17,15 @@ def take_position_snapshot(func):
 
 class Position:
     """Position class to store position information"""
-    # using slots to save memory and speed up the attribute access
-    __slots__ = ['ticker', 'shares', 'avg_cost', 'market_price', 'market_value', 'PnL']
 
-    def __init__(self, ticker='MISSING', shares=np.nan, avg_cost=np.nan, market_price=np.nan, timestamp=pd.NaT):
+    def __init__(self, ticker='MISSING', shares=None, avg_cost=None, market_price=None, timestamp=None):
         self.ticker = ticker
         self.shares = shares
-        self.avg_cost = avg_cost
         self.market_price = market_price
-        self.market_value = self.shares * self.market_price
-        self.PnL = self.market_value - self.avg_cost * self.shares
-        self.position_history = defaultdict(set)
-        self.latest_snapshot = None
+        if avg_cost is None:
+            self.avg_cost = market_price
+        self._position_history = defaultdict(set)
+        self._latest_snapshot = None
 
     def __str__(self):
         return (f"{self.ticker}: {self.shares} shares, {self.avg_cost} avg cost, "
@@ -53,15 +50,25 @@ class Position:
         return self.shares * self.market_price
 
     @property
+    def MarketValue(self):
+        return self.market_value
+    
+    @property
+    def AvgCost(self):
+        return self.avg_cost
+
+    @property
     def PnL(self):
         return self.market_value - self.avg_cost * self.shares
 
     @take_position_snapshot
     def trade(self, shares, price, timestamp):
         """Trade shares of a position"""
-        new_avg_cost = (self.shares * self.avg_cost + shares * price) / (self.shares + shares)
-        self.shares += shares
-        self.avg_cost = new_avg_cost
+        if self.shares + shares != 0:
+            self.avg_cost = (self.shares * self.avg_cost + shares * price) / (self.shares + shares)
+        else:
+            self.avg_cost = 0.
+            self.shares = 0
         self.market_price = price
 
     @take_position_snapshot
@@ -75,9 +82,18 @@ class Position:
         Note: This will replace the current shares with the new shares instead of adding."""
         self.shares = shares
 
-    def trackPosition(self, action, timestamp, comment=""):
-        self.latest_snapshot = (self.shares, self.avg_cost, self.market_price, self.market_value, self.PnL, comment)
-        self.position_history[timestamp].add(self.latest_snapshot)
+    def getHistory(self):
+        return self._position_history
+    
+    def getHistoryDataframe(self):
+        records = [
+            snapshot for timestamp, snapshots in self.getHistory().items() for snapshot in snapshots
+        ]
+        return pd.DataFrame.from_records(records, columns=['shares', 'avg_cost', 'market_price', 'market_value', 'PnL', 'comment'])
+
+    def trackPosition(self, timestamp, comment=""):
+        self._latest_snapshot = (self.shares, self.avg_cost, self.market_price, self.market_value, self.PnL, comment)
+        self._position_history[timestamp].add(self._latest_snapshot)
 
 class Account:
     """Account class to store a portfolio of positions with cash.
