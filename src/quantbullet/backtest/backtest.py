@@ -1,3 +1,8 @@
+"""
+Tests: tests.backtest.test_backtest
+"""
+
+
 import pandas as pd
 import numpy as np
 import datetime
@@ -24,13 +29,13 @@ class Position:
     # __slots__ = ['ticker', 'shares', 'avg_cost', 'market_price', 'market_value', 'PnL']
 
     @take_position_snapshot
-    def __init__(self, ticker='MISSING', shares=np.nan, price=np.nan, timestamp=pd.NaT):
+    def __init__(self, ticker='MISSING', shares=None, price=None, timestamp=None):
         self.ticker = ticker
         self.shares = shares
         self.avg_cost = price
         self.market_price = price
         # to track the position history
-        self._position_history = defaultdict(set)
+        self._position_history = list()
         self._lastest_snapshot = None
 
     def __str__(self) -> str:
@@ -52,6 +57,10 @@ class Position:
     @property
     def market_value(self):
         return self.shares * self.market_price
+    
+    @property
+    def MarketValue(self):
+        return self.market_value
     
     @property
     def PnL(self):
@@ -97,15 +106,19 @@ class Position:
     def getHistory(self):
         return self._position_history
     
+    # def getHistoryDataFrame(self):
+    #     records = [
+    #         snapshot for timestamp, snapshots in self.getHistory().items() for snapshot in snapshots
+    #     ]
+    #     return pd.DataFrame.from_records(records, columns=['shares', 'avg_cost', 'market_price', 'market_value', 'pnl', 'comment'])
+    
     def getHistoryDataFrame(self):
-        records = [
-            snapshot for timestamp, snapshots in self.getHistory().items() for snapshot in snapshots
-        ]
-        return pd.DataFrame.from_records(records, columns=['shares', 'avg_cost', 'market_price', 'market_value', 'PnL', 'comment'])
+        return pd.DataFrame(self._position_history, columns=['timestamp', 'shares', 'avg_cost', 'market_price', 'market_value', 'pnl', 'comment'])
 
     def trackPosition(self, timestamp, comment=""):
-        self._lastest_snapshot = (self.shares, self.avg_cost, self.market_price, self.market_value, self.PnL, comment)
-        self._position_history[timestamp].add(self._lastest_snapshot)
+        self._lastest_snapshot = (timestamp, self.shares, self.avg_cost, self.market_price, self.market_value, self.PnL, comment)
+        # self._position_history[timestamp].add(self._lastest_snapshot)
+        self._position_history.append(self._lastest_snapshot)
 
 class Account:
     """Account class to store a portolio of positions with cash.
