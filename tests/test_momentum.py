@@ -1,7 +1,15 @@
-import pytest
 import pandas as pd
-from quantbullet.research.momentum import compute_ex_ante_volatility
+import unittest
+
+from quantbullet.research.momentum import (
+    TimeSeriesMomentumSignal
+)
 
 
-def test_compute_ex_ante_volatility():
-    pass
+class Test_Momentum(unittest.TestCase):
+    def test_generate_ts_momentum_signal(self):
+        date_range = pd.date_range(start="1/1/2020", periods=5, freq="D")
+        returns = pd.Series([1, 0, 1, -1, -2], index=date_range)
+        signal_object = TimeSeriesMomentumSignal.FromSeries(returns, k=3)
+        singals = signal_object.to_list()
+        self.assertListEqual(singals, [float('nan'), float('nan'), 1, 0, -1])

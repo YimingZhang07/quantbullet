@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from ..utils.validation import is_index_mono_inc
 
 def compute_ex_ante_volatility(daily_returns, com=60, annualization_factor=261):
     """
@@ -40,6 +41,24 @@ def compute_ex_ante_volatility(daily_returns, com=60, annualization_factor=261):
     
     return ex_ante_volatility
 
+
+class TimeSeriesMomentumSignal:
+    def __init__(self, signals, k = 5):
+        self.signals = signals
+    
+    @classmethod
+    def FromSeries(cls, returns, k = 5):
+        if not isinstance(returns, pd.Series):
+            raise ValueError("returns must be a pandas Series")
+        if not is_index_mono_inc(returns):
+            raise ValueError("returns must have a monotonically increasing index")
+        
+        rolling_sum = returns.rolling(window = k).sum()
+        signals = np.sign(rolling_sum)
+        return cls(signals, k)
+    
+    def to_list(self):
+        return self.signals.tolist()
     
 def generate_ts_momentum_signal(returns, k = 5):
     """generate a time series momentum signal

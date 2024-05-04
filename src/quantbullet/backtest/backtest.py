@@ -146,7 +146,7 @@ class Account:
     
     @property
     def PositionTickers(self):
-        return list(self.CurrentPosition.keys())
+        return list(self.CurrentPosition.keys()).remove('CASH')
 
     def getPositionForTicker(self, ticker):
         return self.CurrentPosition[ticker]
@@ -155,17 +155,16 @@ class Account:
     def CashAmount(self):
         return self.CurrentPosition['CASH'].market_value
     
-
+    @property
+    def PnL(self):
+        return sum([position.PnL for position in self.CurrentPosition.values()])
+    
     @property
     def MarketValue(self):
         return sum([position.market_value for position in self.CurrentPosition.values()])
 
     def _payCash(self, amount, timestamp):
-        """Update cash position
-
-        Args:
-            amount (float): amount to update
-        """
+        """Update cash position"""
         after_cash = self._cur_position['CASH'].shares + amount
         self._cur_position['CASH'].updateShares(after_cash, timestamp=timestamp)
 
@@ -177,14 +176,26 @@ class Account:
         else:
             self._cur_position[ticker].trade(shares, price, timestamp=timestamp)
             self._payCash(-shares * price, timestamp)
+            
+    def updateMarketPrice(self, ticker, price, timestamp):
+        if ticker in self._cur_position:
+            self._cur_position[ticker].updateMarketPrice(price, timestamp=timestamp)
+        else:
+            raise ValueError(f"Ticker {ticker} not found in the account")
 
     def getPositionSnapshot(self, need_sort=False):
-        """Get explicit position values and create snapshot
-
-        Note: implemented using map and itemgetter which is much faster than creating dataframe.
-
-        Returns:
-
+        """
+        Get the snapshot of the current positions
+        
+        Parameters
+        ----------
+        need_sort : bool, optional
+            Sort the snapshot by market value in descending order, by default False
+            
+        Returns
+        -------
+        tuple
+            snapshot, total_market_value, total_PnL
         """
         snapshot = list(map(itemgetter("ticker", "shares", "avg_cost", "market_price", "market_value", "PnL"),
                             [pos.as_dict() for pos in self.CurrentPosition.values()]))

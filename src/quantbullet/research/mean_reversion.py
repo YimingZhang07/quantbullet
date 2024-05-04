@@ -48,16 +48,20 @@ class OrnsteinUhlenbeck:
     def _ou_params_from_ar1(self, alpha_0, alpha_1, sigma):
         """
         Convert AR(1) model parameters to Ornstein-Uhlenbeck parameters.
-
-        Parameters:
-        -----------
-            alpha_0 (float): The constant term in the AR(1) model.
-            alpha_1 (float): The AR(1) coefficient.
-            sigma (float): The standard deviation of the residuals.
-
-        Returns:
-        --------
-            tuple: The mean reversion level, the mean reversion speed, and the volatility.
+        
+        Parameters
+        ----------
+        alpha_0 : float
+            The constant term in the AR(1) model.
+        alpha_1 : float
+            The AR(1) coefficient.
+        sigma : float
+            The standard deviation of the residuals.
+            
+        Returns
+        -------
+        tuple
+            The Ornstein-Uhlenbeck parameters (mu, theta, sigma).
         """
         theta = 1 - alpha_1
         mu = alpha_0 / theta
@@ -66,15 +70,18 @@ class OrnsteinUhlenbeck:
     def generate_bands(self, df, num_std=2):
         """
         Generate upper and lower bands around the mean reversion level.
-
-        Parameters:
-        -----------
-            df (pandas.DataFrame): The data to generate bands for.
-            num_std (int): The number of standard deviations to use for the bands.
-
-        Returns:
-        --------
-            pandas.DataFrame: The input data with upper and lower bands added.
+        
+        Parameters
+        ----------
+        df : pandas.DataFrame
+            The data used to generate the bands.
+        num_std : int
+            The number of standard deviations to use for the bands.
+            
+        Returns
+        -------
+        pandas.DataFrame
+            The input data with the upper and lower bands added.
         """
         # check columns mu, theta, sigma is in df
         if not are_columns_in_df(df, ['mu', 'theta', 'sigma']):
@@ -86,6 +93,25 @@ class OrnsteinUhlenbeck:
         return df
 
 def generate_band_based_signal(series, upper_band, lower_band):
+    """
+    Generate a binary +1 or -1 signal based on the price crossing the upper or lower band.
+    
+    Parameters
+    ----------
+    series : pandas.Series
+        The data used to generate the signal.
+    upper_band : pandas.Series
+        The upper band.
+    lower_band : pandas.Series
+        The lower band.
+        
+    Returns
+    -------
+    pandas.Series
+        The signal.
+    """
+    if not isinstance(series, pd.Series):
+        raise ValueError("Signal generation requires a pandas Series object.")
     signal = pd.Series(index=series.index)
     signal[series >= upper_band] = -1
     signal[series <= lower_band] = 1
@@ -110,6 +136,19 @@ class BollingerBands:
         }
 
     def generate_bands(self, series):
+        """
+        Generate Bollinger Bands around a time series.
+        
+        Parameters
+        ----------
+        series : pandas.Series
+            The data used to generate the bands.
+            
+        Returns
+        -------
+        pandas.DataFrame
+            A DataFrame containing the bands and intermediate calculations.
+        """
         rolling_mean = series.rolling(window=self.window).mean()
         rolling_std = series.rolling(window=self.window).std()
         upper_band = rolling_mean + (rolling_std * self.num_std)

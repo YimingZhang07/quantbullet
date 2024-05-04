@@ -5,9 +5,8 @@ Module: quantbullet.backtest.backtest
 
 import unittest
 import datetime
-from collections import defaultdict
 
-from quantbullet.backtest import Position, Account
+from quantbullet.backtest import Position
 
 class TestPosition(unittest.TestCase):
     def test_basic_calculation(self):

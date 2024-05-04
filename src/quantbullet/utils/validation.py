@@ -27,3 +27,7 @@ def are_columns_in_df(df, columns):
 def are_only_values_in_series(series, values):
     """Check if a series contains only certain values."""
     return series.isin(values).all()
+
+def is_index_mono_inc(series):
+    """Check if the index of a series is monotonically increasing."""
+    return series.index.is_monotonic_increasing
