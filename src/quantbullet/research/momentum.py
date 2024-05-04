@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from ..utils.validation import is_index_mono_inc
-from ..utils.warnings import deprecated
+from ..utils.decorators import deprecated
 
 @deprecated(new_func_name='ExAnteVolatilityEstimator.FromSeries')
 def compute_ex_ante_volatility(daily_returns, com=60, annualization_factor=261):

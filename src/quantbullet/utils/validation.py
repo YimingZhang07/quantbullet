@@ -4,6 +4,7 @@ Tests: tests/test_validation
 
 import pandas as pd
 import numpy as np
+from typing import Sequence
 
 def validate_range_index(x):
     """Validate that the index of a dataframe or series is a RangeIndex from 0."""
@@ -36,13 +37,26 @@ def is_index_mono_inc(series):
    
 class Consolidator:
     @staticmethod
-    def consolidate_to_series(data):
+    def consolidate_to_series(data: Sequence) -> pd.Series:
+        """
+        Consolidate input sequence data to a pandas Series.
+
+        Parameters
+        ----------
+        data : pd.Series, list, tuple, or np.ndarray
+            Data to be consolidated.
+
+        Returns
+        -------
+        pd.Series
+            The consolidated data as a pandas Series.
+        """
         if not isinstance(data, (pd.Series, list, tuple, np.ndarray)):
             raise ValueError("Input data must be a pandas Series, list, tuple, or numpy array.")
 
         if isinstance(data, pd.Series):
-            if not data.index.is_monotonic:
-                raise ValueError("Input pandas Series must have a monotonic index.")
+            if not data.index.is_monotonic_increasing:
+                raise ValueError("Input pandas Series must have a monotonic increasing index.")
             return data
 
         try:

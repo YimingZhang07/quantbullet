@@ -16,7 +16,7 @@ class TestConsolidator(unittest.TestCase):
     def test_consolidate_to_series(self):
         series = Consolidator.consolidate_to_series([1, 2, 3, 4, 5])
         self.assertIsInstance(series, pd.Series)
-        self.assertTrue(series.index, pd.RangeIndex(start=0, stop=5))
+        self.assertTrue(series.index.equals(pd.RangeIndex(start=0, stop=5)))
         series = Consolidator.consolidate_to_series(pd.Series([1, 2, 3, 4, 5], index=[2, 3, 5, 8, 9]))
         self.assertIsInstance(series, pd.Series)
-        self.assertTrue(series.index, pd.Index([2, 3, 5, 8, 9]))
+        self.assertTrue(series.index.equals(pd.Index([2, 3, 5, 8, 9])))
