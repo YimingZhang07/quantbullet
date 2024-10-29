@@ -12,7 +12,7 @@ def df_to_html_table(df: pd.DataFrame, table_title: str = '') -> str:
 
     # Turn the columns that are floats into strings with 2 decimal places
     for col in df.select_dtypes(include='float').columns:
-        df[col] = df[col].apply(lambda x: f'{x:.2f}')
+        df.loc[:, col] = df[col].apply(lambda x: f'{x:.2f}')
 
     return f"""
     <div class="table-title">{table_title}</div>
@@ -27,7 +27,7 @@ def df_to_html_table(df: pd.DataFrame, table_title: str = '') -> str:
     """
 
 # Function to generate the complete HTML page
-def generate_html_page(body_content: str) -> str:
+def generate_html_page(body_content: str, table_col_width = "20%") -> str:
 
     return f"""
     <html>
@@ -35,9 +35,9 @@ def generate_html_page(body_content: str) -> str:
         <style>
             body {{ font-family: Arial, sans-serif; }}
             <!-- h2 {{ color: #4CAF50; text-align: center; }} -->
-            table {{ width: 60%; border-collapse: collapse; margin: 20px 0; }}
-            th {{ background-color: #005CAF; color: white; font-weight: bold; padding: 8px; text-align: right; }}
-            td {{ padding: 8px; border-bottom: 1px solid #ddd; text-align: right; }}
+            table {{ width: 100%; border-collapse: collapse; margin: 10px 0; }}
+            th {{ background-color: #005CAF; color: white; font-weight: bold; padding: 2px; text-align: right; width: {table_col_width}; }}
+            td {{ padding: 2px; border-bottom: 1px solid #ddd; text-align: right; width: {table_col_width}; }}
             tr:nth-child(even) {{ background-color: #f2f2f2; }}
             tr:hover {{ background-color: #f5f5f5; }}
             .table-title {{ font-weight: normal; text-align: left; }}
@@ -80,9 +80,9 @@ def consolidate_data_types(df: pd.DataFrame, type_map: dict) -> pd.DataFrame:
             elif dtype == DataType.STRING:
                 df[column] = df[column].astype(str)
             elif dtype == DataType.FLOAT:
-                df[column] = pd.to_numeric(df[column], errors='coerce').astype("float64")
+                df[column] = pd.to_numeric(df[column], errors='coerce').astype(float) # consider to use 'float64'
             elif dtype == DataType.INT:
-                df[column] = pd.to_numeric(df[column], errors='coerce').astype('Int64')
+                df[column] = pd.to_numeric(df[column], errors='coerce').astype(int) # consider to use 'Int64'
             elif dtype == DataType.BOOL:
                 df[column] = df[column].astype(bool)
             elif dtype == DataType.DATE_TIME:
