@@ -1,5 +1,6 @@
 import pandas as pd
 from enum import Enum
+from typing import List
 
 def df_to_html_table(df: pd.DataFrame, table_title: str = '') -> str:
     """
@@ -89,3 +90,40 @@ def consolidate_data_types(df: pd.DataFrame, type_map: dict) -> pd.DataFrame:
                 df[column] = pd.to_datetime(df[column], errors='coerce')
     
     return df
+
+
+def combine_latest_records(dataframes: List[pd.DataFrame], unique_keys: List[str]) -> pd.DataFrame:
+    """
+    Combines a sequence of DataFrames, keeping only the latest records based on unique keys.
+    
+    Parameters
+    ----------
+    dataframes : List[pd.DataFrame]
+        A list of DataFrames to be combined.
+    unique_keys : List[str]
+        A list of columns that uniquely identify each record.
+
+    Returns
+    -------
+    pd.DataFrame
+        The combined DataFrame containing the latest records.
+    """
+    if not dataframes:
+        raise ValueError("The dataframes list cannot be empty.")
+    if not unique_keys:
+        raise ValueError("The unique_keys list cannot be empty.")
+    
+    # Initialize an empty master dataframe with columns from the first dataframe
+    master_df = pd.DataFrame(columns=dataframes[0].columns)
+    
+    # Iterate over the list of dataframes
+    for df in dataframes:
+        if not all(key in df.columns for key in unique_keys):
+            raise ValueError(f"All unique_keys must be present in each DataFrame. Missing in {df.columns}")
+        
+        # Combine and drop duplicates based on unique keys
+        master_df = pd.concat([master_df, df]).drop_duplicates(subset=unique_keys, keep='last')
+    
+    # Reset the index before returning
+    master_df = master_df.reset_index(drop=True)
+    return master_df
