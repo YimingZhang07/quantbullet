@@ -1,1 +1,10 @@
 __pycache__/
+
+# environment files
+.env
+
+# vscode settings
+.vscode/
+
+# ignore the virtual environment folder
+.venv/

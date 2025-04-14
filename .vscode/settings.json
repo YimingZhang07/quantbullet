@@ -1,42 +1,53 @@
+// {
+//     "terminal.integrated.profiles.windows": {
+//         "PowerShell": {
+//             "source": "PowerShell",
+//             "args": [
+//                 "-NoExit",
+//                 "-Command",
+//                 "conda activate quantbullet_dev"
+//             ]
+//         }
+//     },
+//     "pylint.args": [
+//         "--max-line-length=100",
+//         // C0301 - line too long
+//         // C0303 - trailing whitespace
+//         // C0401 - wildcard import
+//         // W0201 - attribute defined outside __init__
+//         // W0611 - unused import
+//         // W0613 - unused argument
+//         // E1101 - no member
+//         "--disable=C0411, W1203, C0114, C0115, C0116, C0103, C0301, C0303, C0401, W0201, W0611, W0613, E1101",
+//     ],
+//     "python.testing.pytestArgs": [
+//         "tests"
+//     ],
+//     "python.testing.unittestEnabled": false,
+//     "python.testing.pytestEnabled": true,
+
+//     "terminal.integrated.profiles.linux": {
+//         "bash": {
+//             "path": "bash",
+//             "args": [
+//                 "--init-file",
+//                 "./quantbullet_dev_init.sh"
+//             ]
+//         }
+//     },
+//     "terminal.integrated.defaultProfile.linux": "bash",
+//     "cSpell.enableFiletypes": [
+//         "!python"
+//     ],
+// }
+
 {
-    "terminal.integrated.profiles.windows": {
-        "PowerShell": {
-            "source": "PowerShell",
-            "args": [
-                "-NoExit",
-                "-Command",
-                "conda activate quantbullet_dev"
-            ]
-        }
-    },
-    "pylint.args": [
-        "--max-line-length=100",
-        // C0301 - line too long
-        // C0303 - trailing whitespace
-        // C0401 - wildcard import
-        // W0201 - attribute defined outside __init__
-        // W0611 - unused import
-        // W0613 - unused argument
-        // E1101 - no member
-        "--disable=C0411, W1203, C0114, C0115, C0116, C0103, C0301, C0303, C0401, W0201, W0611, W0613, E1101",
-    ],
+    "python.envFile": "${workspaceFolder}/.env",
     "python.testing.pytestArgs": [
         "tests"
     ],
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,
-
-    "terminal.integrated.profiles.linux": {
-        "bash": {
-            "path": "bash",
-            "args": [
-                "--init-file",
-                "./quantbullet_dev_init.sh"
-            ]
-        }
-    },
-    "terminal.integrated.defaultProfile.linux": "bash",
-    "cSpell.enableFiletypes": [
-        "!python"
-    ],
+    "python.terminal.activateEnvironment": true,
+    "python.defaultInterpreterPath":  "${workspaceFolder}/.venv/Scripts/python.exe",
 }
