@@ -8,7 +8,8 @@ from .research import *
 import quantbullet.tsa
 
 # Package details
-__version__ = version("quantbullet")
+# __version__ = version("quantbullet")
+__version__ = "0.1.0"  # Placeholder version, replace with actual version retrieval
 
 
 def display_package_info(info_dict):
