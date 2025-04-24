@@ -34,6 +34,12 @@ def is_index_mono_inc(series):
     """Check if the index of a series is monotonically increasing."""
     return series.index.is_monotonic_increasing
 
+def is_array_like(obj):
+    return (
+        hasattr(obj, '__iter__') and
+        not isinstance(obj, (str, bytes, dict)) and
+        isinstance(obj, (list, tuple, set, range, pd.Series, np.ndarray))
+    )
    
 class Consolidator:
     @staticmethod
@@ -68,3 +74,4 @@ class Validator:
     pass
 
 setattr(Validator, 'is_index_mono_inc', staticmethod(is_index_mono_inc))
+setattr(Validator, 'is_array_like', staticmethod(is_array_like))
