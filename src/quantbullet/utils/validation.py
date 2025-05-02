@@ -40,19 +40,6 @@ def is_array_like(obj):
         not isinstance(obj, (str, bytes, dict)) and
         isinstance(obj, (list, tuple, set, range, pd.Series, np.ndarray))
     )
-   
-class Consolidator:
-    @staticmethod
-    def consolidate_to_series(data: Sequence) -> pd.Series:
-        """Convert sequence-like data to pandas Series, validating shape and index."""
-        if isinstance(data, pd.Series):
-            if not data.index.is_monotonic_increasing:
-                raise ValueError("Input Series index must be monotonic increasing.")
-            return data
-        elif isinstance(data, (list, tuple, np.ndarray)):
-            return pd.Series(data)
-        else:
-            raise TypeError("Data must be a Series, list, tuple, or ndarray.")
 
 class Validator:
     pass
