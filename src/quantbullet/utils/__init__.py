@@ -19,3 +19,8 @@ from .backtest import(
 from .stats import (
     cross_correlation
 )
+
+from .debug import (
+    cache_variables,
+    load_cache_variables
+)

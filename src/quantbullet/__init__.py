@@ -1,13 +1,25 @@
-# read version from installed package
+import importlib
 from importlib.metadata import version
-from .log_config import setup_logger, set_package_log_level
-from .global_utils import set_figsize
-from .model import *
-from .utils import *
-from .research import *
-import quantbullet.tsa
 
-# Package details
+_lazy_submodules = [
+    "log_config",
+    "global_utils",
+    "model",
+    "utils",
+    "research",
+    "tsa",
+]
+
+def __getattr__(name):
+    if name in _lazy_submodules:
+        # Lazy load the submodule
+        return importlib.import_module(f".{name}", __package__)
+    raise AttributeError(f"Module '{__name__}' has no attribute '{name}'")
+
+def __dir__():
+    return list(globals().keys()) + _lazy_submodules
+
+
 # __version__ = version("quantbullet")
 __version__ = "0.1.0"  # Placeholder version, replace with actual version retrieval
 

@@ -1,7 +1,7 @@
 import pandas as pd
 import statsmodels.api as sm
 
-def ols_regression(X, y):
+def ols_regression(y, X):
     """
     Perform Ordinary Least Squares (OLS) regression.
 
@@ -19,6 +19,28 @@ def ols_regression(X, y):
     """
     X_with_constant = sm.add_constant(X, has_constant='add')
     model = sm.OLS(y, X_with_constant).fit()
+    return model
+
+def wls_regression(y, X, weights):
+    """
+    Perform Weighted Least Squares (WLS) regression.
+
+    Parameters:
+    -----------
+    X : pandas.DataFrame or numpy.ndarray
+        Independent variables.
+    y : pandas.Series or numpy.ndarray
+        Dependent variable.
+    weights : pandas.Series or numpy.ndarray
+        Weights for each observation.
+
+    Returns:
+    --------
+    model : statsmodels.regression.linear_model.RegressionResultsWrapper
+        Fitted WLS model.
+    """
+    X_with_constant = sm.add_constant(X, has_constant='add')
+    model = sm.WLS(y, X_with_constant, weights=weights).fit()
     return model
 
 def arima(series, order=(1, 0, 0)):

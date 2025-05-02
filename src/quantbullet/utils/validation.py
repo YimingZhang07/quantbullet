@@ -44,31 +44,15 @@ def is_array_like(obj):
 class Consolidator:
     @staticmethod
     def consolidate_to_series(data: Sequence) -> pd.Series:
-        """
-        Consolidate input sequence data to a pandas Series.
-
-        Parameters
-        ----------
-        data : pd.Series, list, tuple, or np.ndarray
-            Data to be consolidated.
-
-        Returns
-        -------
-        pd.Series
-            The consolidated data as a pandas Series.
-        """
-        if not isinstance(data, (pd.Series, list, tuple, np.ndarray)):
-            raise ValueError("Input data must be a pandas Series, list, tuple, or numpy array.")
-
+        """Convert sequence-like data to pandas Series, validating shape and index."""
         if isinstance(data, pd.Series):
             if not data.index.is_monotonic_increasing:
-                raise ValueError("Input pandas Series must have a monotonic increasing index.")
+                raise ValueError("Input Series index must be monotonic increasing.")
             return data
-
-        try:
+        elif isinstance(data, (list, tuple, np.ndarray)):
             return pd.Series(data)
-        except TypeError:
-            raise TypeError("Input data cannot be converted to a pandas Series.")
+        else:
+            raise TypeError("Data must be a Series, list, tuple, or ndarray.")
 
 class Validator:
     pass
