@@ -17,20 +17,25 @@ class Feature:
 
 class FeatureSpec:
     def __init__(self, features: list[Feature]):
-        self.features = features
+        self._features = features
         self._build_feature_groups()
 
     def _build_feature_groups(self):
-        self.x = [f.name for f in self.features if f.role == FeatureRole.MODEL_INPUT]
-        self.x_num = [f.name for f in self.features if f.role == FeatureRole.MODEL_INPUT and f.dtype.is_numeric()]
-        self.x_cat = [f.name for f in self.features if f.role == FeatureRole.MODEL_INPUT and f.dtype.is_categorical()]
-        self.refs = [f.name for f in self.features if f.role == FeatureRole.REFERENCE]
+        self.x = [f.name for f in self._features if f.role == FeatureRole.MODEL_INPUT]
+        self.x_num = [f.name for f in self._features if f.role == FeatureRole.MODEL_INPUT and f.dtype.is_numeric()]
+        self.x_cat = [f.name for f in self._features if f.role == FeatureRole.MODEL_INPUT and f.dtype.is_categorical()]
+        self.refs = [f.name for f in self._features if f.role == FeatureRole.REFERENCE]
         
         # Expect exactly one target
-        targets = [f.name for f in self.features if f.role == FeatureRole.TARGET]
+        targets = [f.name for f in self._features if f.role == FeatureRole.TARGET]
         if len(targets) != 1:
             raise ValueError(f"Expected exactly one target feature, got: {targets}")
         self.y = targets[0]
+
+    @property
+    def all_features(self) -> list[str]:
+        """Get all feature names."""
+        return [f.name for f in self._features]
 
     def __repr__(self):
         return (

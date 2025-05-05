@@ -2,7 +2,8 @@ import pandas as pd
 import numpy as np
 import unittest
 
-from quantbullet.utils.validation import are_only_values_in_series, Consolidator
+from quantbullet.utils.consolidator import Consolidator
+from quantbullet.utils.validation import are_only_values_in_series
 
 class TestValidationFunctions(unittest.TestCase):
     def test_are_only_values_in_series(self):
