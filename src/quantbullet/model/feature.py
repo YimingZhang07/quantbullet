@@ -1,6 +1,6 @@
 from enum import Enum
 from dataclasses import dataclass
-from quantbullet.core.types import DataType
+from quantbullet.core.enums import DataType
     
 class FeatureRole(Enum):
     MODEL_INPUT = "model_input"
