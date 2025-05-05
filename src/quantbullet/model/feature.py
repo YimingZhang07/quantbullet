@@ -1,15 +1,19 @@
 from enum import Enum
 from dataclasses import dataclass
-
-class FeatureType(Enum):
-    NUMERIC = "numeric"
-    CATEGORICAL = "categorical"
+from quantbullet.core.types import DataType
+    
+class FeatureRole(Enum):
+    MODEL_INPUT = "model_input"
+    TARGET = "target"
+    AUXILIARY_TARGET = "auxiliary_target"
     REFERENCE = "reference"
+    GROUPING = "grouping"
 
 @dataclass
 class Feature:
     name: str
-    type: FeatureType
+    dtype: DataType
+    role: FeatureRole
 
 class FeatureSpec:
     def __init__(self, features: list[Feature]):
@@ -17,17 +21,24 @@ class FeatureSpec:
         self._build_feature_groups()
 
     def _build_feature_groups(self):
-        self.model_features = [f.name for f in self.features if f.type != FeatureType.REFERENCE]
-        self.reference_features = [f.name for f in self.features if f.type == FeatureType.REFERENCE]
-        self.categorical_features = [f.name for f in self.features if f.type == FeatureType.CATEGORICAL]
-        self.numeric_features = [f.name for f in self.features if f.type == FeatureType.NUMERIC]
-        self.all_features = [f.name for f in self.features]
+        self.x = [f.name for f in self.features if f.role == FeatureRole.MODEL_INPUT]
+        self.x_num = [f.name for f in self.features if f.role == FeatureRole.MODEL_INPUT and f.dtype.is_numeric()]
+        self.x_cat = [f.name for f in self.features if f.role == FeatureRole.MODEL_INPUT and f.dtype.is_categorical()]
+        self.refs = [f.name for f in self.features if f.role == FeatureRole.REFERENCE]
+        
+        # Expect exactly one target
+        targets = [f.name for f in self.features if f.role == FeatureRole.TARGET]
+        if len(targets) != 1:
+            raise ValueError(f"Expected exactly one target feature, got: {targets}")
+        self.y = targets[0]
 
     def __repr__(self):
         return (
-            f"FeatureSpec(\n"
-            f"  Model: {self.model_features}\n"
-            f"  Numeric: {self.numeric_cols}\n"
-            f"  Categorical: {self.categorical_cols}\n"
-            f"  Reference: {self.reference_cols}\n)"
+            "FeatureSpec(\n"
+            f"  y      : {self.y}\n"
+            f"  x      : {self.x}\n"
+            f"  x_num  : {self.x_num}\n"
+            f"  x_cat  : {self.x_cat}\n"
+            f"  refs   : {self.refs}\n"
+            ")"
         )

@@ -1,5 +1,8 @@
 # model/__init__.py
 import importlib
+from .feature import Feature, FeatureSpec, FeatureRole
+from ..core.types import DataType
+from .core import Model
 
 _lazy_by_module = {
     ".linear_model"         : ["ols_regression", "wls_regression"],

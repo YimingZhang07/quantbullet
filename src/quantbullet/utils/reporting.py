@@ -1,6 +1,7 @@
 import pandas as pd
 from enum import Enum
 from typing import List
+from quantbullet.core.types import DataType
 
 def df_to_html_table(df: pd.DataFrame, table_title: str = '') -> str:
     """
@@ -50,14 +51,6 @@ def generate_html_page(body_content: str, table_col_width = "20%") -> str:
     </html>
     """
 
-class DataType(Enum):
-    DATE        = "date"
-    STRING      = "string"
-    FLOAT       = "float"
-    INT         = "int"
-    BOOL        = "bool"
-    DATE_TIME   = "datetime"
-
 def consolidate_data_types(df: pd.DataFrame, type_map: dict) -> pd.DataFrame:
     """
     Consolidates the data types in the DataFrame based on the provided type map.
@@ -86,7 +79,7 @@ def consolidate_data_types(df: pd.DataFrame, type_map: dict) -> pd.DataFrame:
                 df[column] = pd.to_numeric(df[column], errors='coerce').astype(int) # consider to use 'Int64'
             elif dtype == DataType.BOOL:
                 df[column] = df[column].astype(bool)
-            elif dtype == DataType.DATE_TIME:
+            elif dtype == DataType.DATETIME:
                 df[column] = pd.to_datetime(df[column], errors='coerce')
     
     return df
