@@ -41,8 +41,13 @@ def is_array_like(obj):
         isinstance(obj, (list, tuple, set, range, pd.Series, np.ndarray))
     )
 
+def is_index_datetime(obj):
+    """Check if the index of a Series or DataFrame is of datetime type."""
+    return pd.api.types.is_datetime64_any_dtype(obj.index)
+
 class Validator:
     pass
 
 setattr(Validator, 'is_index_mono_inc', staticmethod(is_index_mono_inc))
 setattr(Validator, 'is_array_like', staticmethod(is_array_like))
+setattr(Validator, 'is_index_datetime', staticmethod(is_index_datetime))

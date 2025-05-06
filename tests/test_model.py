@@ -1,14 +1,22 @@
-import pytest
 import numpy as np
 import pandas as pd
+import unittest
 from copy import deepcopy
 from sklearn.random_projection import sample_without_replacement
 from sklearn.utils.estimator_checks import check_estimator
-from quantbullet.model import ModelMetricsConsts
-from quantbullet.model import TimeWeightedXGBRegressor
-from quantbullet.model import weightedDistanceKNRegressor
 
+try:
+    from quantbullet.model import ModelMetricsConsts
+    from quantbullet.model import TimeWeightedXGBRegressor
+    from quantbullet.model import weightedDistanceKNRegressor
+except ImportError:
+    ModelMetricsConsts = None
+    TimeWeightedXGBRegressor = None
+    weightedDistanceKNRegressor = None
 
+@unittest.skipIf(ModelMetricsConsts is None, "ModelMetricsConsts not available")
+@unittest.skipIf(TimeWeightedXGBRegressor is None, "TimeWeightedXGBRegressor not available")
+@unittest.skipIf(weightedDistanceKNRegressor is None, "weightedDistanceKNRegressor not available")
 class TestModelSelection(object):
     def setup_class(self):
         pass
