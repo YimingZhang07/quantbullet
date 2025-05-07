@@ -5,9 +5,10 @@ from ..core.enums import DataType
 from .core import Model
 
 _lazy_by_module = {
-    ".linear_model"         : ["ols_regression", "wls_regression"],
-    ".consts"               : ["ModelMetricsConsts"],
-    ".time_weighted_xgboost" : ["TimeWeightedXGBRegressor"],
+    ".linear_model"             : ["ols_regression", "wls_regression"],
+    ".consts"                   : ["ModelMetricsConsts"],
+    ".time_weighted_xgboost"    : ["TimeWeightedXGBRegressor"],
+    ".neighbors"                : ["FeatureScaledKNNRegressor"],
 }
 
 _lazy_map = {
