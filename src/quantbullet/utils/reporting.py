@@ -1,7 +1,9 @@
+import os
 import pandas as pd
-from enum import Enum
 from typing import List
-from quantbullet.core.types import DataType
+from quantbullet.core.enums import DataType
+from openpyxl.styles import Alignment
+from openpyxl.utils import get_column_letter
 
 def df_to_html_table(df: pd.DataFrame, table_title: str = '') -> str:
     """
@@ -120,3 +122,112 @@ def combine_latest_records(dataframes: List[pd.DataFrame], unique_keys: List[str
     # Reset the index before returning
     master_df = master_df.reset_index(drop=True)
     return master_df
+
+class ExcelExporter:
+    def __init__(self, filename):
+        self.filename = filename
+        self._default_decimals = 2
+        self._default_date_format = "yyyy-mm-dd"
+        self._overwrite = True
+        self.default_alignment = Alignment(horizontal='right')
+        self._sheets = []
+
+    # --- @property + method ---
+    @property
+    def default_decimals(self):
+        return self._default_decimals
+
+    @default_decimals.setter
+    def default_decimals(self, value):
+        self.set_default_decimals(value)
+
+    def set_default_decimals(self, value: int):
+        if not isinstance(value, int) or value < 0:
+            raise ValueError("default_decimals must be a non-negative integer.")
+        self._default_decimals = value
+        return self
+
+    @property
+    def default_date_format(self):
+        return self._default_date_format
+
+    @default_date_format.setter
+    def default_date_format(self, value):
+        self.set_default_date_format(value)
+
+    def set_default_date_format(self, value: str):
+        """Set the default date format for the Excel file.
+        
+        The format here has to be compatible with openpyxl. It is not the same as the format in pandas.
+        For example, "yyyy-mm-dd" is the correct format for openpyxl, while "%Y-%m-%d" is not.
+
+        Please check https://openpyxl.readthedocs.io/en/3.1.3/_modules/openpyxl/styles/numbers.html.
+        """
+        if not isinstance(value, str):
+            raise ValueError("default_date_format must be a string.")
+        self._default_date_format = value
+        return self
+
+    @property
+    def overwrite(self):
+        return self._overwrite
+
+    @overwrite.setter
+    def overwrite(self, value):
+        self.set_overwrite(value)
+
+    def set_overwrite(self, value: bool):
+        self._overwrite = bool(value)
+        return self
+
+    def add_sheet(self, df, sheet_name, round_cols=None, date_format=None):
+        self._sheets.append({
+            "df": df.copy(),
+            "sheet_name": sheet_name,
+            "round_cols": round_cols or {},
+            "date_format": date_format or self._default_date_format
+        })
+        return self
+
+    def _get_col_formats(self, df, round_cols, date_format):
+        """Get the column formats for the DataFrame."""
+        formats = {}
+        for col in df.select_dtypes(include='number').columns:
+            decimals = round_cols.get(col, self.default_decimals)
+            formats[col] = '0' if decimals == 0 else f'0.{"0" * decimals}'
+        for col in df.select_dtypes(include=['datetime64[ns]', 'datetime64']).columns:
+            formats[col] = date_format
+        return formats
+
+    def _apply_formatting(self, worksheet, df, col_formats):
+        """Apply formatting to the worksheet based on the DataFrame."""
+        for idx, col in enumerate(df.columns, 1):
+            col_letter = get_column_letter(idx)
+            max_len = max(df[col].astype(str).map(len).max(), len(str(col))) + 8
+            worksheet.column_dimensions[col_letter].width = max_len
+
+            for row in range(2, len(df) + 2):
+                cell = worksheet[f"{col_letter}{row}"]
+                if col in col_formats:
+                    cell.number_format = col_formats[col]
+                cell.alignment = self.default_alignment
+
+    def save(self):
+        """"Save the DataFrames to an Excel file."""
+        # HACK the below condition does not make sense, cause if the file exists, it will be overwritten anyway.
+        mode = 'w' if self.overwrite else ('a' if os.path.exists(self.filename) else 'w')
+        writer_args = {"engine": "openpyxl", "mode": mode}
+        if mode == 'a':
+            writer_args["if_sheet_exists"] = "replace"
+
+        with pd.ExcelWriter(self.filename, **writer_args) as writer:
+            for sheet in self._sheets:
+                df = sheet["df"]
+                name = sheet["sheet_name"]
+                formats = self._get_col_formats(df, sheet["round_cols"], sheet["date_format"])
+                df.to_excel(writer, sheet_name=name, index=False)
+                worksheet = writer.sheets[name]
+                self._apply_formatting(worksheet, df, formats)
+
+        # self._sheets is a list, so we can clear it
+        self._sheets.clear()

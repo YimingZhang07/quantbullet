@@ -23,3 +23,17 @@ def fit_constant_shift(
     # Closed-form solution
     delta = y_obs.mean() - x_obs.mean()
     return delta
+
+def align_series_index(
+    x1: pd.Series,
+    x2: pd.Series,
+):
+    """Align the index of two series so that they have the same index."""
+    # Find the common index
+    common_index = x1.index.intersection(x2.index)
+
+    # Align the series to the common index
+    x1_aligned = x1.reindex(common_index)
+    x2_aligned = x2.reindex(common_index)
+
+    return x1_aligned, x2_aligned

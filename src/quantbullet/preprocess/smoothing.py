@@ -26,7 +26,7 @@ class SavgolFilterSmoother:
     
     def plot( self, x: ArrayLike ):
         """Plot the original and smoothed series."""
-        x_smooth = self.smooth( x )
+        x_smooth = self.apply( x )
         
         plt.plot( x, label='x', color=EconomistBrandColor.CHICAGO_30.value )
         plt.plot( x_smooth, label='Smoothed x', color=EconomistBrandColor.HONG_KONG_45.value )
