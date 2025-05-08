@@ -4,7 +4,6 @@ import unittest
 from copy import deepcopy
 from sklearn.random_projection import sample_without_replacement
 from sklearn.utils.estimator_checks import check_estimator
-from quantbullet.model import weightedDistanceKNRegressor
 
 try:
     from quantbullet.model import ModelMetricsConsts

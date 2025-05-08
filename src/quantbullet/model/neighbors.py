@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 from numpy.linalg import inv, cholesky
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.neighbors import KNeighborsRegressor
@@ -65,18 +66,46 @@ class FeatureScaledKNNRegressor(BaseEstimator, RegressorMixin):
         self.knn_.fit(X_final, y)
 
         return self
-
-    def predict(self, X):
+    
+    def _transform_input(self, X):
+        """
+        Applies scaler, feature weighting, and Mahalanobis transform if specified.
+        Returns the transformed X_final used for distance and prediction.
+        """
         X = check_array(X)
         X_scaled = self.scaler_.transform(X)
         X_weighted = self._apply_feature_weights(X_scaled)
 
         if self.metrics == 'mahalanobis':
-            X_final = self._apply_mahalanobis_transform(X_weighted)
-        else:
-            X_final = X_weighted
+            return self._apply_mahalanobis_transform(X_weighted)
+        return X_weighted
 
+    def predict(self, X):
+        X_final = self._transform_input(X)
         return self.knn_.predict(X_final)
+    
+    def predict_with_neighbors(self, X, return_full_info=True):
+        X_final = self._transform_input(X)
+        y_pred = self.knn_.predict(X_final)
+        distances, indices = self.knn_.kneighbors(X_final, return_distance=True)
+
+        if not return_full_info:
+            return y_pred
+
+        rows = []
+        for i, (yp, idxs, dists) in enumerate(zip(y_pred, indices, distances)):
+            neighbor_rows = self.X_train_.iloc[idxs].copy()
+            neighbor_rows['__neighbor_y__'] = self.y_train_.iloc[idxs].values
+            neighbor_rows['__distance__'] = dists
+            rows.append({
+                'request_index': i,
+                'prediction': yp,
+                'neighbor_indices': idxs,
+                'neighbor_distances': dists,
+                'neighbor_frame': neighbor_rows
+            })
+
+        return pd.DataFrame(rows)
 
     def score(self, X, y):
         return mean_squared_error(y, self.predict(X))
