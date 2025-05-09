@@ -46,6 +46,11 @@ class FeatureScaledKNNRegressor(BaseEstimator, RegressorMixin):
     def fit(self, X, y):
         """Fit the model using the training data."""
         X, y = check_X_y(X, y)
+
+        # Memorize the training data for later use in predict_with_neighbors
+        self.X_train_ = pd.DataFrame(X)
+        self.y_train_ = pd.Series(y)
+
         self.scaler_ = StandardScaler()
         X_scaled = self.scaler_.fit_transform(X)
         self.n_features_in_ = X_scaled.shape[1]
@@ -84,28 +89,27 @@ class FeatureScaledKNNRegressor(BaseEstimator, RegressorMixin):
         X_final = self._transform_input(X)
         return self.knn_.predict(X_final)
     
-    def predict_with_neighbors(self, X, return_full_info=True):
+    def predict_with_neighbors(self, X):
         X_final = self._transform_input(X)
         y_pred = self.knn_.predict(X_final)
-        distances, indices = self.knn_.kneighbors(X_final, return_distance=True)
+        distances, indices = self.knn_.kneighbors(X_final)
 
-        if not return_full_info:
-            return y_pred
+        flat_rows = []
 
-        rows = []
         for i, (yp, idxs, dists) in enumerate(zip(y_pred, indices, distances)):
-            neighbor_rows = self.X_train_.iloc[idxs].copy()
-            neighbor_rows['__neighbor_y__'] = self.y_train_.iloc[idxs].values
-            neighbor_rows['__distance__'] = dists
-            rows.append({
-                'request_index': i,
-                'prediction': yp,
-                'neighbor_indices': idxs,
-                'neighbor_distances': dists,
-                'neighbor_frame': neighbor_rows
-            })
+            for rank, (idx, dist) in enumerate(zip(idxs, dists)):
+                row = self.X_train_.iloc[idx].to_dict()
+                row.update({
+                    '_request_index': i,
+                    '_prediction': yp,
+                    '_neighbor_index': idx,
+                    '_neighbor_rank': rank,
+                    '_distance': dist,
+                    '_neighbor_y': self.y_train_.iloc[idx]
+                })
+                flat_rows.append(row)
 
-        return pd.DataFrame(rows)
+        return pd.DataFrame(flat_rows)
 
     def score(self, X, y):
         return mean_squared_error(y, self.predict(X))
