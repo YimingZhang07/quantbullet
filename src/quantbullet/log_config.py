@@ -12,20 +12,37 @@ LEVEL_MAP = {
 }
 
 
-def setup_logger(name):
-    """Setup a logger with a given name."""
+def setup_logger(name: str, level: int = logging.INFO) -> logging.Logger:
+    """
+    Set up and return a logger that outputs to the console.
+
+    Parameters
+    ----------
+    name : str
+        Name of the logger.
+    
+    level : int
+        Logging level (default is logging.INFO).
+
+    Returns
+    -------
+    logger : logging.Logger
+        Configured logger instance.
+    """
     logger = logging.getLogger(name)
 
-    if not logger.hasHandlers():
+    if not logger.handlers:  # more robust than hasHandlers() in some cases
         handler = logging.StreamHandler()
-        # formatter = logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s",
-        #                               datefmt="%m-%d %H:%M:%S")
-        formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s",
-                                datefmt="%m-%d %H:%M:%S")
+        formatter = logging.Formatter(
+            "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            datefmt="%m-%d %H:%M:%S"
+        )
         handler.setFormatter(formatter)
         logger.addHandler(handler)
-        # this is just the default log level, it can be changed later
-        logger.setLevel(logging.INFO)
+        logger.setLevel(level)
+
+        # Avoid log propagation to root (prevents duplicate logs)
+        logger.propagate = False
 
     return logger
 
