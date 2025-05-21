@@ -8,3 +8,5 @@ __pycache__/
 
 # ignore the virtual environment folder
 .venv/
+
+adjust_env/
