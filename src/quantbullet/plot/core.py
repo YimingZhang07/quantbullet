@@ -26,13 +26,13 @@ class LineStyler:
         )
         
 class ScatterStyler:
-    def __init__(self):
-        self.color = 'tab:blue'
-        self.marker = 'o'
-        self.alpha = 0.8
-        self.edgecolor = 'k'
-        self.size = 40
-        self.cmap = 'viridis'
+    def __init__(self, color=None, marker=None, alpha=None, edgecolor=None, size=None, cmap=None):
+        self.color      = color or 'tab:blue'
+        self.marker     = marker or 'o'
+        self.alpha      = alpha or 0.8
+        self.edgecolor  = edgecolor or 'k'
+        self.size       = size or 40
+        self.cmap       = cmap or 'viridis'
 
     def set_color(self, c): self.color = c; return self
     def set_marker(self, m): self.marker = m; return self
@@ -43,11 +43,11 @@ class ScatterStyler:
     def plot(self, ax, x, y, **kwargs):
         return ax.scatter(
             x, y,
-            c=self.color,
-            marker=self.marker,
-            alpha=self.alpha,
-            edgecolors=self.edgecolor,
-            s=self.size,
+            c           = kwargs.get( 'c', self.color),
+            marker      = kwargs.get( 'marker', self.marker),
+            alpha       = kwargs.get( 'alpha', self.alpha),
+            edgecolors  = kwargs.get( 'edgecolors', self.edgecolor),
+            s           = kwargs.get( 's', self.size),
             **kwargs
         )
         

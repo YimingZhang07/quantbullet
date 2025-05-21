@@ -45,11 +45,15 @@ class FeatureScaledKNNRegressor(BaseEstimator, RegressorMixin):
     
     def fit(self, X, y):
         """Fit the model using the training data."""
+        if isinstance(X, pd.DataFrame):
+            self.X_features_in = X.columns
+        elif isinstance(X, np.ndarray):
+            self.X_features_in = [f"feature_{i}" for i in range(X.shape[1])]
+            
+        # After checking the input, X and y are converted to numpy arrays
         X, y = check_X_y(X, y)
-
-        # Memorize the training data for later use in predict_with_neighbors
-        self.X_train_ = pd.DataFrame(X)
-        self.y_train_ = pd.Series(y)
+        self.X_train_ = pd.DataFrame(X, columns=self.X_features_in)
+        self.y_train_ = pd.DataFrame(y, columns=['target'])
 
         self.scaler_ = StandardScaler()
         X_scaled = self.scaler_.fit_transform(X)
