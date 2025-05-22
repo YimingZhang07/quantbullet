@@ -1,4 +1,5 @@
 import os
+import numpy as np
 import pandas as pd
 from typing import List
 from quantbullet.core.enums import DataType
@@ -31,7 +32,7 @@ def df_to_html_table(df: pd.DataFrame, table_title: str = '') -> str:
     """
 
 # Function to generate the complete HTML page
-def generate_html_page(body_content: str, table_col_width = "20%") -> str:
+def generate_html_page(body_content: str, table_col_width = "20%", table_width = "80%") -> str:
 
     return f"""
     <html>
@@ -39,7 +40,7 @@ def generate_html_page(body_content: str, table_col_width = "20%") -> str:
         <style>
             body {{ font-family: Arial, sans-serif; }}
             <!-- h2 {{ color: #4CAF50; text-align: center; }} -->
-            table {{ width: 100%; border-collapse: collapse; margin: 10px 0; }}
+            table {{ width: {table_width}; border-collapse: collapse; margin: 10px 0; }}
             th {{ background-color: #005CAF; color: white; font-weight: bold; padding: 2px; text-align: right; width: {table_col_width}; }}
             td {{ padding: 2px; border-bottom: 1px solid #ddd; text-align: right; width: {table_col_width}; }}
             tr:nth-child(even) {{ background-color: #f2f2f2; }}
@@ -53,7 +54,7 @@ def generate_html_page(body_content: str, table_col_width = "20%") -> str:
     </html>
     """
 
-def consolidate_data_types(df: pd.DataFrame, type_map: dict) -> pd.DataFrame:
+def consolidate_data_types(df: pd.DataFrame, type_map: dict, replace_with_none : bool = False) -> pd.DataFrame:
     """
     Consolidates the data types in the DataFrame based on the provided type map.
 
@@ -63,6 +64,8 @@ def consolidate_data_types(df: pd.DataFrame, type_map: dict) -> pd.DataFrame:
         The DataFrame to be consolidated.
     type_map : dict
         A dictionary mapping column names to their respective data types.
+    replace_with_None : bool
+        If True, replace invalid conversions with None instead of NaN.
 
     Returns
     -------
@@ -83,6 +86,9 @@ def consolidate_data_types(df: pd.DataFrame, type_map: dict) -> pd.DataFrame:
                 df[column] = df[column].astype(bool)
             elif dtype == DataType.DATETIME:
                 df[column] = pd.to_datetime(df[column], errors='coerce')
+
+    if replace_with_none:
+        df.replace( { np.nan: None, pd.NaT: None }, inplace=True )
     
     return df
 
