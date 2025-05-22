@@ -114,6 +114,29 @@ class FeatureScaledKNNRegressor(BaseEstimator, RegressorMixin):
                 flat_rows.append(row)
 
         return pd.DataFrame(flat_rows)
+    
+    def apply_scaler_to_data( self, X )-> pd.DataFrame:
+        """Apply the scaler to the input data and return the scaled features.
+        
+        Parameters
+        ----------
+        X : pd.DataFrame
+            The input data to be scaled.
+            
+        Returns
+        -------
+        pd.DataFrame
+            The input data with additional columns for the scaled features.
+        """
+        # make additional columns for the scaled features
+        X_scaled = self.scaler_.transform(X)
+        scaled_features = pd.DataFrame(X_scaled, columns=[f"{col}_scaled" for col in self.X_features_in])
+        
+        # X may not be a DataFrame, need to convert it to one
+        if not isinstance(X, pd.DataFrame):
+            X = pd.DataFrame(X, columns=self.X_features_in)
+        
+        return pd.concat([X.reset_index(drop=True), scaled_features.reset_index(drop=True)], axis=1)
 
     def score(self, X, y):
         return mean_squared_error(y, self.predict(X))
