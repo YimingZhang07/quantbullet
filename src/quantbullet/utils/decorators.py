@@ -1,5 +1,7 @@
 import functools
 import warnings
+import time
+import logging
 
 def deprecated(new_func_name: str):
     """Decorator to mark a function as deprecated
@@ -43,3 +45,20 @@ def require_fitted(func):
             raise ValueError("Model has not been fitted yet")
         return func(self, *args, **kwargs)
     return wrapper
+
+def log_runtime(label: str = None):
+    """Decorator to log the runtime of a function or method."""
+    def decorator(func):
+        logger = logging.getLogger(func.__module__)  # Uses caller's module logger
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            start = time.perf_counter()
+            result = func(*args, **kwargs)
+            end = time.perf_counter()
+            duration = end - start
+            log_label = label or func.__qualname__
+            logger.info(f"{log_label} completed in {duration:.3f} seconds")
+            return result
+        return wrapper
+    return decorator
