@@ -25,3 +25,18 @@ class DataType(Enum):
     
     def is_categorical(self):
         return self == self.CATEGORICAL
+    
+class StrEnum:
+    @classmethod
+    def all(cls):
+        return [
+            v for k, v in vars(cls).items()
+            if not k.startswith('_') and isinstance(v, str)
+        ]
+    
+    @classmethod
+    def has( cls, value ):
+        return value in cls.all()
+    
+    def __contains__(self, value):
+        return self.has(value)

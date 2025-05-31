@@ -3,18 +3,20 @@ from contextlib import contextmanager
 from sqlalchemy.orm import sessionmaker, Session
 
 class TableInterfaceBase( ABC ):
-    """Base class for SQLAlchemy table interfaces."""
     def __init__(self, engine):
         self.engine = engine
         self.Session = sessionmaker(bind=engine)
 
+    @classmethod
+    @abstractmethod
+    def DisplayName(self):
+        """Return the name of the table."""
+        pass
+
     @property
     @abstractmethod
     def model(self):
-        """Return the SQLAlchemy model class.
-        
-        This abstract method must be implemented by subclasses, and return the SQLAlchemy model class (the ORM mapping).
-        """
+        """Return the SQLAlchemy model class."""
         pass
 
     @contextmanager
@@ -40,3 +42,8 @@ class TableInterfaceBase( ABC ):
         """Delete all rows from the table."""
         with self.session_scope() as session:
             session.query(self.model).delete()
+
+    def drop_table(self):
+        """Drop the table."""
+        with self.session_scope() as session:
+            self.model.__table__.drop(session.bind)
