@@ -53,7 +53,7 @@ class FeatureScaledKNNRegressor(BaseEstimator, RegressorMixin):
         # After checking the input, X and y are converted to numpy arrays
         X, y = check_X_y(X, y)
         self.X_train_ = pd.DataFrame(X, columns=self.X_features_in)
-        self.y_train_ = pd.DataFrame(y, columns=['target'])
+        self.y_train_ = pd.Series(y)
 
         self.scaler_ = StandardScaler()
         X_scaled = self.scaler_.fit_transform(X)

@@ -188,7 +188,7 @@ class RollingWindowBacktester:
         self.manager = rolling_window_manager
         self.model = model
         # the logger has to at least know which column is the target to calculate the residuals
-        self.loggger = RollingWindowResultLogger( self.model.feature_spec.y )
+        self.logger = RollingWindowResultLogger( self.model.feature_spec.y )
 
     def _prepare( self ):
         self._back_test_dates = self.manager.get_all_window_dates()
@@ -196,13 +196,18 @@ class RollingWindowBacktester:
         required_features = self.model.feature_spec.all_features
         missing_features = set(required_features) - set(self.manager.df.columns)
         if len(missing_features) > 0:
-            raise ValueError(f"Missing features in the RollingWindowManager df: {missing_features}")
+            raise ValueError(
+                f"[{self.model.__class__.__name__}] Missing required features in manager.df: {missing_features}"
+            )
 
-    def run( self, use_multithreading: bool = False ):
+    def run( self, 
+             use_multithreading: bool = False,
+             max_workers: int = 16 ):
         self._prepare()
         if use_multithreading:
-            with ThreadPoolExecutor() as executor:
+            with ThreadPoolExecutor( max_workers=max_workers ) as executor:
                 executor.map(self._run, self._back_test_dates)
+                return
         else:
             for run_date in self._back_test_dates:
                 self._run( run_date )
@@ -217,7 +222,7 @@ class RollingWindowBacktester:
 
         model.fit( window_data )
         preds = model.predict( next_day_data )
-        self.loggger.log( run_date, next_day_data, model, preds )
+        self.logger.log( run_date, next_day_data, model, preds )
 
     def get_logger_df( self ):
-        return self.loggger.to_dataframe()
+        return self.logger.to_dataframe()
