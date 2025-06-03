@@ -142,6 +142,7 @@ class ColumnFormat:
         transform=None,
         color_scale=None,
         higher_is_better=True,
+        formula_template: Optional[str] = None
     ):
         self.decimals = decimals
         self.width = width
@@ -151,6 +152,7 @@ class ColumnFormat:
         self.transform = transform  # e.g., lambda x: x * 100
         self.color_scale = color_scale
         self.higher_is_better = higher_is_better
+        self.formula_template = formula_template  # e.g., "=SUM(A1:A10)" for Excel formulas
 
     def apply_transform(self, series):
         if self.transform:
@@ -326,7 +328,8 @@ class ExcelExporter:
 
             # Set width
             if column_format and column_format.width is not None:
-                width = column_format.width
+                # HACK It seems there is a gap in column width we set and the actual width exported. and this gap is known to be 0.7.
+                width = column_format.width + 0.7
             elif column_format:
                 width = column_format.estimate_display_width(df[col], col, self._default_decimals) + 2
             else:
@@ -352,6 +355,11 @@ class ExcelExporter:
                     cell_range = f"{col_letter}2:{col_letter}{len(df) + 1}"
                     worksheet.conditional_formatting.add(cell_range, rule)
                     
+            # Formula Fill
+            if column_format and column_format.formula_template:
+                for row in range(2, len(df) + 2):
+                    formula = column_format.formula_template.format(row=row)
+                    worksheet[f"{col_letter}{row}"].value = formula
         if wrap_header:
             worksheet.row_dimensions[1].height = 30
             
