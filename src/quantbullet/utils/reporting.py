@@ -4,6 +4,7 @@ import pandas as pd
 from quantbullet.core.enums import DataType
 from openpyxl.styles import Alignment
 from openpyxl.utils import get_column_letter
+from openpyxl.formatting.rule import ColorScaleRule
 from typing import List, Dict, Callable, Optional
 
 
@@ -130,6 +131,73 @@ def combine_latest_records(dataframes: List[pd.DataFrame], unique_keys: List[str
     master_df = master_df.reset_index(drop=True)
     return master_df
 
+class ColumnFormat:
+    def __init__(
+        self,
+        decimals=None,
+        width=None,
+        percent=False,
+        comma=False,
+        parens_for_negative=False,
+        transform=None,
+        color_scale=None,
+        higher_is_better=True,
+    ):
+        self.decimals = decimals
+        self.width = width
+        self.percent = percent
+        self.comma = comma
+        self.parens_for_negative = parens_for_negative
+        self.transform = transform  # e.g., lambda x: x * 100
+        self.color_scale = color_scale
+        self.higher_is_better = higher_is_better
+
+    def apply_transform(self, series):
+        if self.transform:
+            return series.apply(self.transform)
+        return series
+    
+    def build_conditional_formatting_rule(self):
+        if self.color_scale and self.higher_is_better:
+            return ColorScaleRule(
+                start_type='max', start_color='63BE7B',  # green
+                mid_type='percentile', mid_value=50, mid_color='FFFFFF',  # white
+                end_type='min', end_color='F8696B'  # red
+            )
+        elif self.color_scale and not self.higher_is_better:
+            return ColorScaleRule(
+                start_type='min', start_color='F8696B',  # red
+                mid_type='percentile', mid_value=50, mid_color='FFFFFF',
+                end_type='max', end_color='63BE7B'  # green
+            )
+        return None
+    
+    def estimate_display_width(self, series: pd.Series, header: str, default_decimals: int = 2):
+        decimals = self.decimals if self.decimals is not None else default_decimals
+        use_comma = self.comma
+        use_parens = self.parens_for_negative
+        use_percent = self.percent
+
+        # Apply transformation
+        series = self.apply_transform(series)
+
+        def preview(val):
+            if pd.isna(val):
+                return ""
+            try:
+                v = round(val, decimals)
+                s = f"{v:,.{decimals}f}" if use_comma else f"{v:.{decimals}f}"
+                if use_parens and v < 0:
+                    s = f"({s.strip('-')})"
+                if use_percent:
+                    s += "%"
+                return s
+            except Exception:
+                return str(val)
+
+        max_data_len = series.map(preview).map(len).max()
+        return max(max_data_len, len(header))
+
 class ExcelExporter:
     def __init__(self, filename):
         self.filename = filename
@@ -191,37 +259,108 @@ class ExcelExporter:
         self._overwrite = bool(value)
         return self
 
-    def add_sheet(self, df, sheet_name, round_cols=None, date_format=None):
+    def add_sheet(self, sheet_name, df, column_formats=None, date_format=None, wrap_header=False):
+        
+        # Check for duplicate columns
+        if self._is_duplicate_columns(df):
+            raise ValueError("DataFrame contains duplicate columns. Please rename them before exporting to Excel.")
+        
+        # keys in column_formats should exist in df.columns
+        if column_formats is None:
+            column_formats = {}
+        for col in column_formats.keys():
+            if col not in df.columns:
+                raise ValueError(f"Column '{col}' in column_formats does not exist in the DataFrame columns.")
+
         self._sheets.append({
             "df": df.copy(),
             "sheet_name": sheet_name,
-            "round_cols": round_cols or {},
-            "date_format": date_format or self._default_date_format
+            "column_formats": column_formats or {},
+            "date_format": date_format or self._default_date_format,
+            "wrap_header": wrap_header
         })
         return self
+    
+    @staticmethod
+    def _is_duplicate_columns(df):
+        """Check if the DataFrame has duplicate columns."""
+        return df.columns.duplicated().any()
+    
+    def _build_number_format(self, decimals, fmt: ColumnFormat):
+        base = '0' + ('.' + '0' * decimals if decimals > 0 else '')
+        
+        if fmt is None:
+            return base
+        
+        if fmt.comma:
+            base = "#,##" + base
+            
+        if fmt.percent:
+            base += "%"
+                
+        # Add negative in parentheses
+        if fmt.parens_for_negative:
+            # Excel format: positive;negative;zero
+            base = f"{base};({base});{base}"
+        
+        return base
 
-    def _get_col_formats(self, df, round_cols, date_format):
-        """Get the column formats for the DataFrame."""
+    def _get_col_format_strings(self, df, col_formats, date_format):
+        """Get the column format strings for the DataFrame."""
         formats = {}
-        for col in df.select_dtypes(include='number').columns:
-            decimals = round_cols.get(col, self.default_decimals)
-            formats[col] = '0' if decimals == 0 else f'0.{"0" * decimals}'
-        for col in df.select_dtypes(include=['datetime64[ns]', 'datetime64']).columns:
-            formats[col] = date_format
+        for col in df.columns:
+            fmt = col_formats.get(col, None)
+            if pd.api.types.is_numeric_dtype(df[col]):
+                decimals = fmt.decimals if fmt and fmt.decimals is not None else self._default_decimals
+                pattern = self._build_number_format(decimals, fmt)
+                formats[col] = pattern
+            elif pd.api.types.is_datetime64_any_dtype(df[col]):
+                formats[col] = date_format
         return formats
 
-    def _apply_formatting(self, worksheet, df, col_formats):
-        """Apply formatting to the worksheet based on the DataFrame."""
+    def _apply_formatting(self, worksheet, df, format_strings, wrap_header=False):
         for idx, col in enumerate(df.columns, 1):
             col_letter = get_column_letter(idx)
-            max_len = max(df[col].astype(str).map(len).max(), len(str(col))) + 8
-            worksheet.column_dimensions[col_letter].width = max_len
+            sheet_config = next((s for s in self._sheets if s["df"] is df), None)
+            column_format = sheet_config["column_formats"].get(col) if sheet_config else None
 
+            # Set width
+            if column_format and column_format.width is not None:
+                width = column_format.width
+            elif column_format:
+                width = column_format.estimate_display_width(df[col], col, self._default_decimals) + 2
+            else:
+                width = max(df[col].astype(str).map(len).max(), len(col)) + 2  # fallback
+            worksheet.column_dimensions[col_letter].width = width
+
+            # Set number format + alignment
             for row in range(2, len(df) + 2):
                 cell = worksheet[f"{col_letter}{row}"]
-                if col in col_formats:
-                    cell.number_format = col_formats[col]
+                if col in format_strings:
+                    cell.number_format = format_strings[col]
                 cell.alignment = self.default_alignment
+
+            # Wrap header text
+            header_cell = worksheet[f"{col_letter}1"]
+            if wrap_header:
+                header_cell.alignment = Alignment(wrap_text=True, horizontal='center', vertical='center')
+                
+            # Conditional formatting
+            if column_format and column_format.color_scale:
+                rule = column_format.build_conditional_formatting_rule()
+                if rule:
+                    cell_range = f"{col_letter}2:{col_letter}{len(df) + 1}"
+                    worksheet.conditional_formatting.add(cell_range, rule)
+                    
+        if wrap_header:
+            worksheet.row_dimensions[1].height = 30
+            
+    def _apply_column_transforms(self, df, col_formats):
+        """Apply transformations to the DataFrame columns based on the provided formats."""
+        for col, fmt in col_formats.items():
+            if col in df.columns:
+                df[col] = fmt.apply_transform(df[col])
+        return df
 
     def save(self):
         """"Save the DataFrames to an Excel file."""
@@ -235,10 +374,13 @@ class ExcelExporter:
             for sheet in self._sheets:
                 df = sheet["df"]
                 name = sheet["sheet_name"]
-                formats = self._get_col_formats(df, sheet["round_cols"], sheet["date_format"])
+                col_formats = sheet["column_formats"]
+                # for any transformations, we need to apply them before formatting
+                df = self._apply_column_transforms(df, col_formats)
+                format_strings = self._get_col_format_strings(df, col_formats, sheet["date_format"])
                 df.to_excel(writer, sheet_name=name, index=False)
                 worksheet = writer.sheets[name]
-                self._apply_formatting(worksheet, df, formats)
+                self._apply_formatting(worksheet, df, format_strings, sheet["wrap_header"])
 
         # self._sheets is a list, so we can clear it
         self._sheets.clear()

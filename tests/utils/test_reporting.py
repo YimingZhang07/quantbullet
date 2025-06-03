@@ -29,7 +29,7 @@ class TestExcelExporter(unittest.TestCase):
 
     def test_add_sheet(self):
         exporter = ExcelExporter("dummy.xlsx")
-        exporter.add_sheet(self.df, "TestSheet")
+        exporter.add_sheet("TestSheet", self.df)
         self.assertEqual(len(exporter._sheets), 1)
         self.assertEqual(exporter._sheets[0]["sheet_name"], "TestSheet")
 
@@ -43,7 +43,7 @@ class TestExcelExporter(unittest.TestCase):
         # use a chain of methods to call the ExcelExporter
         (
             ExcelExporter("dummy.xlsx")
-            .add_sheet(self.df, "Sheet1")
+            .add_sheet("Sheet1", self.df)
             .save()
         )
 
