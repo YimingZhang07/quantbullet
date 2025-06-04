@@ -160,13 +160,13 @@ class ColumnFormat:
         return series
     
     def build_conditional_formatting_rule(self):
-        if self.color_scale and self.higher_is_better:
+        if self.color_scale and not self.higher_is_better:
             return ColorScaleRule(
-                start_type='max', start_color='63BE7B',  # green
+                start_type='min', start_color='63BE7B',  # green
                 mid_type='percentile', mid_value=50, mid_color='FFFFFF',  # white
-                end_type='min', end_color='F8696B'  # red
+                end_type='max', end_color='F8696B'  # red
             )
-        elif self.color_scale and not self.higher_is_better:
+        elif self.color_scale and self.higher_is_better:
             return ColorScaleRule(
                 start_type='min', start_color='F8696B',  # red
                 mid_type='percentile', mid_value=50, mid_color='FFFFFF',
