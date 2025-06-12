@@ -15,12 +15,16 @@ class MappingCacheTableEnum(StrEnum):
     LAST_UPDATED = 'LastUpdated'
 
 class SimpleMappingCache:
-    def __init__(self, cache_dir: str = "security_cache"):
+    def __init__(self, cache_dir: str = "security_cache", engine=None):
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(exist_ok=True)
-        db_path = self.cache_dir / "mappings.db"
-        
-        self.engine = create_engine(f'sqlite:///{db_path}')
+
+        if engine is not None:
+            self.engine = engine
+        else:
+            db_path = self.cache_dir / "mappings.db"
+            self.engine = create_engine(f'sqlite:///{db_path}')
+
         self._init_database()
     
     def _init_database(self):

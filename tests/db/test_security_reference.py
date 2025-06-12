@@ -1,12 +1,12 @@
 import unittest
 from quantbullet.db.security_reference_sqlite import SimpleMappingCache
 from sqlalchemy import create_engine
+from unittest.mock import patch
 
 class TestSecurityReference(unittest.TestCase):
     def setUp(self):
-        self.cache = SimpleMappingCache( cache_dir="test_cache" )
-        self.cache.engine = create_engine('sqlite:///:memory:', future=True)
-        self.cache._init_database()
+        engine = create_engine('sqlite:///:memory:', future=True)
+        self.cache = SimpleMappingCache(cache_dir="test_cache", engine=engine)
 
         self.normal_mapping = {
             'cusip' : ['ABC12345678', 'DEF23456789'],
