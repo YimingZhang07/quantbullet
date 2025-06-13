@@ -117,7 +117,7 @@ class SimpleMappingCache:
         )
         with self.engine.connect() as conn:
             rows = conn.execute(stmt).fetchall()
-        df = pd.DataFrame(rows, columns=['cusip','isin','ticker'])
+        df = pd.DataFrame(rows, columns=['cusip','isin','ticker','last_updated'])
 
         if df.empty:
             return pd.DataFrame({'identifier': identifiers, to_col: [pd.NA]*len(identifiers)})
@@ -190,6 +190,32 @@ class SimpleMappingCache:
             tickers = [tickers]
         
         return self._check_existence(tickers, 'ticker')
+    
+    def check_mixed_exist(self, identifiers: Union[str, List[str]]) -> pd.DataFrame:
+        if isinstance(identifiers, str):
+            identifiers = [identifiers]
+        
+        # Check existence across all three columns
+        stmt = (
+            select(self.mappings_table.c.cusip, self.mappings_table.c.isin, self.mappings_table.c.ticker)
+            .where(
+                (self.mappings_table.c.cusip.in_(identifiers) |
+                 self.mappings_table.c.isin.in_(identifiers) |
+                 self.mappings_table.c.ticker.in_(identifiers))
+            )
+        )
+        
+        with self.engine.connect() as conn:
+            result = conn.execute(stmt)
+            existing = pd.DataFrame(result.fetchall(), columns=['cusip', 'isin', 'ticker'])
+        
+        # Create DataFrame with all input identifiers
+        input_df = pd.DataFrame({'identifier': identifiers})
+        
+        # Add exists column based on any of the three columns
+        input_df['exists'] = input_df['identifier'].isin(existing[['cusip', 'isin', 'ticker']].values.flatten())
+        
+        return input_df
     
     # Convenience methods for boolean results
     def cusips_exist(self, cusips: Union[str, List[str]]) -> Union[bool, List[bool]]:

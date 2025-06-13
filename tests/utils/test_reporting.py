@@ -1,7 +1,7 @@
 import unittest
 import pandas as pd
 from datetime import date
-from quantbullet.utils.reporting import ExcelExporter, HTMLPageBuilder, HTMLTableBuilder
+from quantbullet.reporting import ExcelExporter, HTMLPageBuilder, HTMLTableBuilder
 from unittest.mock import patch, MagicMock
 
 class TestExcelExporter(unittest.TestCase):
