@@ -1,4 +1,5 @@
 import unittest
+import pandas as pd
 from quantbullet.db.security_reference_sqlite import SecurityReferenceCache
 from sqlalchemy import create_engine
 from unittest.mock import patch
@@ -8,11 +9,13 @@ class TestSecurityReference(unittest.TestCase):
         engine = create_engine('sqlite:///:memory:', future=True)
         self.cache = SecurityReferenceCache(cache_dir="test_cache", engine=engine)
 
-        self.normal_mapping = {
+        self.normal_mapping = pd.DataFrame({
             'cusip' : ['ABC12345678', 'DEF23456789'],
             'isin'  : ['USABC1234567', 'USDEF2345678'],
             'ticker': ['ABC', 'DEF'],
-        }
+        })
+
+        self.invalid_identifiers = [ 'XYZ123', 'XYZ456' ]
 
     def test_add_and_get_mapping(self):
         self.cache.add_mappings( self.normal_mapping )
@@ -45,3 +48,26 @@ class TestSecurityReference(unittest.TestCase):
         self.assertEqual(len(result), 4)
         self.assertTrue(result['Cusip'].isna().sum() == 1)
         self.assertTrue(result['Cusip'].unique().size == 3)
+
+    def test_add_invalid_identifier(self):
+        self.cache.add_invalid_identifiers(self.invalid_identifiers)
+        result = self.cache.get_invalid_identifiers()
+        self.assertEqual(len(result), 2)
+        self.assertTrue('XYZ123' in result['Identifier'].to_list())
+
+    def test_check_identifier_invalid(self):
+        self.cache.add_invalid_identifiers(self.invalid_identifiers)
+        result = self.cache.check_identifier_invalid(['XYZ123', 'ABC123'])
+        self.assertIsInstance( result, pd.DataFrame )
+        self.assertEqual( len( result ), 2 )
+        self.assertTrue( result['Exists'].any() )
+        self.assertFalse( result['Exists'].all() )
+
+    def test_mixed_to_cusip_with_invalid(self):
+        self.cache.add_mappings(self.normal_mapping)
+        self.cache.add_invalid_identifiers(self.invalid_identifiers)
+        result = self.cache.mixed_to_cusip(['USABC1234567', 'XYZ123'])
+        self.assertEqual(len(result), 2)
+        self.assertTrue(result['Cusip'].isna().sum() == 1)
+        self.assertTrue( 'Success' in result['Status'].values )
+        self.assertTrue( 'Invalid' in result['Status'].values )

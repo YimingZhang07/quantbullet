@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 from sqlalchemy import (
     create_engine, Column, String, MetaData, Table, select, Boolean, DateTime, func
 )
@@ -65,41 +66,79 @@ class SecurityReferenceCache:
 
         metadata.create_all(self.engine)
 
-    def record_invalid_identifier(self, identifiers: Union[str, List[str]]):
+    def add_invalid_identifiers(self, identifiers: Union[str, List[str]]):
         """Record invalid identifiers in the database."""
         if isinstance(identifiers, str):
             identifiers = [identifiers]
         
-        records = [{'identifier': ident} for ident in identifiers]
+        records = [{'Identifier': ident} for ident in identifiers]
         stmt = insert(self.invalid_table).values(records)
         stmt = stmt.on_conflict_do_nothing(index_elements=[ self.col_enums.IDENTIFIER ])
         with self.engine.begin() as conn:
             conn.execute(stmt)
+
+    def get_invalid_identifiers(self) -> pd.DataFrame:
+        """Retrieve all invalid identifiers."""
+        stmt = select(self.invalid_table)
+        with self.engine.connect() as conn:
+            result = conn.execute(stmt)
+            rows = result.fetchall()
+        
+        df = pd.DataFrame(rows, columns=self.col_enums.cols_of_invalid_table())
+        return df
+
+    def check_identifier_invalid(self, identifiers: Union[str, List[str]]) -> pd.DataFrame:
+        """Check if identifiers are recorded as invalid."""
+        if isinstance(identifiers, str):
+            identifiers = [identifiers]
+        
+        stmt = select(self.invalid_table).where(
+            self.invalid_table.c.Identifier.in_(identifiers)
+        )
+        
+        with self.engine.connect() as conn:
+            result = conn.execute(stmt)
+            rows = result.fetchall()
+        
+        df = pd.DataFrame(rows, columns=self.col_enums.cols_of_invalid_table())
+
+        out = pd.DataFrame({'Identifier': identifiers})
+        out['Exists'] = out['Identifier'].isin(df[self.col_enums.IDENTIFIER])
+        return out
     
     def add_mappings(self, df: pd.DataFrame):
         """Bulk upsert mappings and bump last_updated on conflict."""
-        # 1) Normalize columns and drop missing cusips
+        # 1) Normalize column names to lowercase for lookup
+        df_lower = df.rename(columns={col: col.lower() for col in df.columns})
+
+        # 2) Ensure CUSIP is present
+        if 'cusip' not in df_lower.columns:
+            raise ValueError("Missing required column: 'cusip'")
+
+        # 3) Build clean DataFrame with only expected columns
         clean = pd.DataFrame({
-            self.col_enums.CUSIP    :   df.get('cusip',  df.get('CUSIP')),
-            self.col_enums.ISIN     :   df.get('isin',   df.get('ISIN')),
-            self.col_enums.TICKER   :   df.get('ticker', df.get('Ticker'))
-        }).dropna(subset=[ self.col_enums.CUSIP ])
+            self.col_enums.CUSIP:    df_lower['cusip'],
+            self.col_enums.ISIN:     df_lower.get('isin'),    # may be None
+            self.col_enums.TICKER:   df_lower.get('ticker')   # may be None
+        }).dropna(subset=[self.col_enums.CUSIP])
 
-        # 2) Convert to list-of-dicts
+        # 4) Convert to list-of-dicts
         records = clean.to_dict(orient='records')
+        if not records:
+            return  # Nothing to insert
 
-        # 3) Build a single INSERT … ON CONFLICT DO UPDATE
+        # 5) Build upsert statement
         stmt = insert(self.mappings_table).values(records)
         stmt = stmt.on_conflict_do_update(
-            index_elements=[ self.col_enums.CUSIP ],
+            index_elements=[self.col_enums.CUSIP],
             set_={
-                self.col_enums.ISIN         : getattr(stmt.excluded, self.col_enums.ISIN),
-                self.col_enums.TICKER       : getattr(stmt.excluded, self.col_enums.TICKER),
-                self.col_enums.LAST_UPDATED : func.current_timestamp()
+                self.col_enums.ISIN:         getattr(stmt.excluded, self.col_enums.ISIN),
+                self.col_enums.TICKER:       getattr(stmt.excluded, self.col_enums.TICKER),
+                self.col_enums.LAST_UPDATED: func.current_timestamp()
             }
         )
 
-        # 4) Execute in one go
+        # 6) Execute
         with self.engine.begin() as conn:
             conn.execute(stmt)
     
@@ -125,13 +164,17 @@ class SecurityReferenceCache:
         return final_result
     
     def _query_with_mixed_input(self, identifiers: List[str], to_col: str) -> pd.DataFrame:
+        check_invalid_result = self.check_identifier_invalid(identifiers)
+        invalid_set = set(check_invalid_result[check_invalid_result['Exists']]['Identifier'])
+        valid_identifiers = [id for id in identifiers if id not in invalid_set]
+
         stmt = (
             select(self.mappings_table)
             .where(
                 (
-                    getattr(self.mappings_table.c, self.col_enums.CUSIP).in_(identifiers) |
-                    getattr(self.mappings_table.c, self.col_enums.ISIN).in_(identifiers) |
-                    getattr(self.mappings_table.c, self.col_enums.TICKER).in_(identifiers)
+                    getattr(self.mappings_table.c, self.col_enums.CUSIP).in_(valid_identifiers) |
+                    getattr(self.mappings_table.c, self.col_enums.ISIN).in_(valid_identifiers) |
+                    getattr(self.mappings_table.c, self.col_enums.TICKER).in_(valid_identifiers)
                 )
                 & getattr(self.mappings_table.c, to_col).is_not(None)
             )
@@ -141,7 +184,9 @@ class SecurityReferenceCache:
         df = pd.DataFrame(rows, columns=self.col_enums.cols_of_mapping_table())
 
         if df.empty:
-            return pd.DataFrame({'Identifier': identifiers, to_col: [pd.NA]*len(identifiers)})
+            return pd.DataFrame( { 'Identifier': identifiers, 
+                                   to_col: [ pd.NA ]*len( identifiers ),
+                                   'Status': [ '' ] * len( identifiers ) } )
         
         # this builds a DataFrame of say cusip: cusip, cusip: isin, and cusip: ticker
         # so the identifiers are all possible identifiers used to be merged with the requested identifiers
@@ -165,7 +210,11 @@ class SecurityReferenceCache:
         # 4) Re-attach to your original list to preserve order
         out = pd.DataFrame({'Identifier': identifiers})
         out = out.merge(mapping_df, on='Identifier', how='left')
-
+        # add a note to indicate whether the identifiers were found to be invalid, or just cannot get mapped, or mapped successfully
+        out['Status'] = ''
+        out.loc[out['Identifier'].isin(invalid_set), 'Status'] = 'Invalid'
+        out.loc[out[to_col].isna() & ~out['Identifier'].isin(invalid_set), 'Status'] = 'NotFound'
+        out.loc[out[to_col].notna(), 'Status'] = 'Success'
         return out
     
     def mixed_to_cusip(self, identifiers: Union[str, List[str]]) -> pd.DataFrame:
@@ -212,7 +261,7 @@ class SecurityReferenceCache:
         
         return self._check_existence(tickers, self.col_enums.TICKER)
     
-    def check_mixed_exist(self, identifiers: Union[str, List[str]]) -> pd.DataFrame:
+    def check_mixed_exist(self, identifiers: Union[str, List[str]], include_invalid=True) -> pd.DataFrame:
         if isinstance(identifiers, str):
             identifiers = [identifiers]
         
