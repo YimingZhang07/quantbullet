@@ -3,6 +3,10 @@ from ._utils import (
     drop_columns_by_alias_group
 )
 
-from .df_filter import (
+from .filter import (
     filter_df,
+)
+
+from .agg import (
+    aggregate_trades_flex
 )

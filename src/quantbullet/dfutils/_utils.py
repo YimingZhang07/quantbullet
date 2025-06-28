@@ -37,3 +37,57 @@ def get_latest_n_per_group(df, group_col, date_col, n):
           .head(n)
           .reset_index(drop=True)
     )
+
+def aggregate_trades_flex(
+    df, 
+    group_by='cusip', 
+    weight_col='volume',
+    default_method='first', 
+    overrides=None
+):
+    """
+    Aggregates a DataFrame to one row per security with flexible aggregation rules.
+
+    Parameters:
+    - df: input DataFrame
+    - group_by: column to group by (e.g., 'cusip')
+    - weight_col: column used for weighted average
+    - default_method: default aggregation method ('first', 'last', 'mean', 'sum')
+    - overrides: dict mapping column name -> aggregation method
+                 (e.g., {'price': 'wavg', 'volume': 'sum', 'spread': 'mean'})
+    
+    Returns:
+    - Aggregated DataFrame
+    """
+    import numpy as np
+    import pandas as pd
+
+    df['trade_date'] = pd.to_datetime(df['trade_date'], errors='coerce')
+    df_sorted = df.sort_values(by='trade_date')
+
+    # Define aggregation functions
+    def wavg(x): return np.average(x, weights=x[weight_col])
+    def first(x): return x.iloc[0]
+    def last(x): return x.iloc[-1]
+
+    # Default aggregator function map
+    agg_funcs = {
+        'first': first,
+        'last': last,
+        'mean': 'mean',
+        'sum': 'sum',
+        'wavg': wavg,
+    }
+
+    # Build aggregation dict
+    overrides = overrides or {}
+    agg_dict = {}
+    for col in df.columns:
+        if col == group_by:
+            continue
+        method = overrides.get(col, default_method)
+        agg_func = agg_funcs[method]
+        agg_dict[col] = agg_func
+
+    grouped = df_sorted.groupby(group_by).agg(agg_dict)
+    return grouped.reset_index()
