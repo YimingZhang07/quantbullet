@@ -9,6 +9,7 @@ _lazy_by_module = {
     ".consts"                   : ["ModelMetricsConsts"],
     ".time_weighted_xgboost"    : ["TimeWeightedXGBRegressor"],
     ".neighbors"                : ["FeatureScaledKNNRegressor"],
+    ".constrained_regression"   : ["ConstrainedLinearRegressor"],
 }
 
 _lazy_map = {
@@ -28,3 +29,11 @@ def __getattr__(name):
 
 def __dir__():
     return list(globals().keys()) + list(_lazy_map.keys())
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .linear_model import ols_regression, wls_regression
+    from .consts import ModelMetricsConsts
+    from .time_weighted_xgboost import TimeWeightedXGBRegressor
+    from .neighbors import FeatureScaledKNNRegressor
+    from .constrained_regression import ConstrainedLinearRegressor
