@@ -10,3 +10,7 @@ from .filter import (
 from .agg import (
     aggregate_trades_flex
 )
+
+from .label import (
+    get_bins_and_labels,
+)

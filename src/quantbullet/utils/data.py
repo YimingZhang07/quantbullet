@@ -4,33 +4,33 @@ import random
 from datetime import date, timedelta
 from typing import Union
 
-def download_fama_french_five_factors_daily(start, end):
-    """
-    Download the Fama-French Five-Factor model data from the Ken French data library
+# def download_fama_french_five_factors_daily(start, end):
+#     """
+#     Download the Fama-French Five-Factor model data from the Ken French data library
     
-    Parameters
-    ----------
-    start : datetime.date
-        The start date for the data
-    end : datetime.date
-        The end date for the data
+#     Parameters
+#     ----------
+#     start : datetime.date
+#         The start date for the data
+#     end : datetime.date
+#         The end date for the data
         
-    Returns
-    -------
-    pandas.DataFrame
-        The Fama-French Five Factors
-    """
-    # Import the pandas_datareader package
-    import pandas_datareader.data as web
+#     Returns
+#     -------
+#     pandas.DataFrame
+#         The Fama-French Five Factors
+#     """
+#     # Import the pandas_datareader package
+#     import pandas_datareader.data as web
 
-    # Use DataReader to fetch the Fama-French Five-Factor model data
-    ff_factors = web.DataReader('F-F_Research_Data_5_Factors_2x3_Daily', 'famafrench', start, end)
+#     # Use DataReader to fetch the Fama-French Five-Factor model data
+#     ff_factors = web.DataReader('F-F_Research_Data_5_Factors_2x3_Daily', 'famafrench', start, end)
 
-    # The Fama-French dataset can contain different tables. For example, '0' is typically the annual data,
-    # '1' might be the monthly data, etc. Here we access the daily data.
-    ff_daily = ff_factors[0]
+#     # The Fama-French dataset can contain different tables. For example, '0' is typically the annual data,
+#     # '1' might be the monthly data, etc. Here we access the daily data.
+#     ff_daily = ff_factors[0]
 
-    return ff_daily
+#     return ff_daily
 
 
 # def generate_fake_bond_trades( start_date: str | date,
@@ -184,3 +184,55 @@ def generate_fake_bond_trades(
                 })
 
     return pd.DataFrame(records)
+
+def generate_fake_loan_prices(
+    start_date: str,
+    end_date: str,
+    price_range: tuple = (90, 105),
+    n_tickers: int = 100,
+    overlap_pct: float = 0.8,
+    seed: int = 42,
+):
+    """
+    Generate a DataFrame of fake loan price data for testing purposes.
+    """
+    np.random.seed(seed)
+    all_dates = pd.date_range(start=start_date, end=end_date, freq='D')
+
+    # Universe of possible tickers: LoanID0000 to LoanID9999
+    all_possible_ids = set(range(10000))
+
+    # Randomly initialize base tickers
+    initial_ids = np.random.choice(list(all_possible_ids), n_tickers, replace=False)
+    previous_ids = list(initial_ids)
+
+    data = []
+
+    for date in all_dates:
+        n_overlap = int(len(previous_ids) * overlap_pct)
+        n_new = len(previous_ids) - n_overlap
+
+        # Choose overlap IDs from previous day
+        overlapping_ids = np.random.choice(previous_ids, n_overlap, replace=False).tolist()
+
+        # Exclude already used IDs to avoid duplication
+        used_ids = set(previous_ids)
+        available_ids = list(all_possible_ids - used_ids)
+        new_ids = np.random.choice(available_ids, n_new, replace=False).tolist()
+
+        today_ids = overlapping_ids + new_ids
+        today_prices = np.random.uniform(price_range[0], price_range[1], len(today_ids))
+
+        for loan_id, price in zip(today_ids, today_prices):
+            ticker = f"LoanID{str(loan_id).zfill(4)}"
+            balance = loan_id * 1000
+            data.append({
+                'Date': date,
+                'LoanID': ticker,
+                'Price': round(price, 2),
+                'Balance': balance
+            })
+
+        previous_ids = today_ids
+
+    return pd.DataFrame(data)
