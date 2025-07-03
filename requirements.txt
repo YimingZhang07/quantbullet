@@ -1,0 +1,20 @@
+# pip index versions PACKAGE_NAME to check the available versions
+
+# Core packages
+numpy
+pandas
+matplotlib
+statsmodels
+scikit-learn
+scipy
+sqlalchemy
+
+# Modeling
+xgboost
+
+# Testing
+pytest
+
+# Others
+tqdm
+openpyxl
