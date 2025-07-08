@@ -1,7 +1,7 @@
-from sklearn.base import BaseEstimator, RegressorMixin
 import numpy as np
 from scipy.optimize import minimize
-
+from sklearn.base import BaseEstimator, RegressorMixin
+from sklearn.utils.validation import check_X_y, check_array
 
 class ConstrainedLinearRegressor(BaseEstimator, RegressorMixin):
     """
@@ -65,6 +65,7 @@ class ConstrainedLinearRegressor(BaseEstimator, RegressorMixin):
     def fit(self, X, y):
         X = np.asarray(X)
         y = np.asarray(y)
+        X, y = check_X_y(X, y, ensure_2d=True)
         n_samples, n_features = X.shape
 
         # Design matrix
@@ -91,4 +92,5 @@ class ConstrainedLinearRegressor(BaseEstimator, RegressorMixin):
 
     def predict(self, X):
         X = np.asarray(X)
+        X = check_array(X, ensure_2d=True)
         return X @ self.coef_ + self.intercept_

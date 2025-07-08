@@ -1,0 +1,25 @@
+import importlib
+
+_lazy_by_module = {
+    ".transformers": [ "FlatRampTransformer" ]
+}
+
+_lazy_map = {
+    name: module for module, names in _lazy_by_module.items() for name in names
+}
+
+def __getattr__(name):
+    if name in _lazy_map:
+        module_path = _lazy_map[name]
+        mod = importlib.import_module(module_path, __name__)
+        val = getattr(mod, name)
+        globals()[name] = val  # cache it
+        return val
+    raise AttributeError(f"module {__name__} has no attribute {name}")
+
+def __dir__():
+    return list(globals().keys()) + list(_lazy_map.keys())
+
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .transformers import FlatRampTransformer
