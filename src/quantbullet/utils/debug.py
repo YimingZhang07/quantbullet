@@ -1,3 +1,47 @@
+import os
+import pickle
+import hashlib
+import logging
+from datetime import datetime
+from quantbullet.log_config import setup_logger
+
+logger = setup_logger("debug_cache")
+
+def debug_cache(func, cache_dir="debug_cache", use_cache=True, force_recache=False, disable_cache=False):
+    os.makedirs(cache_dir, exist_ok=True)
+
+    def wrapped(*args, **kwargs):
+        if disable_cache:
+            logger.info(f"[debug_cache] Caching disabled for {func.__name__}")
+            return func(*args, **kwargs)
+
+        key = hashlib.md5(pickle.dumps((func.__name__, args, kwargs))).hexdigest()
+
+        # Search for any cached file matching this key
+        matching_files = sorted(
+            [f for f in os.listdir(cache_dir) if f.startswith(func.__name__) and f.endswith(f"{key}.pkl")],
+            reverse=True  # most recent first
+        )
+
+        latest_cache_file = os.path.join(cache_dir, matching_files[0]) if matching_files else None
+
+        if use_cache and not force_recache and latest_cache_file and os.path.exists(latest_cache_file):
+            logger.info(f"[debug_cache] Loaded from cache: {latest_cache_file}")
+            with open(latest_cache_file, 'rb') as f:
+                return pickle.load(f)
+
+        # Create a new cache file with timestamp
+        timestamp = datetime.now().strftime("%m%d_%H%M%S")
+        new_path = os.path.join(cache_dir, f"{func.__name__}_{timestamp}_{key}.pkl")
+        logger.info(f"[debug_cache] Computing and caching result to: {new_path}")
+
+        result = func(*args, **kwargs)
+        with open(new_path, 'wb') as f:
+            pickle.dump(result, f)
+        return result
+
+    return wrapped
+
 def cache_variables(save_dir, subfolder=None, **kwargs):
     """
     Save variables to a directory as .pkl files. The directory will be created if it does not exist.
@@ -52,7 +96,7 @@ def load_cache_variables(load_dir, *var_names, assign_to_globals=False):
     for name in var_names:
         file_path = os.path.join(load_dir, f"{name}.pkl")
         if not os.path.exists(file_path):
-            raise FileNotFoundError(f"❌ {file_path} not found")
+            raise FileNotFoundError(f"{file_path} not found")
         with open(file_path, 'rb') as f:
             obj = pickle.load(f)
             results[name] = obj
