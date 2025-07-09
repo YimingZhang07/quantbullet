@@ -7,7 +7,7 @@ from typing import List, Dict, Callable
 class ColumnFormat:
     def __init__(
         self,
-        decimals=None,
+        decimals=2,
         width=None,
         percent=False,
         comma=False,
@@ -15,6 +15,7 @@ class ColumnFormat:
         transform=None,
         color_scale=None,
         higher_is_better=True,
+        date_format: Optional[str]=None,
         formula_template: Optional[str] = None
     ):
         self.decimals = decimals
@@ -25,7 +26,19 @@ class ColumnFormat:
         self.transform = transform  # e.g., lambda x: x * 100
         self.color_scale = color_scale
         self.higher_is_better = higher_is_better
+        self.date_format = date_format or self._default_date_format
         self.formula_template = formula_template  # e.g., "=SUM(A1:A10)" for Excel formulas
+        
+    @property
+    def _default_date_format(self):
+        """Set the default date format for the Excel file.
+        
+        The format here has to be compatible with openpyxl. It is not the same as the format in pandas.
+        For example, "yyyy-mm-dd" is the correct format for openpyxl, while "%Y-%m-%d" is not.
+
+        Please check https://openpyxl.readthedocs.io/en/3.1.3/_modules/openpyxl/styles/numbers.html.
+        """
+        return "yyyy-mm-dd"
 
     def apply_transform(self, series):
         if self.transform:

@@ -7,47 +7,9 @@ from openpyxl.utils import get_column_letter
 class ExcelExporter:
     def __init__(self, filename):
         self.filename = filename
-        self._default_decimals = 2
-        self._default_date_format = "yyyy-mm-dd"
         self._overwrite = False
         self.default_alignment = Alignment(horizontal='right')
         self._sheets = []
-
-    # --- @property + method ---
-    @property
-    def default_decimals(self):
-        return self._default_decimals
-
-    @default_decimals.setter
-    def default_decimals(self, value):
-        self.set_default_decimals(value)
-
-    def set_default_decimals(self, value: int):
-        if not isinstance(value, int) or value < 0:
-            raise ValueError("default_decimals must be a non-negative integer.")
-        self._default_decimals = value
-        return self
-
-    @property
-    def default_date_format(self):
-        return self._default_date_format
-
-    @default_date_format.setter
-    def default_date_format(self, value):
-        self.set_default_date_format(value)
-
-    def set_default_date_format(self, value: str):
-        """Set the default date format for the Excel file.
-        
-        The format here has to be compatible with openpyxl. It is not the same as the format in pandas.
-        For example, "yyyy-mm-dd" is the correct format for openpyxl, while "%Y-%m-%d" is not.
-
-        Please check https://openpyxl.readthedocs.io/en/3.1.3/_modules/openpyxl/styles/numbers.html.
-        """
-        if not isinstance(value, str):
-            raise ValueError("default_date_format must be a string.")
-        self._default_date_format = value
-        return self
 
     @property
     def overwrite(self):
@@ -65,24 +27,24 @@ class ExcelExporter:
         self._overwrite = bool(value)
         return self
 
-    def add_sheet(self, sheet_name, df, column_formats=None, date_format=None, wrap_header=False):
-        
+    def add_sheet(self, sheet_name, df, column_formats=None, wrap_header=False):
         # Check for duplicate columns
         if self._is_duplicate_columns(df):
             raise ValueError("DataFrame contains duplicate columns. Please rename them before exporting to Excel.")
         
-        # keys in column_formats should exist in df.columns
         if column_formats is None:
-            column_formats = {}
+            column_formats = {col: ColumnFormat() for col in df.columns}
         for col in column_formats.keys():
             if col not in df.columns:
                 raise ValueError(f"Column '{col}' in column_formats does not exist in the DataFrame columns.")
+        for col in df.columns:
+            if col not in column_formats:
+                column_formats[col] = ColumnFormat()
 
         self._sheets.append({
             "df": df.copy(),
             "sheet_name": sheet_name,
             "column_formats": column_formats or {},
-            "date_format": date_format or self._default_date_format,
             "wrap_header": wrap_header
         })
         return self
@@ -111,17 +73,18 @@ class ExcelExporter:
         
         return base
 
-    def _get_col_format_strings(self, df, col_formats, date_format):
+    def _get_col_format_strings(self, df, col_formats):
         """Get the column format strings for the DataFrame."""
         formats = {}
         for col in df.columns:
             fmt = col_formats.get(col, None)
             if pd.api.types.is_numeric_dtype(df[col]):
-                decimals = fmt.decimals if fmt and fmt.decimals is not None else self._default_decimals
+                # fmt is a type of ColumnFormat and should have decimals as an attribute and default values
+                decimals = fmt.decimals if fmt and fmt.decimals is not None else None
                 pattern = self._build_number_format(decimals, fmt)
                 formats[col] = pattern
             elif pd.api.types.is_datetime64_any_dtype(df[col]):
-                formats[col] = date_format
+                formats[col] = fmt.date_format if fmt and fmt.date_format is not None else None
         return formats
 
     def _apply_formatting(self, worksheet, df, format_strings, wrap_header=False):
@@ -135,7 +98,7 @@ class ExcelExporter:
                 # HACK It seems there is a gap in column width we set and the actual width exported. and this gap is known to be 0.7.
                 width = column_format.width + 0.7
             elif column_format:
-                width = column_format.estimate_display_width(df[col], col, self._default_decimals) + 2
+                width = column_format.estimate_display_width(df[col], col, column_format.decimals) + 2
             else:
                 width = max(df[col].astype(str).map(len).max(), len(col)) + 2  # fallback
             worksheet.column_dimensions[col_letter].width = width
@@ -181,18 +144,23 @@ class ExcelExporter:
         writer_args = {"engine": "openpyxl", "mode": mode}
         if mode == 'a':
             writer_args["if_sheet_exists"] = "replace"
-
-        with pd.ExcelWriter(self.filename, **writer_args) as writer:
+            
+        writer = pd.ExcelWriter(self.filename, **writer_args)
+        
+        try:
             for sheet in self._sheets:
                 df = sheet["df"]
                 name = sheet["sheet_name"]
                 col_formats = sheet["column_formats"]
                 # for any transformations, we need to apply them before formatting
                 df = self._apply_column_transforms(df, col_formats)
-                format_strings = self._get_col_format_strings(df, col_formats, sheet["date_format"])
+                format_strings = self._get_col_format_strings(df, col_formats)
                 df.to_excel(writer, sheet_name=name, index=False)
                 worksheet = writer.sheets[name]
                 self._apply_formatting(worksheet, df, format_strings, sheet["wrap_header"])
-
-        # self._sheets is a list, so we can clear it
-        self._sheets.clear()
+        except Exception as e:
+            print( f"Error while exporting Excel file: {e}" )
+            raise
+        finally:
+            writer.close()
+            self._sheets.clear()
