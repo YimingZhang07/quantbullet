@@ -27,7 +27,7 @@ class ExcelExporter:
         self._overwrite = bool(value)
         return self
 
-    def add_sheet(self, sheet_name, df, column_formats=None, wrap_header=False):
+    def add_sheet(self, sheet_name, df, column_formats=None, start_col=1, start_row=1, wrap_header=False, include_header=True):
         # Check for duplicate columns
         if self._is_duplicate_columns(df):
             raise ValueError("DataFrame contains duplicate columns. Please rename them before exporting to Excel.")
@@ -45,7 +45,10 @@ class ExcelExporter:
             "df": df.copy(),
             "sheet_name": sheet_name,
             "column_formats": column_formats or {},
-            "wrap_header": wrap_header
+            "wrap_header": wrap_header,
+            "include_header": include_header,
+            "start_col": start_col,
+            "start_row": start_row
         })
         return self
     
@@ -87,9 +90,12 @@ class ExcelExporter:
                 formats[col] = fmt.date_format if fmt and fmt.date_format is not None else None
         return formats
 
-    def _apply_formatting(self, worksheet, df, format_strings, wrap_header=False):
-        for idx, col in enumerate(df.columns, 1):
-            col_letter = get_column_letter(idx)
+    def _apply_formatting(self, worksheet, df, format_strings, start_row=1, start_col=1, wrap_header=False, include_header=True):
+        data_start_row = start_row + 1 if include_header else start_row
+        for j, col in enumerate(df.columns):
+            col_index = start_col + j
+            col_letter = get_column_letter(col_index)
+            
             sheet_config = next((s for s in self._sheets if s["df"] is df), None)
             column_format = sheet_config["column_formats"].get(col) if sheet_config else None
 
@@ -103,32 +109,31 @@ class ExcelExporter:
                 width = max(df[col].astype(str).map(len).max(), len(col)) + 2  # fallback
             worksheet.column_dimensions[col_letter].width = width
 
-            # Set number format + alignment
-            for row in range(2, len(df) + 2):
-                cell = worksheet[f"{col_letter}{row}"]
-                if col in format_strings:
-                    cell.number_format = format_strings[col]
+            # Format data cells
+            for i in range(len(df)):
+                cell = worksheet.cell(row=data_start_row + i, column=col_index)
                 cell.alignment = self.default_alignment
+                if format_strings.get(col):
+                    cell.number_format = format_strings[col]
 
             # Wrap header text
-            header_cell = worksheet[f"{col_letter}1"]
-            if wrap_header:
+            if wrap_header and include_header:
+                header_cell = worksheet.cell(row=start_row, column=col_index)
                 header_cell.alignment = Alignment(wrap_text=True, horizontal='center', vertical='center')
+                worksheet.row_dimensions[start_row].height = 30
                 
             # Conditional formatting
             if column_format and column_format.color_scale:
                 rule = column_format.build_conditional_formatting_rule()
                 if rule:
-                    cell_range = f"{col_letter}2:{col_letter}{len(df) + 1}"
+                    cell_range = f"{col_letter}{data_start_row}:{col_letter}{data_start_row + len(df)-1}"
                     worksheet.conditional_formatting.add(cell_range, rule)
                     
             # Formula Fill
             if column_format and column_format.formula_template:
-                for row in range(2, len(df) + 2):
-                    formula = column_format.formula_template.format(row=row)
-                    worksheet[f"{col_letter}{row}"].value = formula
-        if wrap_header:
-            worksheet.row_dimensions[1].height = 30
+                for i in range(len(df)):
+                    formula = column_format.formula_template.format(row=data_start_row + i)
+                    worksheet.cell(row=data_start_row + i, column=col_index).value = formula
             
     def _apply_column_transforms(self, df, col_formats):
         """Apply transformations to the DataFrame columns based on the provided formats."""
@@ -152,12 +157,15 @@ class ExcelExporter:
                 df = sheet["df"]
                 name = sheet["sheet_name"]
                 col_formats = sheet["column_formats"]
+                include_header = sheet["include_header"]
+                start_col = sheet["start_col"]
+                start_row = sheet["start_row"]
                 # for any transformations, we need to apply them before formatting
                 df = self._apply_column_transforms(df, col_formats)
                 format_strings = self._get_col_format_strings(df, col_formats)
-                df.to_excel(writer, sheet_name=name, index=False)
+                df.to_excel(writer, sheet_name=name, index=False, header=include_header, startrow=start_row-1, startcol=start_col-1)
                 worksheet = writer.sheets[name]
-                self._apply_formatting(worksheet, df, format_strings, sheet["wrap_header"])
+                self._apply_formatting(worksheet, df, format_strings, start_row, start_col, sheet["wrap_header"], sheet["include_header"])
         except Exception as e:
             print( f"Error while exporting Excel file: {e}" )
             raise
