@@ -11,41 +11,22 @@ LEVEL_MAP = {
     'CRITICAL': logging.CRITICAL
 }
 
-
-def setup_logger(name: str, level: int = logging.INFO) -> logging.Logger:
-    """
-    Set up and return a logger that outputs to the console.
-
-    Parameters
-    ----------
-    name : str
-        Name of the logger.
-    
-    level : int
-        Logging level (default is logging.INFO).
-
-    Returns
-    -------
-    logger : logging.Logger
-        Configured logger instance.
-    """
+def setup_logger(name: str, level: int = logging.DEBUG, propagate: bool = False) -> logging.Logger:
     logger = logging.getLogger(name)
+    logger.setLevel(level)
 
-    if not logger.handlers:  # more robust than hasHandlers() in some cases
+    if not logger.handlers:
         handler = logging.StreamHandler()
         formatter = logging.Formatter(
-            "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            "%(asctime)s [%(levelname)-8s] %(name)s: %(message)s",
             datefmt="%m-%d %H:%M:%S"
         )
         handler.setFormatter(formatter)
+        handler.setLevel(level)
         logger.addHandler(handler)
-        logger.setLevel(level)
 
-        # Avoid log propagation to root (prevents duplicate logs)
-        logger.propagate = False
-
+    logger.propagate = propagate
     return logger
-
 
 def set_package_log_level(level='WARNING'):
     """Set the log level for all loggers in the package."""
