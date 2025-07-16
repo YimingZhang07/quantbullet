@@ -1,7 +1,7 @@
 import unittest
 import numpy as np
 import pandas as pd
-from quantbullet.preprocess.smoothing import MultiSeriesConstraintSmoother
+from quantbullet.preprocessing.smoothing import MultiSeriesConstraintSmoother
 
 class TestMultiSeriesConstraintSmoother(unittest.TestCase):
 
