@@ -20,3 +20,5 @@ pytest
 tqdm
 openpyxl
 ipykernel
+pyarrow
+polars
