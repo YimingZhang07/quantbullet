@@ -54,3 +54,32 @@ def aggregate_trades_flex(
 
     grouped = df_sorted.groupby(group_by_cols).agg(agg_dict)
     return grouped.reset_index()
+
+def collapse_duplicates(df, keys, agg_overrides=None):
+    """
+    Collapse duplicate rows by grouping on `keys`.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Input dataframe.
+    keys : list[str]
+        Columns to group by.
+    agg_overrides : dict, optional
+        Dict of column -> aggregation function, e.g. {"principal_paid": "sum"}.
+        Defaults to {} (only overrides some columns).
+
+    Returns
+    -------
+    pd.DataFrame
+    """
+    if agg_overrides is None:
+        agg_overrides = {}
+    
+    # default: "first" for all non-key columns
+    agg_dict = {col: "first" for col in df.columns if col not in keys}
+    
+    # override with user-specified rules
+    agg_dict.update(agg_overrides)
+    
+    return df.groupby(keys, as_index=False).agg(agg_dict)
