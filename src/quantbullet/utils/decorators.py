@@ -2,8 +2,10 @@ import functools
 import warnings
 import time
 import logging
+import pandas as pd
 from datetime import datetime, date
 from inspect import signature
+from .cast import to_date
 
 def deprecated(new_func_name: str):
     """Decorator to mark a function as deprecated
@@ -65,17 +67,6 @@ def log_runtime(label: str = None):
         return wrapper
     return decorator
 
-def parse_date(input_date):
-    if isinstance(input_date, date):
-        return input_date
-    if isinstance(input_date, str):
-        for fmt in ("%Y-%m-%d", "%Y%m%d"):
-            try:
-                return datetime.strptime(input_date, fmt).date()
-            except ValueError:
-                continue
-    raise ValueError(f"Unsupported date format: {input_date}")
-
 def normalize_date_args(*arg_names):
     def decorator(func):
         @functools.wraps(func)
@@ -86,7 +77,7 @@ def normalize_date_args(*arg_names):
 
             for arg_name in arg_names:
                 if arg_name in bound.arguments and bound.arguments[arg_name] is not None:
-                    bound.arguments[arg_name] = parse_date(bound.arguments[arg_name])
+                    bound.arguments[arg_name] = to_date(bound.arguments[arg_name])
 
             return func(*bound.args, **bound.kwargs)
         return wrapper
