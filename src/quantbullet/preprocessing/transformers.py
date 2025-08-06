@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 from sklearn.utils.validation import check_array
 from sklearn.base import BaseEstimator, TransformerMixin
+from quantbullet.dfutils import get_bins_and_labels
 
 # ============================
 # Below transformer is not yet completed
@@ -110,3 +111,6 @@ class FlatRampTransformer(BaseEstimator, TransformerMixin):
 
     def get_feature_names_out(self, input_features=None):
         return getattr(self, "feature_names_out_", None)
+
+    def get_bins_and_labels(self):
+        return get_bins_and_labels(list(self.knots))
