@@ -1,4 +1,5 @@
 import numpy as np
+import copy
 import pandas as pd
 from scipy.optimize import least_squares
 
@@ -6,10 +7,7 @@ from scipy.optimize import least_squares
 class LinearProductRegressionModelOLS:
     def __init__(self):
         self.feature_groups_ = None
-        self.mse_history_ = []
-        self.params_history_ = []
-        self.coef_ = None
-        self.block_means_ = {}
+        self._clear_history()
 
     def _clear_history(self):
         """Clear the history of MSE and parameters."""
@@ -17,6 +15,8 @@ class LinearProductRegressionModelOLS:
         self.params_history_ = []
         self.coef_ = None
         self.block_means_ = {}
+        self.best_mse_ = float('inf')
+        self.best_params_ = None
 
     def fit( self, X, y, feature_groups, early_stopping_rounds=None, n_iterations=10, verbose=1 ):
         self.feature_groups_ = feature_groups
@@ -36,11 +36,17 @@ class LinearProductRegressionModelOLS:
                 # fit a OLS model to the residuals using matrix operations
                 floating_params = np.linalg.lstsq(floating_data, residuals, rcond=None)[0]
                 params_blocks[feature_group] = floating_params
-                
+              
+            # track the training progress  
             predictions = self.forward(params_blocks, feature_data_blocks)
             mse = np.mean((y - predictions) ** 2)
             self.mse_history_.append(mse)
-            self.params_history_.append(params_blocks)
+            self.params_history_.append(  copy.deepcopy(params_blocks) )
+            
+            # track the best parameters
+            if mse < self.best_mse_:
+                self.best_mse_ = mse
+                self.best_params_ = copy.deepcopy(params_blocks)
             
             if verbose > 0:
                 print(f"Iteration {i+1}/{n_iterations}, MSE: {mse:.4f}")
@@ -49,11 +55,11 @@ class LinearProductRegressionModelOLS:
             if early_stopping_rounds is not None and len(self.mse_history_) > early_stopping_rounds:
                 if self.mse_history_[-1] >= self.mse_history_[-early_stopping_rounds]:
                     print(f"Early stopping at iteration {i+1} with MSE: {mse:.4f}")
-                    self.coef_ = self.params_history_[-early_stopping_rounds]
+                    self.coef_ = self.best_params_
                     break
                 
         if self.coef_ is None:
-            self.coef_ = self.params_history_[-1]
+            self.coef_ = self.best_params_
         
         # archive the mean of each block's predictions
         for key in feature_groups:
@@ -288,6 +294,7 @@ class LinearProductRegressionModelScipy:
 
         return self.forward(self.coef_, X_blocks)
 
+    @property
     def coef_dict(self):
         """Return coefficients grouped by feature group (if trained with DataFrame)."""
         if self.coef_ is None:
