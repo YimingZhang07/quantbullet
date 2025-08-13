@@ -4,7 +4,7 @@ import pandas as pd
 from scipy.optimize import least_squares
 
 
-class LinearProductRegressionModelOLS:
+class LinearProductModelOLS:
     def __init__(self):
         self.feature_groups_ = None
         self._clear_history()
@@ -17,6 +17,9 @@ class LinearProductRegressionModelOLS:
         self.block_means_ = {}
         self.best_mse_ = float('inf')
         self.best_params_ = None
+        self.global_scale_ = 1.0  # global scale for the model
+        self.global_scale_history_ = []
+        self.best_iteration_ = None
 
     def fit( self, X, y, feature_groups, early_stopping_rounds=None, n_iterations=10, verbose=1 ):
         self.feature_groups_ = feature_groups
@@ -35,6 +38,18 @@ class LinearProductRegressionModelOLS:
 
                 # fit a OLS model to the residuals using matrix operations
                 floating_params = np.linalg.lstsq(floating_data, residuals, rcond=None)[0]
+
+                # normalize the floating parameters
+                # first calculate the mean of the floating predictions
+                floating_predictions = floating_data @ floating_params
+                floating_mean = np.mean(floating_predictions)
+                
+                if not np.isclose(floating_mean, 0):
+                    # normalize the parameters by the mean
+                    floating_params /= floating_mean
+                    # update the global scale
+                    self.global_scale_ = self.global_scale_ * floating_mean
+                
                 params_blocks[feature_group] = floating_params
               
             # track the training progress  
@@ -42,11 +57,13 @@ class LinearProductRegressionModelOLS:
             mse = np.mean((y - predictions) ** 2)
             self.mse_history_.append(mse)
             self.params_history_.append(  copy.deepcopy(params_blocks) )
+            self.global_scale_history_.append(self.global_scale_)
             
             # track the best parameters
             if mse < self.best_mse_:
                 self.best_mse_ = mse
                 self.best_params_ = copy.deepcopy(params_blocks)
+                self.best_iteration_ = i
             
             if verbose > 0:
                 print(f"Iteration {i+1}/{n_iterations}, MSE: {mse:.4f}")
@@ -55,17 +72,16 @@ class LinearProductRegressionModelOLS:
             if early_stopping_rounds is not None and len(self.mse_history_) > early_stopping_rounds:
                 if self.mse_history_[-1] >= self.mse_history_[-early_stopping_rounds]:
                     print(f"Early stopping at iteration {i+1} with MSE: {mse:.4f}")
-                    self.coef_ = self.best_params_
                     break
                 
-        if self.coef_ is None:
-            self.coef_ = self.best_params_
+        self.coef_ = copy.deepcopy(self.best_params_)
+        self.global_scale_ = self.global_scale_history_[self.best_iteration_]
         
         # archive the mean of each block's predictions
         for key in feature_groups:
             block_params = self.coef_[key]
             block_data = feature_data_blocks[key]
-            block_pred = self.forward({key: block_params}, {key: block_data})
+            block_pred = self.forward({key: block_params}, {key: block_data}, ignore_global_scale=True)
             block_mean = np.mean(block_pred)
             self.block_means_[key] = block_mean
             
@@ -122,7 +138,7 @@ class LinearProductRegressionModelOLS:
             normalized_coef[group] = coef / block_mean
         return normalized_coef
     
-    def forward(self, params_blocks, X_blocks):
+    def forward(self, params_blocks, X_blocks, ignore_global_scale=False):
         """
         Compute the forward pass for the model.
 
@@ -151,9 +167,11 @@ class LinearProductRegressionModelOLS:
                 raise ValueError(f"Feature block '{key}' not found in input blocks.")
             result *= np.dot(X_blocks[key], params_blocks[key])
 
+        if not ignore_global_scale:
+            result = result * self.global_scale_
         return result
 
-class LinearProductRegressionModelScipy:
+class LinearProductModelScipy:
     def __init__(self, xtol=1e-8, ftol=1e-8, gtol=1e-8):
         self.xtol = xtol
         self.ftol = ftol
