@@ -178,39 +178,28 @@ class LinearProductModelScipy:
         self.gtol = gtol
         self.coef_ = None
         self.feature_groups_ = None   # user-defined groups (dict[str, list[str]])
-        self.feature_slices_ = None   # mapping group -> slice
-
-    # -----------------------------
-    # Internal helpers
-    # -----------------------------
-    def _split_params(self, params, X_blocks):
-        idx = 0
-        for X in X_blocks:
-            n = X.shape[1]
-            yield params[idx: idx+n], X
-            idx += n
-
-    def _build_blocks_from_df(self, X_df, feature_groups):
-        """Convert DataFrame + feature groups dict -> X_blocks + slices."""
-        X_blocks, slices = [], {}
-        idx = 0
-        for name, cols in feature_groups.items():
-            block = X_df[cols].to_numpy()
-            X_blocks.append(block)
-            slices[name] = slice(idx, idx + block.shape[1])
-            idx += block.shape[1]
-        return X_blocks, slices
 
     # -----------------------------
     # Model math
     # -----------------------------
-    def forward(self, params, X_blocks):
-        n_obs = X_blocks[0].shape[0]
-        y_hat = np.ones(n_obs)
-        for theta, X in self._split_params(params, X_blocks):
+    def forward(self, params_blocks, X_blocks):
+        for key in X_blocks:
+            n_obs = X_blocks[key].shape[0]
+            break
+        else:
+            raise ValueError("X_blocks is empty.")
+        
+        result = np.ones(n_obs, dtype=float)
+        
+        for key in params_blocks:
+            if key not in X_blocks:
+                raise ValueError(f"Feature block '{key}' not found in input blocks.")
+            theta = params_blocks[key]
+            X = X_blocks[key]
             inner = X @ theta
-            y_hat = y_hat * inner
-        return y_hat
+            result *= inner
+
+        return result
 
     def jacobian(self, params, X_blocks):
         n_obs = X_blocks[0].shape[0]
