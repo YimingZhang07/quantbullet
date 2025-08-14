@@ -79,8 +79,64 @@ class LinearProductClassifierScipy:
             start += n_features
         
         return params_blocks
+    
+    def objective(self, params, X_blocks, y):
+        params_blocks = self.unflatten_params(params)
+        y_hat = self.forward(params_blocks, X_blocks)
+        cross_entropy = -np.sum(y * np.log(y_hat) + (1 - y) * np.log(1 - y_hat))
+        return cross_entropy
 
-    def fit(self, X, y, feature_groups, init_params=None ):
+    def jacobian(self, params, X_blocks, y):
+        """
+        Analytic gradient of the cross-entropy under your current parameterization:
+        r = product_k (X_k @ theta_k), y_hat = clip(r, eps, 1-eps).
+        For clipped points, gradient = 0.
+        """
+        params = np.asarray(params, dtype=float)
+        params_blocks = self.unflatten_params(params)
+
+        # compute inner products per block and the raw product r
+        inners = {}
+        r = np.ones_like(y, dtype=float)
+        for key in self.block_names:
+            Xk = X_blocks[key]
+            th = params_blocks[key]
+            ak = Xk @ th                # shape (n,)
+            inners[key] = ak
+            r *= ak
+
+        eps = self.eps
+        y_hat = np.clip(r, eps, 1.0 - eps)
+
+        # mask for interior points (not clipped)
+        mask = (r > eps) & (r < 1.0 - eps)
+
+        # if everything is clipped, gradient is zero
+        if not np.any(mask):
+            grad_blocks = {key: np.zeros_like(params_blocks[key]) for key in self.block_names}
+            return self.flatten_params(grad_blocks)
+
+        # dL/dy_hat = (y_hat - y) / (y_hat * (1 - y_hat)); dy_hat/dr = 1 in interior
+        slope = np.zeros_like(y_hat)
+        slope[mask] = (y_hat[mask] - y[mask]) / (y_hat[mask] * (1.0 - y_hat[mask]))
+
+        # per-block gradient: X_k^T [ slope * (r / inner_k) ] on interior
+        tiny = 1e-12
+        grad_blocks = {}
+        for key in self.block_names:
+            Xk = X_blocks[key]
+            ak = inners[key]
+            denom = np.where(np.abs(ak) < tiny, np.sign(ak) * tiny + tiny, ak)
+
+            factor = np.zeros_like(r)
+            factor[mask] = r[mask] / denom[mask]   # only interior contributes
+
+            w = slope * factor                     # sample-wise weights
+            grad_blocks[key] = Xk.T @ w
+
+        return self.flatten_params(grad_blocks)
+
+    def fit(self, X, y, feature_groups, init_params=None, use_jacobian=True):
         """
         Fit the model.
         """
@@ -100,24 +156,33 @@ class LinearProductClassifierScipy:
             print(f"Using initial params: {init_params_blocks}")
             init_params = self.flatten_params(init_params_blocks)
         else:
-            init_params = np.asarray(init_params, dtype=float)
-            init_params_blocks = self.unflatten_params(init_params)
-
-        def objective(params):
-            params_blocks = self.unflatten_params(params)
-            y_hat = self.forward(params_blocks, X_blocks)
-            cross_entropy = -np.sum(y * np.log(y_hat) + (1 - y) * np.log(1 - y_hat))
-            return cross_entropy
+            if np.isscalar(init_params):
+                init_params_blocks = { key: np.full(len(feature_groups[key]), float(init_params), dtype=float) for key in self.block_names }
+                init_params = self.flatten_params(init_params_blocks)
+            elif isinstance(init_params, np.ndarray):
+                if len(init_params) != self.n_features:
+                    raise ValueError(f"init_params length {len(init_params)} does not match number of features {self.n_features}.")
+                else:
+                    init_params = np.asarray(init_params, dtype=float)
+                    init_params_blocks = self.unflatten_params(init_params)
+            else:
+                raise ValueError("init_params must be None, a numpy array, or a scalar.")
         
         def cb(params):
-            loss = objective(params)
+            loss = self.objective(params, X_blocks, y)
             print( f"Iter {cb.iter_count}: {loss}" )
             cb.iter_count += 1
 
         cb.iter_count = 1
+        
+        if use_jacobian:
+            jac = lambda p: self.jacobian(p, X_blocks, y)
+        else:
+            jac = None
 
         result = minimize(
-            fun=objective,
+            fun=lambda p: self.objective(p, X_blocks, y),
+            jac=jac,
             x0=init_params,
             method='L-BFGS-B',
             callback=cb,
