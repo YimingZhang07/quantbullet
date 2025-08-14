@@ -200,15 +200,30 @@ class LinearProductModelScipy:
             result *= inner
 
         return result
+    
+    @property
+    def n_features(self):
+        if self.feature_groups_ is None:
+            raise ValueError("feature_groups_ is not set.")
+        return sum(len(cols) for cols in self.feature_groups_.values())
+    
+    @property
+    def block_names(self):
+        if self.feature_groups_ is None:
+            raise ValueError("feature_groups_ is not set.")
+        return list(self.feature_groups_.keys())
 
-    def jacobian(self, params, X_blocks):
-        n_obs = X_blocks[0].shape[0]
-        n_features = sum(X.shape[1] for X in X_blocks)
-        J = np.zeros((n_obs, n_features))
+    def jacobian(self, params_blocks, X_blocks):
+        n_obs = X_blocks[ self.block_names[0] ].shape[0]
+        n_features = self.n_features
+        
+        J = np.zeros((n_obs, n_features), dtype=float)
 
         # prefix/suffix products to avoid recomputing
         inners = []
-        for theta, X in self._split_params(params, X_blocks):
+        for key in self.block_names:
+            theta = params_blocks[key]
+            X = X_blocks[key]
             inner = X @ theta
             inners.append(inner)
 
@@ -219,59 +234,73 @@ class LinearProductModelScipy:
         for inner in inners[:0:-1]:
             suffix.append(suffix[-1] * inner)
         suffix = suffix[::-1]
-
-        idx = 0
-        for j, (theta, X) in enumerate(self._split_params(params, X_blocks)):
+        
+        # Fill the Jacobian
+        col = 0
+        for j, key in enumerate(self.block_names):
+            X = X_blocks[key]
             prod_other = prefix[j] * suffix[j]
-            J[:, idx: idx+X.shape[1]] = X * prod_other[:, None]
-            idx += X.shape[1]
+            J[:, col: col+X.shape[1]] = X * prod_other[:, None]
+            col += X.shape[1]
+            
         return J
+    
+    def flatten_params(self, params_blocks):
+        """
+        Flatten the parameters from a dictionary of blocks into a single array.
+        """
+        if not isinstance(params_blocks, dict):
+            raise ValueError("params_blocks must be a dictionary.")
+        
+        flat_params = []
+        for key in self.block_names:
+            if key not in params_blocks:
+                raise ValueError(f"Feature block '{key}' not found in params_blocks.")
+            flat_params.extend(params_blocks[key])
+        
+        return np.array(flat_params, dtype=float)
+    
+    def unflatten_params(self, flat_params):
+        """
+        Unflatten the parameters from a single array into a dictionary of blocks.
+        """
+        if not isinstance(flat_params, np.ndarray):
+            raise ValueError("flat_params must be a numpy array.")
+        
+        params_blocks = {}
+        start = 0
+        for key in self.block_names:
+            if key not in self.feature_groups_:
+                raise ValueError(f"Feature block '{key}' not found in feature_groups_.")
+            n_features = len(self.feature_groups_[key])
+            params_blocks[key] = flat_params[start: start + n_features]
+            start += n_features
+        
+        return params_blocks
 
-    # -----------------------------
-    # Public API
-    # -----------------------------
-    def fit(self, X, y, feature_groups=None, init_params=None, use_jacobian=True, **kwargs):
+    def fit(self, X, y, feature_groups, use_jacobian=True, **kwargs):
         """
         Fit the model.
-
-        Parameters
-        ----------
-        X : pd.DataFrame or list of np.ndarray
-            Either:
-              - A DataFrame with columns covering feature_groups
-              - A list of numpy arrays (blocks)
-        y : array-like
-        feature_groups : dict[str, list[str]], optional
-            Required if X is a DataFrame.
         """
-        if isinstance(X, pd.DataFrame):
-            if feature_groups is None:
-                raise ValueError("feature_groups must be provided when X is a DataFrame.")
-            X_blocks, slices = self._build_blocks_from_df(X, feature_groups)
-            self.feature_groups_ = feature_groups
-            self.feature_slices_ = slices
-        elif isinstance(X, list):
-            X_blocks = X
-            self.feature_groups_ = None
-            self.feature_slices_ = None
-        else:
-            raise ValueError("X must be either a DataFrame or a list of arrays.")
-
-        n_features = sum(X.shape[1] for X in X_blocks)
-
-        if init_params is None:
-            init_params = np.ones(n_features, dtype=float)
-        else:
-            init_params = np.asarray(init_params, dtype=float)
+        self.feature_groups_ = feature_groups
+        n_features = self.n_features
         
         y = np.asarray(y, dtype=float).ravel()
+        
+        X_blocks = { key: X[feature_groups[key]].values for key in feature_groups }
+        init_params_blocks = { key: np.ones(len(feature_groups[key]), dtype=float) for key in feature_groups }
+        init_params = self.flatten_params(init_params_blocks)
 
         def residuals(params):
-            return self.forward(params, X_blocks) - y
+            params_blocks = self.unflatten_params(params)
+            return self.forward(params_blocks, X_blocks) - y
+
+        def call_jacobian(params):
+            params_blocks = self.unflatten_params(params)
+            return self.jacobian(params_blocks, X_blocks)
 
         if use_jacobian:
-            kwargs["jac"] = lambda p: self.jacobian(p, X_blocks)
-        
+            kwargs["jac"] = call_jacobian
 
         result = least_squares(
             residuals,
@@ -285,21 +314,14 @@ class LinearProductModelScipy:
         self.result_ = result
         return self
 
-    def predict(self, X, feature_groups=None):
+    def predict(self, X):
         if self.coef_ is None:
             raise ValueError("Model not fitted yet.")
-
-        if isinstance(X, pd.DataFrame):
-            if feature_groups is None and self.feature_groups_ is None:
-                raise ValueError("feature_groups must be provided for DataFrame input.")
-            groups = feature_groups if feature_groups is not None else self.feature_groups_
-            X_blocks, _ = self._build_blocks_from_df(X, groups)
-        elif isinstance(X, list):
-            X_blocks = X
-        else:
-            raise ValueError("X must be either a DataFrame or a list of arrays.")
-
-        return self.forward(self.coef_, X_blocks)
+        
+        coef_blocks = self.unflatten_params(self.coef_)
+        X_blocks = { key: X[self.feature_groups_[key]].values for key in self.feature_groups_ }
+        
+        return self.forward(coef_blocks, X_blocks)
 
     @property
     def coef_dict(self):
