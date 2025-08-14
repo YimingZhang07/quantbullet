@@ -2,6 +2,7 @@ import numpy as np
 import copy
 import pandas as pd
 from scipy.optimize import least_squares
+from quantbullet.optimizer.linear_product_shared import LinearProductModelBase
 
 
 class LinearProductModelOLS:
@@ -171,13 +172,14 @@ class LinearProductModelOLS:
             result = result * self.global_scale_
         return result
 
-class LinearProductModelScipy:
+class LinearProductModelScipy(LinearProductModelBase):
     def __init__(self, xtol=1e-8, ftol=1e-8, gtol=1e-8):
+        # initialize the base class
+        super().__init__()
         self.xtol = xtol
         self.ftol = ftol
         self.gtol = gtol
         self.coef_ = None
-        self.feature_groups_ = None   # user-defined groups (dict[str, list[str]])
 
     # -----------------------------
     # Model math
@@ -198,18 +200,6 @@ class LinearProductModelScipy:
             result *= inner
 
         return result
-    
-    @property
-    def n_features(self):
-        if self.feature_groups_ is None:
-            raise ValueError("feature_groups_ is not set.")
-        return sum(len(cols) for cols in self.feature_groups_.values())
-    
-    @property
-    def block_names(self):
-        if self.feature_groups_ is None:
-            raise ValueError("feature_groups_ is not set.")
-        return list(self.feature_groups_.keys())
 
     def jacobian(self, params_blocks, X_blocks):
         n_obs = X_blocks[ self.block_names[0] ].shape[0]
@@ -241,41 +231,8 @@ class LinearProductModelScipy:
             col += X.shape[1]
             
         return J
-    
-    def flatten_params(self, params_blocks):
-        """
-        Flatten the parameters from a dictionary of blocks into a single array.
-        """
-        if not isinstance(params_blocks, dict):
-            raise ValueError("params_blocks must be a dictionary.")
-        
-        flat_params = []
-        for key in self.block_names:
-            if key not in params_blocks:
-                raise ValueError(f"Feature block '{key}' not found in params_blocks.")
-            flat_params.extend(params_blocks[key])
-        
-        return np.array(flat_params, dtype=float)
-    
-    def unflatten_params(self, flat_params):
-        """
-        Unflatten the parameters from a single array into a dictionary of blocks.
-        """
-        if not isinstance(flat_params, np.ndarray):
-            raise ValueError("flat_params must be a numpy array.")
-        
-        params_blocks = {}
-        start = 0
-        for key in self.block_names:
-            if key not in self.feature_groups_:
-                raise ValueError(f"Feature block '{key}' not found in feature_groups_.")
-            n_features = len(self.feature_groups_[key])
-            params_blocks[key] = flat_params[start: start + n_features]
-            start += n_features
-        
-        return params_blocks
 
-    def fit(self, X, y, feature_groups, use_jacobian=True, **kwargs):
+    def fit(self, X, y, feature_groups, init_params=1, use_jacobian=True, **kwargs):
         """
         Fit the model.
         """
@@ -283,8 +240,7 @@ class LinearProductModelScipy:
         
         y = np.asarray(y, dtype=float).ravel()
         X_blocks = { key: X[feature_groups[key]].values for key in feature_groups }
-        init_params_blocks = { key: np.ones(len(feature_groups[key]), dtype=float) for key in feature_groups }
-        init_params = self.flatten_params(init_params_blocks)
+        init_params, _ = self.infer_init_params(init_params, X_blocks, y)
 
         def residuals(params):
             params_blocks = self.unflatten_params(params)

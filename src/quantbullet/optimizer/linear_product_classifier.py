@@ -1,15 +1,16 @@
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
-from .linear_product_shared import init_betas_by_response_mean
+from .linear_product_shared import init_betas_by_response_mean, LinearProductModelBase
 
-class LinearProductClassifierScipy:
+class LinearProductClassifierScipy(LinearProductModelBase):
     def __init__(self, gtol=1e-8, ftol=1e-8, eps=1e-3):
+        # initialize the base class
+        super().__init__()
         self.gtol = gtol
         self.ftol = ftol
         self.eps = eps
         self.coef_ = None
-        self.feature_groups_ = None   # user-defined groups (dict[str, list[str]])
 
     # -----------------------------
     # Model math
@@ -34,51 +35,6 @@ class LinearProductClassifierScipy:
     def forward(self, params_blocks, X_blocks):
         y_hat = self.forward_raw(params_blocks, X_blocks)
         return np.clip(y_hat, self.eps, 1 - self.eps)
-    
-    @property
-    def n_features(self):
-        if self.feature_groups_ is None:
-            raise ValueError("feature_groups_ is not set.")
-        return sum(len(cols) for cols in self.feature_groups_.values())
-    
-    @property
-    def block_names(self):
-        if self.feature_groups_ is None:
-            raise ValueError("feature_groups_ is not set.")
-        return list(self.feature_groups_.keys())
-    
-    def flatten_params(self, params_blocks):
-        """
-        Flatten the parameters from a dictionary of blocks into a single array.
-        """
-        if not isinstance(params_blocks, dict):
-            raise ValueError("params_blocks must be a dictionary.")
-        
-        flat_params = []
-        for key in self.block_names:
-            if key not in params_blocks:
-                raise ValueError(f"Feature block '{key}' not found in params_blocks.")
-            flat_params.extend(params_blocks[key])
-        
-        return np.array(flat_params, dtype=float)
-    
-    def unflatten_params(self, flat_params):
-        """
-        Unflatten the parameters from a single array into a dictionary of blocks.
-        """
-        if not isinstance(flat_params, np.ndarray):
-            raise ValueError("flat_params must be a numpy array.")
-        
-        params_blocks = {}
-        start = 0
-        for key in self.block_names:
-            if key not in self.feature_groups_:
-                raise ValueError(f"Feature block '{key}' not found in feature_groups_.")
-            n_features = len(self.feature_groups_[key])
-            params_blocks[key] = flat_params[start: start + n_features]
-            start += n_features
-        
-        return params_blocks
     
     def objective(self, params, X_blocks, y):
         params_blocks = self.unflatten_params(params)
@@ -145,28 +101,7 @@ class LinearProductClassifierScipy:
         y = np.asarray(y, dtype=float).ravel()
         X_blocks = { key: X[feature_groups[key]].values for key in feature_groups }
         
-        if init_params is None:
-            # we cannot use 1s as initial parameters anymore, as this leads to >1 predicted values and clipped to 1 for all observations
-            # making it impossible to optimize;
-            # Therefore we initialize a constant value that on average predicts the true probability
-            true_prob = np.mean(y)
-            n_blocks = len(self.block_names)
-            block_target = true_prob ** (1 / n_blocks)
-            init_params_blocks = { key: init_betas_by_response_mean(X_blocks[key], block_target) for key in self.block_names }
-            print(f"Using initial params: {init_params_blocks}")
-            init_params = self.flatten_params(init_params_blocks)
-        else:
-            if np.isscalar(init_params):
-                init_params_blocks = { key: np.full(len(feature_groups[key]), float(init_params), dtype=float) for key in self.block_names }
-                init_params = self.flatten_params(init_params_blocks)
-            elif isinstance(init_params, np.ndarray):
-                if len(init_params) != self.n_features:
-                    raise ValueError(f"init_params length {len(init_params)} does not match number of features {self.n_features}.")
-                else:
-                    init_params = np.asarray(init_params, dtype=float)
-                    init_params_blocks = self.unflatten_params(init_params)
-            else:
-                raise ValueError("init_params must be None, a numpy array, or a scalar.")
+        init_params, _ = self.infer_init_params(init_params, X_blocks, y)
         
         def cb(params):
             loss = self.objective(params, X_blocks, y)
