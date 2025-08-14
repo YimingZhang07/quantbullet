@@ -24,6 +24,71 @@ def init_betas_by_response_mean(X, target_mean):
     return (target_mean / denom) * c
 
 
+class LinearProductModelBCD(ABC):
+    """
+    Base class for linear product models using Block Coordinate Descent (BCD).
+    """
+
+    def __init__(self):
+        self._reset_history()
+
+    def _reset_history( self ):
+        self.params_history_ = []
+        self.coef_ = None
+        self.loss_history_ = []
+        self.best_loss_ = float('inf')
+        self.best_params_ = None
+        self.best_iteration_ = None
+        self.global_scale_ = 1.0
+        self.global_scale_history_ = []
+        self.block_means_ = {}
+
+    @property
+    def coef_dict(self):
+        """Return coefficients grouped by feature group."""
+        return self._coef_to_coef_dict(self.coef_)
+    
+    @property
+    def bias_one_coef_dict(self):
+        """Return bias-one normalized coefficients grouped by feature group."""
+        return self._coef_to_coef_dict(self.bias_one_coef_)
+    
+    @property
+    def normalized_coef_dict(self):
+        """Return block-mean normalized coefficients grouped by feature group."""
+        return self._coef_to_coef_dict(self.normalized_coef_)
+    
+    def _coef_to_coef_dict(self, coef):
+        """Convert coef_ dict to a nested dictionary with feature names."""
+        if self.feature_groups_ is None:
+            raise ValueError("feature_groups_ is not set.")
+        coef_dict = {}
+        for group, features in self.feature_groups_.items():
+            coef_dict[group] = {features[i]: coef[group][i] for i in range(len(features))}
+        return coef_dict
+    
+    @property
+    def bias_one_coef_(self):
+        # assume the first feature in each group is the bias term
+        if self.coef_ is None:
+            raise ValueError("Model not fitted yet. Please call fit() first.")
+        bias_one_coef = {}
+        for group, coef in self.coef_.items():
+            bias_coef = coef[0]
+            bias_one_coef[group] = coef / bias_coef
+        return bias_one_coef
+    
+    @property
+    def normalized_coef_(self):
+        if self.coef_ is None:
+            raise ValueError("Model not fitted yet. Please call fit() first.")
+        normalized_coef = {}
+        for group, coef in self.coef_.items():
+            block_mean = self.block_means_.get(group)
+            normalized_coef[group] = coef / block_mean
+        return normalized_coef
+
+
 class LinearProductModelBase(ABC):
     def __init__(self):
         self.feature_groups_ = None
@@ -75,7 +140,25 @@ class LinearProductModelBase(ABC):
 
     def infer_init_params(self, init_params, X_blocks, y):
         """
-        Infer initial parameters based on the mean of the response variable.
+        Infer initial guess, depending on the type of init_params.
+        If init_params is None, it initializes based on the mean of the response variable.
+        If init_params is a scalar, it initializes all blocks with that value.
+
+        Parameters
+        ----------
+        init_params : None, scalar, or np.ndarray
+            Initial parameters for the model.
+        X_blocks : dict
+            Dictionary of feature blocks, where keys are block names and values are feature matrices.
+        y : np.ndarray
+            Response variable for the model.
+
+        Returns
+        -------
+        init_params : np.ndarray
+            Flattened initial parameters for the model.
+        init_params_blocks : dict
+            Dictionary of initial parameters for each block, where keys are block names and values are parameter arrays.
         """
         if init_params is None:
             # we cannot use 1s as initial parameters anymore, as this leads to >1 predicted values and clipped to 1 for all observations

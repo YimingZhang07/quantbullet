@@ -2,32 +2,20 @@ import numpy as np
 import copy
 import pandas as pd
 from scipy.optimize import least_squares
-from quantbullet.optimizer.linear_product_shared import LinearProductModelBase
+from quantbullet.optimizer.linear_product_shared import LinearProductModelBase, LinearProductModelBCD
 
 
-class LinearProductModelOLS:
+class LinearProductModelOLS( LinearProductModelBase, LinearProductModelBCD ):
     def __init__(self):
-        self.feature_groups_ = None
-        self._clear_history()
-
-    def _clear_history(self):
-        """Clear the history of MSE and parameters."""
-        self.mse_history_ = []
-        self.params_history_ = []
-        self.coef_ = None
-        self.block_means_ = {}
-        self.best_mse_ = float('inf')
-        self.best_params_ = None
-        self.global_scale_ = 1.0  # global scale for the model
-        self.global_scale_history_ = []
-        self.best_iteration_ = None
+        LinearProductModelBase.__init__(self)
+        LinearProductModelBCD.__init__(self)
 
     def fit( self, X, y, feature_groups, early_stopping_rounds=None, n_iterations=10, verbose=1 ):
         self.feature_groups_ = feature_groups
         data_blocks = { key: X[feature_groups[key]].values for key in feature_groups }
         params_blocks = {key: np.ones(len(feature_groups[key]), dtype=float) for key in feature_groups}
         
-        self._clear_history()
+        self._reset_history()
         for i in range(n_iterations):
             for feature_group in feature_groups:
                 floating_data = data_blocks[feature_group]
@@ -55,24 +43,24 @@ class LinearProductModelOLS:
               
             # track the training progress  
             predictions = self.forward(params_blocks, data_blocks)
-            mse = np.mean((y - predictions) ** 2)
-            self.mse_history_.append(mse)
+            loss = np.mean((y - predictions) ** 2)
+            self.loss_history_.append(loss)
             self.params_history_.append(  copy.deepcopy(params_blocks) )
             self.global_scale_history_.append(self.global_scale_)
             
             # track the best parameters
-            if mse < self.best_mse_:
-                self.best_mse_ = mse
+            if loss < self.best_loss_:
+                self.best_loss_ = loss
                 self.best_params_ = copy.deepcopy(params_blocks)
                 self.best_iteration_ = i
             
             if verbose > 0:
-                print(f"Iteration {i+1}/{n_iterations}, MSE: {mse:.4f}")
+                print(f"Iteration {i+1}/{n_iterations}, Loss: {loss:.4f}")
             
             # add the early stopping condition
-            if early_stopping_rounds is not None and len(self.mse_history_) > early_stopping_rounds:
-                if self.mse_history_[-1] >= self.mse_history_[-early_stopping_rounds]:
-                    print(f"Early stopping at iteration {i+1} with MSE: {mse:.4f}")
+            if early_stopping_rounds is not None and len(self.loss_history_) > early_stopping_rounds:
+                if self.loss_history_[-1] >= self.loss_history_[-early_stopping_rounds]:
+                    print(f"Early stopping at iteration {i+1} with Loss: {loss:.4f}")
                     break
                 
         self.coef_ = copy.deepcopy(self.best_params_)
@@ -93,51 +81,6 @@ class LinearProductModelOLS:
             raise ValueError("Model not fitted yet. Please call fit() first.")
         feature_data_blocks = { key: X[self.feature_groups_[key]].values for key in self.feature_groups_ }
         return self.forward(self.coef_, feature_data_blocks)
-    
-    @property
-    def coef_dict(self):
-        """Return coefficients grouped by feature group."""
-        return self._coef_to_coef_dict(self.coef_)
-    
-    @property
-    def bias_one_coef_dict(self):
-        """Return bias-one normalized coefficients grouped by feature group."""
-        return self._coef_to_coef_dict(self.bias_one_coef_)
-    
-    @property
-    def normalized_coef_dict(self):
-        """Return block-mean normalized coefficients grouped by feature group."""
-        return self._coef_to_coef_dict(self.normalized_coef_)
-    
-    def _coef_to_coef_dict(self, coef):
-        """Convert coef_ dict to a nested dictionary with feature names."""
-        if self.feature_groups_ is None:
-            raise ValueError("feature_groups_ is not set.")
-        coef_dict = {}
-        for group, features in self.feature_groups_.items():
-            coef_dict[group] = {features[i]: coef[group][i] for i in range(len(features))}
-        return coef_dict
-    
-    @property
-    def bias_one_coef_(self):
-        # assume the first feature in each group is the bias term
-        if self.coef_ is None:
-            raise ValueError("Model not fitted yet. Please call fit() first.")
-        bias_one_coef = {}
-        for group, coef in self.coef_.items():
-            bias_coef = coef[0]
-            bias_one_coef[group] = coef / bias_coef
-        return bias_one_coef
-    
-    @property
-    def normalized_coef_(self):
-        if self.coef_ is None:
-            raise ValueError("Model not fitted yet. Please call fit() first.")
-        normalized_coef = {}
-        for group, coef in self.coef_.items():
-            block_mean = self.block_means_.get(group)
-            normalized_coef[group] = coef / block_mean
-        return normalized_coef
     
     def forward(self, params_blocks, X_blocks, ignore_global_scale=False):
         """
@@ -171,6 +114,7 @@ class LinearProductModelOLS:
         if not ignore_global_scale:
             result = result * self.global_scale_
         return result
+
 
 class LinearProductModelScipy(LinearProductModelBase):
     def __init__(self, xtol=1e-8, ftol=1e-8, gtol=1e-8):
