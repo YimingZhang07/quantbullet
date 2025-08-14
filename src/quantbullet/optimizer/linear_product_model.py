@@ -23,16 +23,16 @@ class LinearProductModelOLS:
 
     def fit( self, X, y, feature_groups, early_stopping_rounds=None, n_iterations=10, verbose=1 ):
         self.feature_groups_ = feature_groups
-        feature_data_blocks = { key: X[feature_groups[key]].values for key in feature_groups }
+        data_blocks = { key: X[feature_groups[key]].values for key in feature_groups }
         params_blocks = {key: np.ones(len(feature_groups[key]), dtype=float) for key in feature_groups}
         
         self._clear_history()
         for i in range(n_iterations):
             for feature_group in feature_groups:
-                floating_data = feature_data_blocks[feature_group]
+                floating_data = data_blocks[feature_group]
 
                 fixed_params_blocks = { key: params_blocks[key] for key in feature_groups if key != feature_group }
-                fixed_data_blocks = { key: feature_data_blocks[key] for key in feature_groups if key != feature_group }
+                fixed_data_blocks = { key: data_blocks[key] for key in feature_groups if key != feature_group }
                 fixed_predictions = self.forward(fixed_params_blocks, fixed_data_blocks)
                 residuals = y / fixed_predictions
 
@@ -53,7 +53,7 @@ class LinearProductModelOLS:
                 params_blocks[feature_group] = floating_params
               
             # track the training progress  
-            predictions = self.forward(params_blocks, feature_data_blocks)
+            predictions = self.forward(params_blocks, data_blocks)
             mse = np.mean((y - predictions) ** 2)
             self.mse_history_.append(mse)
             self.params_history_.append(  copy.deepcopy(params_blocks) )
@@ -80,7 +80,7 @@ class LinearProductModelOLS:
         # archive the mean of each block's predictions
         for key in feature_groups:
             block_params = self.coef_[key]
-            block_data = feature_data_blocks[key]
+            block_data = data_blocks[key]
             block_pred = self.forward({key: block_params}, {key: block_data}, ignore_global_scale=True)
             block_mean = np.mean(block_pred)
             self.block_means_[key] = block_mean
@@ -190,7 +190,7 @@ class LinearProductModelScipy:
             raise ValueError("X_blocks is empty.")
         
         result = np.ones(n_obs, dtype=float)
-        
+
         for key in self.block_names:
             theta = params_blocks[key]
             X = X_blocks[key]
