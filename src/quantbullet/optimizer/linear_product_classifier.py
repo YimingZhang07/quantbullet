@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
+from .linear_product_shared import init_betas_by_response_mean
 
 class LinearProductClassifierScipy:
     def __init__(self, gtol=1e-8, ftol=1e-8, eps=1e-3):
@@ -9,119 +10,102 @@ class LinearProductClassifierScipy:
         self.eps = eps
         self.coef_ = None
         self.feature_groups_ = None   # user-defined groups (dict[str, list[str]])
-        self.feature_slices_ = None   # mapping group -> slice
-
-    # -----------------------------
-    # Internal helpers
-    # -----------------------------
-    def _split_params(self, params, X_blocks):
-        idx = 0
-        for X in X_blocks:
-            n = X.shape[1]
-            yield params[idx: idx+n], X
-            idx += n
-
-    def _build_blocks_from_df(self, X_df, feature_groups):
-        """Convert DataFrame + feature groups dict -> X_blocks + slices."""
-        X_blocks, slices = [], {}
-        idx = 0
-        for name, cols in feature_groups.items():
-            block = X_df[cols].to_numpy()
-            X_blocks.append(block)
-            slices[name] = slice(idx, idx + block.shape[1])
-            idx += block.shape[1]
-        return X_blocks, slices
 
     # -----------------------------
     # Model math
     # -----------------------------
-    def forward_raw(self, params, X_blocks):
-        n_obs = X_blocks[0].shape[0]
-        y_hat = np.ones(n_obs)
-        for theta, X in self._split_params(params, X_blocks):
+    def forward_raw(self, params_blocks, X_blocks):
+        for key in X_blocks:
+            n_obs = X_blocks[key].shape[0]
+            break
+        else:
+            raise ValueError("X_blocks is empty.")
+        
+        result = np.ones(n_obs, dtype=float)
+        
+        for key in self.block_names:
+            theta = params_blocks[key]
+            X = X_blocks[key]
             inner = X @ theta
-            y_hat = y_hat * inner
-        return y_hat
+            result *= inner
+
+        return result
     
-    def forward(self, params, X_blocks):
-        y_hat = self.forward_raw(params, X_blocks)
-        return np.clip(y_hat, self.eps, 1-self.eps)
+    def forward(self, params_blocks, X_blocks):
+        y_hat = self.forward_raw(params_blocks, X_blocks)
+        return np.clip(y_hat, self.eps, 1 - self.eps)
+    
+    @property
+    def n_features(self):
+        if self.feature_groups_ is None:
+            raise ValueError("feature_groups_ is not set.")
+        return sum(len(cols) for cols in self.feature_groups_.values())
+    
+    @property
+    def block_names(self):
+        if self.feature_groups_ is None:
+            raise ValueError("feature_groups_ is not set.")
+        return list(self.feature_groups_.keys())
+    
+    def flatten_params(self, params_blocks):
+        """
+        Flatten the parameters from a dictionary of blocks into a single array.
+        """
+        if not isinstance(params_blocks, dict):
+            raise ValueError("params_blocks must be a dictionary.")
+        
+        flat_params = []
+        for key in self.block_names:
+            if key not in params_blocks:
+                raise ValueError(f"Feature block '{key}' not found in params_blocks.")
+            flat_params.extend(params_blocks[key])
+        
+        return np.array(flat_params, dtype=float)
+    
+    def unflatten_params(self, flat_params):
+        """
+        Unflatten the parameters from a single array into a dictionary of blocks.
+        """
+        if not isinstance(flat_params, np.ndarray):
+            raise ValueError("flat_params must be a numpy array.")
+        
+        params_blocks = {}
+        start = 0
+        for key in self.block_names:
+            if key not in self.feature_groups_:
+                raise ValueError(f"Feature block '{key}' not found in feature_groups_.")
+            n_features = len(self.feature_groups_[key])
+            params_blocks[key] = flat_params[start: start + n_features]
+            start += n_features
+        
+        return params_blocks
 
-    # def jacobian(self, params, X_blocks):
-    #     n_obs = X_blocks[0].shape[0]
-    #     n_features = sum(X.shape[1] for X in X_blocks)
-    #     J = np.zeros((n_obs, n_features))
-
-    #     # prefix/suffix products to avoid recomputing
-    #     inners = []
-    #     for theta, X in self._split_params(params, X_blocks):
-    #         inner = X @ theta
-    #         inners.append(inner)
-
-    #     prefix = [np.ones(n_obs)]
-    #     for inner in inners[:-1]:
-    #         prefix.append(prefix[-1] * inner)
-    #     suffix = [np.ones(n_obs)]
-    #     for inner in inners[:0:-1]:
-    #         suffix.append(suffix[-1] * inner)
-    #     suffix = suffix[::-1]
-
-    #     idx = 0
-    #     for j, (theta, X) in enumerate(self._split_params(params, X_blocks)):
-    #         prod_other = prefix[j] * suffix[j]
-    #         J[:, idx: idx+X.shape[1]] = X * prod_other[:, None]
-    #         idx += X.shape[1]
-    #     return J
-
-    # -----------------------------
-    # Public API
-    # -----------------------------
-    def fit(self, X, y, feature_groups=None, init_params=None, use_jacobian=True, **kwargs):
+    def fit(self, X, y, feature_groups, init_params=None ):
         """
         Fit the model.
-
-        Parameters
-        ----------
-        X : pd.DataFrame or list of np.ndarray
-            Either:
-              - A DataFrame with columns covering feature_groups
-              - A list of numpy arrays (blocks)
-        y : array-like
-        feature_groups : dict[str, list[str]], optional
-            Required if X is a DataFrame.
         """
-        if isinstance(X, pd.DataFrame):
-            if feature_groups is None:
-                raise ValueError("feature_groups must be provided when X is a DataFrame.")
-            X_blocks, slices = self._build_blocks_from_df(X, feature_groups)
-            self.feature_groups_ = feature_groups
-            self.feature_slices_ = slices
-        elif isinstance(X, list):
-            X_blocks = X
-            self.feature_groups_ = None
-            self.feature_slices_ = None
-        else:
-            raise ValueError("X must be either a DataFrame or a list of arrays.")
-
-        n_features = sum(X.shape[1] for X in X_blocks)
-
-        if init_params is None:
-             # the initial parameters cannot be set to 1 anymore, cause this will lead to >1 y_hat and clipped to 1 for all observations
-             # making it impossible to optimize;
-             # Therefore we initialize a constant values that on average predicts the true probability
-            ones_params = np.ones(n_features, dtype=float)
-            test_y_hat = self.forward_raw(ones_params, X_blocks)
-            true_prob = np.mean( y )
-            test_prob = np.mean(test_y_hat)
-            init_params = ones_params * (true_prob / test_prob)
-            print(f"Using initial params: {init_params}")
-        else:
-            init_params = np.asarray(init_params, dtype=float)
+        self.feature_groups_ = feature_groups
         
         y = np.asarray(y, dtype=float).ravel()
+        X_blocks = { key: X[feature_groups[key]].values for key in feature_groups }
+        
+        if init_params is None:
+            # we cannot use 1s as initial parameters anymore, as this leads to >1 predicted values and clipped to 1 for all observations
+            # making it impossible to optimize;
+            # Therefore we initialize a constant value that on average predicts the true probability
+            true_prob = np.mean(y)
+            n_blocks = len(self.block_names)
+            block_target = true_prob ** (1 / n_blocks)
+            init_params_blocks = { key: init_betas_by_response_mean(X_blocks[key], block_target) for key in self.block_names }
+            print(f"Using initial params: {init_params_blocks}")
+            init_params = self.flatten_params(init_params_blocks)
+        else:
+            init_params = np.asarray(init_params, dtype=float)
+            init_params_blocks = self.unflatten_params(init_params)
 
         def objective(params):
-            y_hat = self.forward(params, X_blocks)
+            params_blocks = self.unflatten_params(params)
+            y_hat = self.forward(params_blocks, X_blocks)
             cross_entropy = -np.sum(y * np.log(y_hat) + (1 - y) * np.log(1 - y_hat))
             return cross_entropy
         
@@ -132,9 +116,6 @@ class LinearProductClassifierScipy:
 
         cb.iter_count = 1
 
-        # if use_jacobian:
-        #     kwargs["jac"] = lambda p: self.jacobian(p, X_blocks)
-
         result = minimize(
             fun=objective,
             x0=init_params,
@@ -142,38 +123,30 @@ class LinearProductClassifierScipy:
             callback=cb,
             options={'gtol': self.gtol, 'ftol': self.ftol}
         )
-
+        
         self.coef_ = result.x
         self.result_ = result
-        
         return self
 
-    def predict_proba(self, X, feature_groups=None):
+    def predict(self, X):
         if self.coef_ is None:
             raise ValueError("Model not fitted yet.")
-
-        if isinstance(X, pd.DataFrame):
-            if feature_groups is None and self.feature_groups_ is None:
-                raise ValueError("feature_groups must be provided for DataFrame input.")
-            groups = feature_groups if feature_groups is not None else self.feature_groups_
-            X_blocks, _ = self._build_blocks_from_df(X, groups)
-        elif isinstance(X, list):
-            X_blocks = X
-        else:
-            raise ValueError("X must be either a DataFrame or a list of arrays.")
-
-        return self.forward(self.coef_, X_blocks)
+        
+        coef_blocks = self.unflatten_params(self.coef_)
+        X_blocks = { key: X[self.feature_groups_[key]].values for key in self.feature_groups_ }
+        
+        return self.forward(coef_blocks, X_blocks)
 
     @property
     def coef_dict(self):
-        """Return coefficients grouped by feature group (if trained with DataFrame)."""
+        """Return coefficients grouped by feature group."""
         if self.coef_ is None:
             raise ValueError("Model not fitted yet.")
         if self.feature_groups_ is None:
             raise ValueError("coef_dict only available when model was fit with DataFrame + feature_groups.")
 
+        coef_blocks = self.unflatten_params(self.coef_)
         out = {}
         for group, cols in self.feature_groups_.items():
-            sl = self.feature_slices_[group]
-            out[group] = dict(zip(cols, self.coef_[sl]))
+            out[group] = dict(zip(cols, coef_blocks[group]))
         return out

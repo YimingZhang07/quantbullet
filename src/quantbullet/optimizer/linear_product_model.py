@@ -191,9 +191,7 @@ class LinearProductModelScipy:
         
         result = np.ones(n_obs, dtype=float)
         
-        for key in params_blocks:
-            if key not in X_blocks:
-                raise ValueError(f"Feature block '{key}' not found in input blocks.")
+        for key in self.block_names:
             theta = params_blocks[key]
             X = X_blocks[key]
             inner = X @ theta
@@ -216,7 +214,6 @@ class LinearProductModelScipy:
     def jacobian(self, params_blocks, X_blocks):
         n_obs = X_blocks[ self.block_names[0] ].shape[0]
         n_features = self.n_features
-        
         J = np.zeros((n_obs, n_features), dtype=float)
 
         # prefix/suffix products to avoid recomputing
@@ -283,10 +280,8 @@ class LinearProductModelScipy:
         Fit the model.
         """
         self.feature_groups_ = feature_groups
-        n_features = self.n_features
         
         y = np.asarray(y, dtype=float).ravel()
-        
         X_blocks = { key: X[feature_groups[key]].values for key in feature_groups }
         init_params_blocks = { key: np.ones(len(feature_groups[key]), dtype=float) for key in feature_groups }
         init_params = self.flatten_params(init_params_blocks)
@@ -325,14 +320,14 @@ class LinearProductModelScipy:
 
     @property
     def coef_dict(self):
-        """Return coefficients grouped by feature group (if trained with DataFrame)."""
+        """Return coefficients grouped by feature group."""
         if self.coef_ is None:
             raise ValueError("Model not fitted yet.")
         if self.feature_groups_ is None:
             raise ValueError("coef_dict only available when model was fit with DataFrame + feature_groups.")
 
+        coef_blocks = self.unflatten_params(self.coef_)
         out = {}
         for group, cols in self.feature_groups_.items():
-            sl = self.feature_slices_[group]
-            out[group] = dict(zip(cols, self.coef_[sl]))
+            out[group] = dict(zip(cols, coef_blocks[group]))
         return out
