@@ -1,4 +1,4 @@
-from quantbullet.optimizer.linear_product_shared import init_betas_by_response_mean
+from quantbullet.linear_product_model.utils import init_betas_by_response_mean
 
 import unittest
 import numpy as np

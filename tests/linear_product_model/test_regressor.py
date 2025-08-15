@@ -2,7 +2,7 @@ import unittest
 import numpy as np
 import pandas as pd
 from quantbullet.dfutils.label import get_bins_and_labels
-from quantbullet.optimizer.linear_product_model import LinearProductModelOLS, LinearProductModelScipy
+from quantbullet.linear_product_model import LinearProductRegressorBCD, LinearProductRegressorScipy
 from quantbullet.preprocessing import FlatRampTransformer
 from sklearn.metrics import mean_squared_error
 
@@ -61,7 +61,7 @@ class TestLinearProductModel(unittest.TestCase):
         train_df = self.train_df
         feature_groups = self.feature_groups
 
-        lprm_ols = LinearProductModelOLS()
+        lprm_ols = LinearProductRegressorBCD()
         lprm_ols.fit( train_df, df['y'], feature_groups=feature_groups, n_iterations=10, early_stopping_rounds=5 )
         df['model_pred_BCD'] = lprm_ols.predict(train_df)
 
@@ -74,7 +74,7 @@ class TestLinearProductModel(unittest.TestCase):
         train_df = self.train_df
         feature_groups = self.feature_groups
 
-        lpm_scipy = LinearProductModelScipy( xtol=1e-12, gtol=1e-12, ftol=1e-12 )
+        lpm_scipy = LinearProductRegressorScipy( xtol=1e-12, gtol=1e-12, ftol=1e-12 )
         lpm_scipy.fit( X=train_df, y=df['y'], feature_groups=feature_groups, verbose=1 )
         df['model_predict_scipy'] = lpm_scipy.predict(train_df)
 

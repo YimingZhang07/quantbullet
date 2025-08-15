@@ -2,7 +2,7 @@ import unittest
 import numpy as np
 import pandas as pd
 from quantbullet.preprocessing import FlatRampTransformer
-from quantbullet.optimizer import LinearProductClassifierScipy
+from quantbullet.linear_product_model import LinearProductClassifierScipy
 
 from quantbullet.utils.decorators import log_runtime
 

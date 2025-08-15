@@ -2,10 +2,10 @@ import numpy as np
 import copy
 import pandas as pd
 from scipy.optimize import least_squares
-from quantbullet.optimizer.linear_product_shared import LinearProductModelBase, LinearProductModelBCD
+from .base import LinearProductModelBase, LinearProductModelBCD
 
 
-class LinearProductModelOLS( LinearProductModelBase, LinearProductModelBCD ):
+class LinearProductRegressorBCD( LinearProductModelBase, LinearProductModelBCD ):
     def __init__(self):
         LinearProductModelBase.__init__(self)
         LinearProductModelBCD.__init__(self)
@@ -119,7 +119,7 @@ class LinearProductModelOLS( LinearProductModelBase, LinearProductModelBCD ):
         return result
 
 
-class LinearProductModelScipy(LinearProductModelBase):
+class LinearProductRegressorScipy(LinearProductModelBase):
     def __init__(self, xtol=1e-8, ftol=1e-8, gtol=1e-8):
         # initialize the base class
         super().__init__()

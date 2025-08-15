@@ -2,13 +2,13 @@ import numpy as np
 import pandas as pd
 import copy
 from scipy.optimize import minimize
-from .linear_product_shared import (
+from .utils import (
     init_betas_by_response_mean,
     log_loss,
     fit_logistic_no_intercept,
-    LinearProductModelBase,
-    LinearProductModelBCD
 )
+
+from .base import LinearProductModelBase, LinearProductModelBCD
 
 class LinearProductClassifierScipy(LinearProductModelBase):
     def __init__(self, gtol=1e-8, ftol=1e-8, eps=1e-3):
