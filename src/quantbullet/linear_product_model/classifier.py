@@ -3,7 +3,7 @@ import pandas as pd
 import copy
 from scipy.optimize import minimize
 from .utils import (
-    init_betas_by_response_mean,
+    minimize_clipped_cross_entropy_loss,
     log_loss,
     fit_logistic_no_intercept,
 )
@@ -189,7 +189,10 @@ class LinearProductClassifierBCD( LinearProductModelBase, LinearProductModelBCD 
                 # then fit a logistic regression to get the current block's beta estimations
                 m = fixed_predictions.reshape(-1, 1)
                 mX = floating_data * m
-                floating_params = fit_logistic_no_intercept(mX, y)
+                floating_params, status = minimize_clipped_cross_entropy_loss(mX, y, beta0=None, eps=self.eps)
+                
+                if not status.success:
+                    print(f"Warning: Optimization for block '{feature_group}' did not converge: {status.message}")
 
                 # normalize the floating parameters
                 # first calculate the mean of the floating predictions

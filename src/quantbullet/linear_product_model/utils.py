@@ -1,5 +1,5 @@
 import numpy as np
-from abc import ABC, abstractmethod
+from scipy.optimize import minimize
 from sklearn.linear_model import LogisticRegression
 
 def init_betas_by_response_mean(X, target_mean):
@@ -31,3 +31,52 @@ def fit_logistic_no_intercept(X, y):
 def log_loss(y_hat, y):
     return -np.sum(y * np.log(y_hat) + (1 - y) * np.log(1 - y_hat)) / len(y)
 
+def _clipped_ce_and_grad(beta, X, y, eps=1e-6, l2=0.0):
+    """
+    Cross-entropy on p = clip(X @ beta, eps, 1-eps).
+    Returns (loss, grad) with grad matching the piecewise derivative described.
+    """
+    z = X @ beta                          # (n,)
+    p = np.clip(z, eps, 1.0 - eps)        # (n,)
+
+    # ----- Loss -----
+    # CE(p,y) = -[ y log p + (1-y) log(1-p) ]
+    ce = - (y * np.log(p) + (1 - y) * np.log(1 - p)).sum()
+    if l2:
+        ce += 0.5 * l2 * np.dot(beta, beta)
+
+    # ----- Gradient wrt beta -----
+    # dCE/dp = (p - y) / (p(1-p))
+    dCE_dp = (p - y) / (p * (1.0 - p))
+
+    # dp/dz = 1 on the interior, 0 when clipped
+    interior = (z > eps) & (z < 1.0 - eps)
+    dL_dz = np.zeros_like(z)
+    dL_dz[interior] = dCE_dp[interior]  # chain rule: dL/dz = dCE/dp * dp/dz
+
+    grad = X.T @ dL_dz
+    if l2:
+        grad += l2 * beta
+
+    return ce, grad
+
+def minimize_clipped_cross_entropy_loss(X, y, beta0=None, eps=1e-6, l2=0.0, tol=1e-8, maxiter=10_000):
+    """
+    Fit a linear model by minimizing clipped cross-entropy loss. y should be in {0,1}.
+    
+    The model form is p = clip(X @ beta, eps, 1-eps). and the loss is
+    the cross-entropy between p and y, plus optional L2 regularization.
+    """
+    n_features = X.shape[1]
+    if beta0 is None:
+        beta0 = init_betas_by_response_mean(X, np.mean(y))
+    elif np.isscalar(beta0):
+        beta0 = np.full(n_features, beta0)
+    else:
+        beta0 = np.asarray(beta0, dtype=float)
+        if beta0.shape != (n_features,):
+            raise ValueError(f"beta0 must be a scalar or a 1D array of shape ({n_features},)")
+    obj = lambda b: _clipped_ce_and_grad(b, X, y, eps=eps, l2=l2)
+    res = minimize(obj, beta0, method="L-BFGS-B", jac=True, tol=tol,
+                   options={"maxiter": maxiter})
+    return res.x, res
