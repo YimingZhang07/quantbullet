@@ -10,10 +10,13 @@ class LinearProductModelOLS( LinearProductModelBase, LinearProductModelBCD ):
         LinearProductModelBase.__init__(self)
         LinearProductModelBCD.__init__(self)
 
-    def fit( self, X, y, feature_groups, early_stopping_rounds=None, n_iterations=10, verbose=1 ):
+    def loss_function(self, y_hat, y):
+        return np.mean((y - y_hat) ** 2)
+
+    def fit( self, X, y, feature_groups, init_params=1, early_stopping_rounds=None, n_iterations=10, verbose=1 ):
         self.feature_groups_ = feature_groups
         data_blocks = { key: X[feature_groups[key]].values for key in feature_groups }
-        params_blocks = {key: np.ones(len(feature_groups[key]), dtype=float) for key in feature_groups}
+        _, params_blocks = self.infer_init_params(init_params, data_blocks, y)
         
         self._reset_history()
         for i in range(n_iterations):
@@ -43,7 +46,7 @@ class LinearProductModelOLS( LinearProductModelBase, LinearProductModelBCD ):
               
             # track the training progress  
             predictions = self.forward(params_blocks, data_blocks)
-            loss = np.mean((y - predictions) ** 2)
+            loss = self.loss_function(predictions, y)
             self.loss_history_.append(loss)
             self.params_history_.append(  copy.deepcopy(params_blocks) )
             self.global_scale_history_.append(self.global_scale_)
@@ -79,8 +82,8 @@ class LinearProductModelOLS( LinearProductModelBase, LinearProductModelBCD ):
     def predict( self, X ):
         if self.feature_groups_ is None or self.coef_ is None:
             raise ValueError("Model not fitted yet. Please call fit() first.")
-        feature_data_blocks = { key: X[self.feature_groups_[key]].values for key in self.feature_groups_ }
-        return self.forward(self.coef_, feature_data_blocks)
+        data_blocks = { key: X[self.feature_groups_[key]].values for key in self.feature_groups_ }
+        return self.forward(self.coef_, data_blocks)
     
     def forward(self, params_blocks, X_blocks, ignore_global_scale=False):
         """

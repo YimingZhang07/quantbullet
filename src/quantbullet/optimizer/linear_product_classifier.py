@@ -1,7 +1,14 @@
 import numpy as np
 import pandas as pd
+import copy
 from scipy.optimize import minimize
-from .linear_product_shared import init_betas_by_response_mean, LinearProductModelBase
+from .linear_product_shared import (
+    init_betas_by_response_mean,
+    log_loss,
+    fit_logistic_no_intercept,
+    LinearProductModelBase,
+    LinearProductModelBCD
+)
 
 class LinearProductClassifierScipy(LinearProductModelBase):
     def __init__(self, gtol=1e-8, ftol=1e-8, eps=1e-3):
@@ -39,7 +46,7 @@ class LinearProductClassifierScipy(LinearProductModelBase):
     def objective(self, params, X_blocks, y):
         params_blocks = self.unflatten_params(params)
         y_hat = self.forward(params_blocks, X_blocks)
-        cross_entropy = -np.sum(y * np.log(y_hat) + (1 - y) * np.log(1 - y_hat))
+        cross_entropy = log_loss(y_hat, y) * len(y)
         return cross_entropy
 
     def jacobian(self, params, X_blocks, y):
@@ -150,3 +157,127 @@ class LinearProductClassifierScipy(LinearProductModelBase):
         for group, cols in self.feature_groups_.items():
             out[group] = dict(zip(cols, coef_blocks[group]))
         return out
+
+class LinearProductClassifierBCD( LinearProductModelBase, LinearProductModelBCD ):
+    def __init__(self, eps=1e-3):
+        LinearProductModelBase.__init__(self)
+        LinearProductModelBCD.__init__(self)
+        self.eps = eps
+
+    def loss_function(self, y_hat, y):
+        return log_loss(y_hat, y)
+
+    def fit( self, X, y, feature_groups, init_params=None, early_stopping_rounds=None, n_iterations=10, verbose=1 ):
+        self.feature_groups_ = feature_groups
+        data_blocks = { key: X[feature_groups[key]].values for key in feature_groups }
+        _, params_blocks = self.infer_init_params(init_params, data_blocks, y)
+        
+        self._reset_history()
+        for i in range(n_iterations):
+            for feature_group in feature_groups:
+                floating_data = data_blocks[feature_group]
+
+                fixed_params_blocks = { key: params_blocks[key] for key in feature_groups if key != feature_group }
+                fixed_data_blocks = { key: data_blocks[key] for key in feature_groups if key != feature_group }
+
+                if len(fixed_params_blocks) == 0:
+                    fixed_predictions = np.ones(floating_data.shape[0], dtype=float)
+                else:
+                    fixed_predictions = self.forward(fixed_params_blocks, fixed_data_blocks)
+
+                # treat the products of other blocks as a vector to scale the matrix
+                # then fit a logistic regression to get the current block's beta estimations
+                m = fixed_predictions.reshape(-1, 1)
+                mX = floating_data * m
+                floating_params = fit_logistic_no_intercept(mX, y)
+
+                # normalize the floating parameters
+                # first calculate the mean of the floating predictions
+                floating_predictions = floating_data @ floating_params
+                floating_mean = np.mean(floating_predictions)
+                
+                if not np.isclose(floating_mean, 0):
+                    # normalize the parameters by the mean
+                    floating_params /= floating_mean
+                    # update the global scale
+                    self.global_scale_ = self.global_scale_ * floating_mean
+                
+                params_blocks[feature_group] = floating_params
+              
+            # track the training progress  
+            predictions = self.forward(params_blocks, data_blocks)
+            loss = self.loss_function(predictions, y)
+            self.loss_history_.append(loss)
+            self.params_history_.append( copy.deepcopy(params_blocks) )
+            self.global_scale_history_.append(self.global_scale_)
+            
+            # track the best parameters
+            if loss < self.best_loss_:
+                self.best_loss_ = loss
+                self.best_params_ = copy.deepcopy(params_blocks)
+                self.best_iteration_ = i
+            
+            if verbose > 0:
+                print(f"Iteration {i+1}/{n_iterations}, Loss: {loss:.4f}")
+            
+            # add the early stopping condition
+            if early_stopping_rounds is not None and len(self.loss_history_) > early_stopping_rounds:
+                if self.loss_history_[-1] >= self.loss_history_[-early_stopping_rounds]:
+                    print(f"Early stopping at iteration {i+1} with Loss: {loss:.4f}")
+                    break
+                
+        self.coef_ = copy.deepcopy(self.best_params_)
+        self.global_scale_ = self.global_scale_history_[self.best_iteration_]
+        
+        # archive the mean of each block's predictions
+        for key in feature_groups:
+            block_params = self.coef_[key]
+            block_data = data_blocks[key]
+            block_pred = self.forward({key: block_params}, {key: block_data}, ignore_global_scale=True)
+            block_mean = np.mean(block_pred)
+            self.block_means_[key] = block_mean
+            
+        return self
+    
+    def predict( self, X ):
+        if self.feature_groups_ is None or self.coef_ is None:
+            raise ValueError("Model not fitted yet. Please call fit() first.")
+        data_blocks = { key: X[self.feature_groups_[key]].values for key in self.feature_groups_ }
+        return self.forward(self.coef_, data_blocks)
+    
+    def forward_raw(self, params_blocks, X_blocks, ignore_global_scale=False):
+        """
+        Compute the forward pass for the model.
+
+        Parameters
+        ----------
+        params_blocks : dict
+            A dictionary mapping feature block names to their parameter vectors.
+        X_blocks : dict
+            A dictionary mapping feature block names to their input data matrices.
+
+        Returns
+        -------
+        np.ndarray
+            The model's predictions for the input data.
+        """
+        # Find any block to get n_obs
+        for key in X_blocks:
+            n_obs = X_blocks[key].shape[0]
+            break
+        else:
+            raise ValueError("X_blocks is empty.")
+
+        result = np.ones(n_obs, dtype=float)
+        for key in params_blocks:
+            if key not in X_blocks:
+                raise ValueError(f"Feature block '{key}' not found in input blocks.")
+            result *= np.dot(X_blocks[key], params_blocks[key])
+
+        if not ignore_global_scale:
+            result = result * self.global_scale_
+        return result
+    
+    def forward(self, params_blocks, X_blocks, ignore_global_scale=False):
+        y_hat = self.forward_raw(params_blocks, X_blocks, ignore_global_scale)
+        return np.clip(y_hat, self.eps, 1 - self.eps)

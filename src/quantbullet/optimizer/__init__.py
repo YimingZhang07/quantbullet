@@ -5,4 +5,5 @@ from .linear_product_model import (
 
 from .linear_product_classifier import (
     LinearProductClassifierScipy,
+    LinearProductClassifierBCD
 )
