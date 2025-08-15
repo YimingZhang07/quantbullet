@@ -56,7 +56,7 @@ class TestLinearProductModel(unittest.TestCase):
         self.train_df = train_df
         self.feature_groups = feature_groups
 
-    def test_LinearProductModelOLS(self):
+    def test_LinearProductRegressorBCD(self):
         df = self.df
         train_df = self.train_df
         feature_groups = self.feature_groups
@@ -69,7 +69,7 @@ class TestLinearProductModel(unittest.TestCase):
         mse = mean_squared_error(df['y'], df['model_pred_BCD'])
         self.assertTrue( np.isclose(mse, 0.52, atol=0.01), f"MSE is {mse}, expected around 0.52" )
 
-    def test_LinearProductModelScipy(self):
+    def test_LinearProductRegressorScipy(self):
         df = self.df
         train_df = self.train_df
         feature_groups = self.feature_groups
@@ -81,3 +81,28 @@ class TestLinearProductModel(unittest.TestCase):
         # check the mean squared error
         mse = mean_squared_error(df['y'], df['model_predict_scipy'])
         self.assertTrue( np.isclose(mse, 0.52, atol=0.01), f"MSE is {mse}, expected around 0.52" )
+
+    def test_leave_out_feature_group_predict(self):
+        df = self.df
+        train_df = self.train_df
+        feature_groups = self.feature_groups
+
+        lprm_ols = LinearProductRegressorScipy()
+        lprm_ols.fit( train_df, df['y'], feature_groups=feature_groups )
+
+        # leave out x1
+        df['model_pred_x1_excluded'] = lprm_ols.leave_out_feature_group_predict('x1', train_df)
+
+        # leave out x2
+        df['model_pred_x2_excluded'] = lprm_ols.leave_out_feature_group_predict('x2', train_df)
+
+        # leave out x3
+        df['model_pred_x3_excluded'] = lprm_ols.leave_out_feature_group_predict('x3', train_df)
+
+        # check the predictions and product of predictions
+        df['model_pred_product'] = np.sqrt( df['model_pred_x1_excluded'] * df['model_pred_x2_excluded'] * df['model_pred_x3_excluded'] )
+        df['model_pred'] = lprm_ols.predict(train_df)
+
+        # check two predictions should be close element wise
+        self.assertTrue(np.allclose(df['model_pred'], df['model_pred_product'], atol=0.01),
+                        "Predictions with and without feature groups should be close.")

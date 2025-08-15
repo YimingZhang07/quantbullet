@@ -131,7 +131,7 @@ class LinearProductRegressorScipy(LinearProductModelBase):
     # -----------------------------
     # Model math
     # -----------------------------
-    def forward(self, params_blocks, X_blocks):
+    def forward(self, params_blocks, X_blocks, ignore_global_scale=False):
         for key in X_blocks:
             n_obs = X_blocks[key].shape[0]
             break
@@ -140,7 +140,7 @@ class LinearProductRegressorScipy(LinearProductModelBase):
         
         result = np.ones(n_obs, dtype=float)
 
-        for key in self.block_names:
+        for key in params_blocks:
             theta = params_blocks[key]
             X = X_blocks[key]
             inner = X @ theta
@@ -208,7 +208,7 @@ class LinearProductRegressorScipy(LinearProductModelBase):
             x0=init_params,
             **kwargs
         )
-        self.coef_ = result.x
+        self.coef_ = self.unflatten_params(result.x)
         self.result_ = result
         return self
 
@@ -216,21 +216,6 @@ class LinearProductRegressorScipy(LinearProductModelBase):
         if self.coef_ is None:
             raise ValueError("Model not fitted yet.")
         
-        coef_blocks = self.unflatten_params(self.coef_)
         X_blocks = { key: X[self.feature_groups_[key]].values for key in self.feature_groups_ }
         
-        return self.forward(coef_blocks, X_blocks)
-
-    @property
-    def coef_dict(self):
-        """Return coefficients grouped by feature group."""
-        if self.coef_ is None:
-            raise ValueError("Model not fitted yet.")
-        if self.feature_groups_ is None:
-            raise ValueError("coef_dict only available when model was fit with DataFrame + feature_groups.")
-
-        coef_blocks = self.unflatten_params(self.coef_)
-        out = {}
-        for group, cols in self.feature_groups_.items():
-            out[group] = dict(zip(cols, coef_blocks[group]))
-        return out
+        return self.forward(self.coef_, X_blocks)

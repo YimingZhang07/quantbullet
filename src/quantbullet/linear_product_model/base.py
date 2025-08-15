@@ -24,11 +24,6 @@ class LinearProductModelBCD(ABC):
     @abstractmethod
     def loss_function(self, y_hat, y):
         pass
-
-    @property
-    def coef_dict(self):
-        """Return coefficients grouped by feature group."""
-        return self._coef_to_coef_dict(self.coef_)
     
     @property
     def bias_one_coef_dict(self):
@@ -109,6 +104,47 @@ class LinearProductModelBase(ABC):
         return params_blocks
     
     @property
+    def coef_vector(self):
+        """
+        Return the coefficients as a flattened numpy array.
+        """
+        if self.coef_ is None:
+            raise ValueError("Model not fitted yet. Please call fit() first.")
+        return self.flatten_params(self.coef_)
+    
+    @property
+    def coef_blocks(self):
+        """
+        Return the coefficients as a dictionary of arrays;
+        """
+        return self.coef_
+
+    @property
+    def coef_dict(self):
+        """
+        Return the coefficients as a dictionary of dictionaries,
+        where keys are feature group names and values are dictionaries of feature names to coefficients.
+        """
+        if self.feature_groups_ is None:
+            raise ValueError("feature_groups_ is not set.")
+        return {group: dict(zip(self.feature_groups_[group], self.coef_[group])) for group in self.feature_groups_}
+    
+    def coef_dict_to_blocks(self, coef_dict):
+        """
+        Convert a dictionary of coefficients to a dictionary of blocks.
+        """
+        if not isinstance(coef_dict, dict):
+            raise ValueError("coef_dict must be a dictionary.")
+        
+        blocks = {}
+        for key, features in coef_dict.items():
+            if key not in self.feature_groups_:
+                raise ValueError(f"Feature group '{key}' not found in feature_groups_.")
+            blocks[key] = np.array([features[feature] for feature in self.feature_groups_[key]], dtype=float)
+        
+        return blocks
+
+    @property
     def n_features(self):
         if self.feature_groups_ is None:
             raise ValueError("feature_groups_ is not set.")
@@ -166,3 +202,30 @@ class LinearProductModelBase(ABC):
                 raise ValueError("init_params must be None, a numpy array, or a scalar.")
             
         return init_params, init_params_blocks
+
+    def get_X_blocks(self, X, feature_groups=None):
+        if feature_groups is None:
+            if self.feature_groups_ is None:
+                raise ValueError("feature_groups_ is not set.")
+            feature_groups = self.feature_groups_
+        
+        return { key: X[feature_groups[key]].values for key in feature_groups }
+
+    def leave_out_feature_group_predict(self, group_to_exclude, X, params_dict = None):
+        if params_dict is None:
+            params_dict = self.coef_dict
+
+        keep_feature_groups = { key: self.feature_groups_[key] for key in self.feature_groups_ if key != group_to_exclude }
+        keep_params_dict = { key: params_dict[key] for key in params_dict if key != group_to_exclude }
+
+        if not keep_feature_groups or not keep_params_dict:
+            if hasattr(self, 'global_scale_'):
+                return np.full(X.shape[0], self.global_scale_)
+            else:
+                return np.ones(X.shape[0], dtype=float)
+
+        X_blocks = self.get_X_blocks( X, keep_feature_groups )
+        params_blocks = self.coef_dict_to_blocks( keep_params_dict )
+
+        preds = self.forward(params_blocks, X_blocks, ignore_global_scale=False)
+        return preds

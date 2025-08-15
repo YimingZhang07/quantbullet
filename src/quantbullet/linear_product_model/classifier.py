@@ -31,7 +31,7 @@ class LinearProductClassifierScipy(LinearProductModelBase):
         
         result = np.ones(n_obs, dtype=float)
         
-        for key in self.block_names:
+        for key in params_blocks:
             theta = params_blocks[key]
             X = X_blocks[key]
             inner = X @ theta
@@ -39,7 +39,7 @@ class LinearProductClassifierScipy(LinearProductModelBase):
 
         return result
     
-    def forward(self, params_blocks, X_blocks):
+    def forward(self, params_blocks, X_blocks, ignore_global_scale=False):
         y_hat = self.forward_raw(params_blocks, X_blocks)
         return np.clip(y_hat, self.eps, 1 - self.eps)
     
@@ -131,7 +131,7 @@ class LinearProductClassifierScipy(LinearProductModelBase):
             options={'gtol': self.gtol, 'ftol': self.ftol}
         )
         
-        self.coef_ = result.x
+        self.coef_ = self.unflatten_params(result.x)
         self.result_ = result
         return self
 
@@ -139,24 +139,9 @@ class LinearProductClassifierScipy(LinearProductModelBase):
         if self.coef_ is None:
             raise ValueError("Model not fitted yet.")
         
-        coef_blocks = self.unflatten_params(self.coef_)
         X_blocks = { key: X[self.feature_groups_[key]].values for key in self.feature_groups_ }
-        
-        return self.forward(coef_blocks, X_blocks)
 
-    @property
-    def coef_dict(self):
-        """Return coefficients grouped by feature group."""
-        if self.coef_ is None:
-            raise ValueError("Model not fitted yet.")
-        if self.feature_groups_ is None:
-            raise ValueError("coef_dict only available when model was fit with DataFrame + feature_groups.")
-
-        coef_blocks = self.unflatten_params(self.coef_)
-        out = {}
-        for group, cols in self.feature_groups_.items():
-            out[group] = dict(zip(cols, coef_blocks[group]))
-        return out
+        return self.forward(self.coef_, X_blocks)
 
 class LinearProductClassifierBCD( LinearProductModelBase, LinearProductModelBCD ):
     def __init__(self, eps=1e-3):
@@ -185,8 +170,9 @@ class LinearProductClassifierBCD( LinearProductModelBase, LinearProductModelBCD 
                 else:
                     fixed_predictions = self.forward(fixed_params_blocks, fixed_data_blocks)
 
-                # treat the products of other blocks as a vector to scale the matrix
-                # then fit a logistic regression to get the current block's beta estimations
+                # treat the products of other blocks as a vector to scale the X
+                # then just minimize the clipped cross-entropy loss on this block
+                fixed_predictions = np.clip(fixed_predictions, self.eps, 1 - self.eps)
                 m = fixed_predictions.reshape(-1, 1)
                 mX = floating_data * m
                 floating_params, status = minimize_clipped_cross_entropy_loss(mX, y, beta0=None, eps=self.eps)
@@ -195,8 +181,8 @@ class LinearProductClassifierBCD( LinearProductModelBase, LinearProductModelBCD 
                     print(f"Warning: Optimization for block '{feature_group}' did not converge: {status.message}")
 
                 # normalize the floating parameters
-                # first calculate the mean of the floating predictions
                 floating_predictions = floating_data @ floating_params
+                floating_predictions = np.clip(floating_predictions, self.eps, 1 - self.eps)
                 floating_mean = np.mean(floating_predictions)
                 
                 if not np.isclose(floating_mean, 0):
@@ -204,6 +190,8 @@ class LinearProductClassifierBCD( LinearProductModelBase, LinearProductModelBCD 
                     floating_params /= floating_mean
                     # update the global scale
                     self.global_scale_ = self.global_scale_ * floating_mean
+                else:
+                    print(f"Warning: Mean of predictions for block '{feature_group}' is close to zero. Skipping normalization.")
                 
                 params_blocks[feature_group] = floating_params
               
