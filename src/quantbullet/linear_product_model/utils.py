@@ -90,6 +90,7 @@ def estiamte_ols_beta_se(X, y, beta):
     return np.sqrt(np.diag(var_beta))
 
 def estimate_ols_beta_se_with_scalar_vector(X, y, beta, scalar_vector):
+    """Assumes a linear term y = X @ beta and MSE loss function"""
     if not scalar_vector.ndim == 1:
         raise ValueError("scalar_vector must be 1-dimensional")
     if scalar_vector.shape[0] != X.shape[0]:
@@ -97,3 +98,13 @@ def estimate_ols_beta_se_with_scalar_vector(X, y, beta, scalar_vector):
     cX = X * scalar_vector[:, None]  # Scale X by scalar_vector
     return estiamte_ols_beta_se(cX, y, beta)
     
+def estimate_logistic_beta_se( X, y, beta ):
+    """Assumes a logistic term y = sigmoid(X @ beta) and binary cross-entropy loss function"""
+    pass
+
+def estimate_linear_cross_entropy_beta_se( X, y, beta ):
+    """Assumes a linear term y = X @ beta and cross-entropy loss function.
+
+    There is no sigmoid function applied to the output, and we just clip the output, and feed to the cross-entropy loss function directly.
+    """
+    pass
