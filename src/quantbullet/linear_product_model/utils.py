@@ -80,3 +80,20 @@ def minimize_clipped_cross_entropy_loss(X, y, beta0=None, eps=1e-6, l2=0.0, tol=
     res = minimize(obj, beta0, method="L-BFGS-B", jac=True, tol=tol,
                    options={"maxiter": maxiter})
     return res.x, res
+
+def estiamte_ols_beta_se(X, y, beta):
+    """Estimate the standard error of OLS coefficients."""
+    n = X.shape[0]
+    residuals = y - X @ beta
+    sigma_squared = np.sum(residuals**2) / (n - X.shape[1])
+    var_beta = sigma_squared * np.linalg.inv(X.T @ X)
+    return np.sqrt(np.diag(var_beta))
+
+def estimate_ols_beta_se_with_scalar_vector(X, y, beta, scalar_vector):
+    if not scalar_vector.ndim == 1:
+        raise ValueError("scalar_vector must be 1-dimensional")
+    if scalar_vector.shape[0] != X.shape[0]:
+        raise ValueError("scalar_vector length must match number of columns in X")
+    cX = X * scalar_vector[:, None]  # Scale X by scalar_vector
+    return estiamte_ols_beta_se(cX, y, beta)
+    

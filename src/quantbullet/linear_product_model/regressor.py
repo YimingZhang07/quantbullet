@@ -2,10 +2,10 @@ import numpy as np
 import copy
 import pandas as pd
 from scipy.optimize import least_squares
-from .base import LinearProductModelBase, LinearProductModelBCD
+from .base import LinearProductModelBase, LinearProductModelBCD, LinearProductRegressorBase
 
 
-class LinearProductRegressorBCD( LinearProductModelBase, LinearProductModelBCD ):
+class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelBCD ):
     def __init__(self):
         LinearProductModelBase.__init__(self)
         LinearProductModelBCD.__init__(self)
@@ -119,7 +119,7 @@ class LinearProductRegressorBCD( LinearProductModelBase, LinearProductModelBCD )
         return result
 
 
-class LinearProductRegressorScipy(LinearProductModelBase):
+class LinearProductRegressorScipy(LinearProductRegressorBase):
     def __init__(self, xtol=1e-8, ftol=1e-8, gtol=1e-8):
         # initialize the base class
         super().__init__()

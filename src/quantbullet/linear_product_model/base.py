@@ -1,6 +1,10 @@
 from abc import ABC, abstractmethod
 import numpy as np
-from .utils import init_betas_by_response_mean
+import pandas as pd
+from .utils import (
+    init_betas_by_response_mean, 
+    estimate_ols_beta_se_with_scalar_vector
+)
 
 class LinearProductModelBCD(ABC):
     """
@@ -69,6 +73,8 @@ class LinearProductModelBCD(ABC):
 class LinearProductModelBase(ABC):
     def __init__(self):
         self.feature_groups_ = None
+        self.se_= None
+        self.coef_ = None
 
     def flatten_params(self, params_blocks):
         """
@@ -204,6 +210,7 @@ class LinearProductModelBase(ABC):
         return init_params, init_params_blocks
 
     def get_X_blocks(self, X, feature_groups=None):
+        """Get the feature blocks {feature_group_name: feature_matrix} by feature_groups { feature_group_name: list of feature_names }."""
         if feature_groups is None:
             if self.feature_groups_ is None:
                 raise ValueError("feature_groups_ is not set.")
@@ -229,3 +236,68 @@ class LinearProductModelBase(ABC):
 
         preds = self.forward(params_blocks, X_blocks, ignore_global_scale=False)
         return preds
+    
+    @abstractmethod
+    def calculate_feature_group_se(self, feature_group, X, y):
+        """
+        Calculate the standard error of the coefficients for a specific feature group.
+        This method should be implemented in subclasses.
+        """
+        raise NotImplementedError("Subclasses must implement this method.")
+    
+    def calculate_se(self, X, y):
+        """
+        Calculate the standard error of the coefficients for all feature groups.
+        This method iterates over all feature groups and calls calculate_feature_group_se.
+        """
+        se_blocks = {}
+        for group in self.feature_groups_:
+            se_blocks[group] = self.calculate_feature_group_se(group, X, y)
+        
+        self.se_ = se_blocks
+        return se_blocks
+    
+    def summary(self):
+        """Generate a summary of the model coefficients and standard errors, and confidence intervals."""
+        # we can access coef_ and se_, they are dictionary of feature group names and array of coefficients or standard errors
+        # generate a DataFrame with columns feature group name, feature name, coefficient, standard error, and confidence interval
+        # each value should round to 4 decimal places
+        if self.coef_ is None or self.se_ is None:
+            raise ValueError("Model coefficients or standard errors are not available. Please fit the model first.")
+        summary_data = []
+        for group, features in self.feature_groups_.items():
+            if group not in self.coef_ or group not in self.se_:
+                continue
+            for i, feature in enumerate(features):
+                coef = self.coef_[group][i]
+                se = self.se_[group][i]
+                ci_lower = coef - 1.96 * se
+                ci_upper = coef + 1.96 * se
+                summary_data.append({
+                    'feature_group': group,
+                    'feature_name': feature,
+                    'coefficient': round(coef, 4),
+                    'standard_error': round(se, 4),
+                    'ci_lower': round(ci_lower, 4),
+                    'ci_upper': round(ci_upper, 4)
+                })
+        summary_df = pd.DataFrame(summary_data)
+        return summary_df
+    
+class LinearProductRegressorBase(LinearProductModelBase):
+    def __init__(self):
+        super().__init__()
+        
+    def calculate_feature_group_se( self, feature_group, X, y ):
+        """Calculate the standard error of the coefficients for a specific feature group."""
+        fixed_blocks_preds = self.leave_out_feature_group_predict(group_to_exclude=feature_group, X=X)
+        X_block_coef = self.coef_blocks[feature_group]
+        X_block = X[self.feature_groups_[feature_group]].values
+        return estimate_ols_beta_se_with_scalar_vector( X_block, y, beta=X_block_coef, scalar_vector=fixed_blocks_preds )
+    
+class LinearProductClassifierBase(LinearProductModelBase):
+    def __init__(self):
+        super().__init__()
+    
+    def calculate_feature_group_se(self, feature_group, X, y):
+        pass

@@ -8,9 +8,9 @@ from .utils import (
     fit_logistic_no_intercept,
 )
 
-from .base import LinearProductModelBase, LinearProductModelBCD
+from .base import LinearProductClassifierBase, LinearProductModelBCD
 
-class LinearProductClassifierScipy(LinearProductModelBase):
+class LinearProductClassifierScipy(LinearProductClassifierBase):
     def __init__(self, gtol=1e-8, ftol=1e-8, eps=1e-3):
         # initialize the base class
         super().__init__()
@@ -143,9 +143,9 @@ class LinearProductClassifierScipy(LinearProductModelBase):
 
         return self.forward(self.coef_, X_blocks)
 
-class LinearProductClassifierBCD( LinearProductModelBase, LinearProductModelBCD ):
+class LinearProductClassifierBCD( LinearProductClassifierBase, LinearProductModelBCD ):
     def __init__(self, eps=1e-3):
-        LinearProductModelBase.__init__(self)
+        LinearProductClassifierBase.__init__(self)
         LinearProductModelBCD.__init__(self)
         self.eps = eps
 
