@@ -8,7 +8,8 @@ from .filter import (
 )
 
 from .agg import (
-    aggregate_trades_flex
+    aggregate_trades_flex,
+    collapse_duplicates
 )
 
 from .label import (
