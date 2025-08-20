@@ -111,15 +111,15 @@ class Test_Linear_Cross_Entropy_Error_Model(unittest.TestCase):
         We have to make an example where prob is linear to X @ beta;
         """
         np.random.seed(42)
-        n, p = 1000, 3
-        X = np.random.randn(n, p) + 10
+        n, p = 100000, 3
+        X = np.random.randn(n, p) + 5
         beta_true = init_betas_by_response_mean(X, 0.2)
         probs = X @ beta_true
         probs = np.clip(probs, 0, 1)
         y = np.random.binomial(1, probs)
 
         beta_hat = np.linalg.inv(X.T @ X) @ X.T @ y
-        self.X, self.y, self.beta_hat = X, y, beta_hat
+        self.X, self.y, self.beta_hat, self.beta_true = X, y, beta_hat, beta_true
 
     def test_numerical_beta_se(self):
 
@@ -142,7 +142,7 @@ class Test_Linear_Cross_Entropy_Error_Model(unittest.TestCase):
         We will underestimate the uncertainty (standard errors) of the parameter estimates.
         """
 
-        se_linear_cross_entropy = estimate_linear_cross_entropy_beta_se(self.X, self.y, self.beta_hat, eps=1e-6)
-        se_mse = estimate_ols_beta_se(self.X, self.y, self.beta_hat)
+        se_linear_cross_entropy = estimate_linear_cross_entropy_beta_se(self.X, self.y, self.beta_true, eps=1e-6)
+        se_mse = estimate_ols_beta_se(self.X, self.y, self.beta_true)
 
         self.assertTrue(np.all(se_linear_cross_entropy > se_mse), "Linear cross-entropy SE should be greater than MSE SE")

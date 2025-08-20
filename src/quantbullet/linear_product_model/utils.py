@@ -130,9 +130,15 @@ def estimate_linear_cross_entropy_beta_hessian( X, y, beta, eps=1e-6 ):
     """
     y_hat = X @ beta
     y_hat = np.clip(y_hat, eps, 1 - eps)
-    w_num = y_hat * (1 - y_hat) - (y_hat - y) * (1 - 2 * y_hat)
-    w_denom = ( y_hat * (1 - y_hat) ) ** 2
-    w = w_num / w_denom
+    ##### original formula #####
+    # w_num = y_hat * (1 - y_hat) - (y_hat - y) * (1 - 2 * y_hat)
+    # w_denom = ( y_hat * (1 - y_hat) ) ** 2
+    # w = w_num / w_denom
+    ##### simplified formula #####
+    w = 1 / ( 1 - y - y_hat ) ** 2
+
+    ##### formula if we treat diag(w) as a scaler of identity matrix using expected values of w #####
+    # w = 1 / np.mean( ( 1 - y - y_hat ) ** 2 ) * np.ones_like(w)
     H = X.T @ (w[:, None] * X)
     return H
 
