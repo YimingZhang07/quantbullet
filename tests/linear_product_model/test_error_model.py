@@ -113,7 +113,7 @@ class Test_Linear_Cross_Entropy_Error_Model(unittest.TestCase):
         np.random.seed(42)
         n, p = 100000, 3
         X = np.random.randn(n, p) + 5
-        beta_true = init_betas_by_response_mean(X, 0.2)
+        beta_true = init_betas_by_response_mean(X, 0.01)
         probs = X @ beta_true
         probs = np.clip(probs, 0, 1)
         y = np.random.binomial(1, probs)
@@ -133,16 +133,16 @@ class Test_Linear_Cross_Entropy_Error_Model(unittest.TestCase):
 
         # compare the ratios
         ratio = se_mine / se_hess
-        # ratio should be between 0.8 and 1.2
-        self.assertTrue(np.all(ratio > 0.8) and np.all(ratio < 1.2), "Ratios should be between 0.8 and 1.2")
+        self.assertTrue(np.all(ratio > 0.9) and np.all(ratio < 1.1), "Ratios should be between 0.9 and 1.1")
 
     def test_mse_cross_entropy_differences( self ):
         """
         This compares if we falsely assume that MSE as the loss function instead of cross-entropy.
-        We will underestimate the uncertainty (standard errors) of the parameter estimates.
+        Based on the proofs, there is no definitive relationship between the two, and lets turn to compare their ratios
         """
 
         se_linear_cross_entropy = estimate_linear_cross_entropy_beta_se(self.X, self.y, self.beta_true, eps=1e-6)
         se_mse = estimate_ols_beta_se(self.X, self.y, self.beta_true)
 
-        self.assertTrue(np.all(se_linear_cross_entropy > se_mse), "Linear cross-entropy SE should be greater than MSE SE")
+        ratio = se_linear_cross_entropy / se_mse
+        self.assertTrue(np.all(ratio > 0.9) and np.all(ratio < 1.1), "Ratios should be between 0.9 and 1.1")

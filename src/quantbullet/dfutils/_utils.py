@@ -37,3 +37,58 @@ def get_latest_n_per_group(df, group_col, date_col, n):
           .head(n)
           .reset_index(drop=True)
     )
+
+def find_duplicate_columns(df: pd.DataFrame) -> list:
+    """Return a list of duplicated column names in a DataFrame."""
+    return df.columns[df.columns.duplicated()].tolist()
+
+def drop_duplicate_columns(df: pd.DataFrame, keep: str = "first") -> pd.DataFrame:
+    """
+    Drop duplicated columns in a DataFrame.
+
+    Parameters:
+    -----------
+    df : pd.DataFrame
+        Input DataFrame.
+    keep : {"first", "last"}, default "first"
+        Which duplicate to keep:
+        - "first": keep the first occurrence, drop others
+        - "last": keep the last occurrence, drop others
+
+    Returns:
+    --------
+    pd.DataFrame
+        DataFrame with duplicate columns dropped.
+    """
+    return df.loc[:, ~df.columns.duplicated(keep=keep)]
+
+def drop_selected_duplicate_columns(df: pd.DataFrame, cols_to_drop: list) -> pd.DataFrame:
+    """
+    Drop one occurrence of duplicated columns based on a provided list.
+
+    Parameters:
+    -----------
+    df : pd.DataFrame
+        Input DataFrame.
+    cols_to_drop : list
+        List of column names (duplicates) to drop. If the same name 
+        appears multiple times, this will drop all but the first occurrence.
+
+    Returns:
+    --------
+    pd.DataFrame
+        DataFrame with selected duplicate columns dropped.
+    """
+    new_cols = []
+    seen = {}
+
+    for col in df.columns:
+        if col in cols_to_drop:
+            # Count how many times we've seen this col
+            seen[col] = seen.get(col, 0) + 1
+            # Keep the very first occurrence, drop later ones
+            if seen[col] > 1:
+                continue
+        new_cols.append(col)
+
+    return df.loc[:, new_cols]

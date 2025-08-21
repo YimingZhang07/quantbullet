@@ -1,6 +1,9 @@
 from ._utils import (
     get_latest_n_per_group,
-    drop_columns_by_alias_group
+    drop_columns_by_alias_group,
+    find_duplicate_columns,
+    drop_duplicate_columns,
+    drop_selected_duplicate_columns
 )
 
 from .filter import (
@@ -14,4 +17,8 @@ from .agg import (
 
 from .label import (
     get_bins_and_labels,
+)
+
+from .stack import (
+    stack_dataframes
 )
