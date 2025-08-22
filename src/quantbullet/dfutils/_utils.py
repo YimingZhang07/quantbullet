@@ -64,31 +64,30 @@ def drop_duplicate_columns(df: pd.DataFrame, keep: str = "first") -> pd.DataFram
 
 def drop_selected_duplicate_columns(df: pd.DataFrame, cols_to_drop: list) -> pd.DataFrame:
     """
-    Drop one occurrence of duplicated columns based on a provided list.
+    Drop duplicate columns by position, based on a provided list of column names.
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     df : pd.DataFrame
-        Input DataFrame.
+        Input DataFrame (may contain duplicate column names).
     cols_to_drop : list
-        List of column names (duplicates) to drop. If the same name 
-        appears multiple times, this will drop all but the first occurrence.
+        List of column names to drop *only the duplicate occurrences* for.
+        Keeps the first occurrence, drops later ones.
 
-    Returns:
-    --------
+    Returns
+    -------
     pd.DataFrame
-        DataFrame with selected duplicate columns dropped.
+        DataFrame with selected duplicates dropped.
     """
-    new_cols = []
+    keep_mask = []
     seen = {}
 
     for col in df.columns:
         if col in cols_to_drop:
-            # Count how many times we've seen this col
             seen[col] = seen.get(col, 0) + 1
-            # Keep the very first occurrence, drop later ones
-            if seen[col] > 1:
-                continue
-        new_cols.append(col)
+            # Keep only the first occurrence
+            keep_mask.append(seen[col] == 1)
+        else:
+            keep_mask.append(True)
 
-    return df.loc[:, new_cols]
+    return df.loc[:, keep_mask].copy()
