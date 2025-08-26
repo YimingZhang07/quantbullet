@@ -19,6 +19,9 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
         _, params_blocks = self.infer_init_params(init_params, data_blocks, y)
         
         self._reset_history()
+
+        qr_decomp_cache = {}
+
         for i in range(n_iterations):
             for feature_group in feature_groups:
                 floating_data = data_blocks[feature_group]
@@ -29,7 +32,15 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
                 residuals = y / fixed_predictions
 
                 # fit a OLS model to the residuals using matrix operations
-                floating_params = np.linalg.lstsq(floating_data, residuals, rcond=None)[0]
+                # floating_params = np.linalg.lstsq(floating_data, residuals, rcond=None)[0]
+                # UPDATE: across iterations, only y will be different, so we can cache
+                if feature_group not in qr_decomp_cache:
+                    Q, R = np.linalg.qr( floating_data )
+                    qr_decomp_cache[feature_group] = (Q, R)
+                else:
+                    Q, R = qr_decomp_cache[feature_group]
+
+                floating_params = np.linalg.solve(R, Q.T @ residuals)
 
                 # normalize the floating parameters
                 # first calculate the mean of the floating predictions
@@ -41,6 +52,8 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
                     floating_params /= floating_mean
                     # update the global scale
                     self.global_scale_ = self.global_scale_ * floating_mean
+                else:
+                    print(f"Warning: floating mean is close to zero for feature group {feature_group} at iteration {i}. Skipping normalization.")
                 
                 params_blocks[feature_group] = floating_params
               
