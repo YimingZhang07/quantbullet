@@ -57,3 +57,17 @@ def df_columns_to_tuples(*args: pd.Series) -> list[tuple]:
     
     # stack columns row-wise into tuples
     return list(map(tuple, np.column_stack(processed)))
+
+def df_columns_to_dict(key_col: pd.Series, value_col: pd.Series) -> dict:
+    """Build a dictionary from two DataFrame columns."""
+    df = pd.DataFrame({"key": key_col, "val": value_col})
+
+    # For each key, check how many distinct values there are
+    conflicts = df.groupby("key")["val"].nunique()
+    bad_keys = conflicts[conflicts > 1].index.tolist()
+    if bad_keys:
+        raise ValueError(f"Conflicting values found for keys: {bad_keys}")
+
+    # Safe: reduce to unique pairs
+    df_unique = df.drop_duplicates()
+    return dict(zip(df_unique["key"], df_unique["val"]))
