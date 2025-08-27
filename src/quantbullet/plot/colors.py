@@ -1,6 +1,6 @@
-from enum import Enum
+from quantbullet.core.enums import StrEnum
 
-class ColorEnum(Enum):
+class ColorEnum(StrEnum):
     BLUE_L1   = "#c6dbef"  # pale blue
     BLUE_L2   = "#9ecae1"  # mid blue
     BLUE_L3   = "#6baed6"  # soft blue
@@ -16,7 +16,7 @@ class ColorEnum(Enum):
     ORANGE_L3 = "#fd8d3c"  # medium orange
     ORANGE_L4 = "#d95f0e"  # dark orange
 
-class EconomistBrandColor(Enum):
+class EconomistBrandColor(StrEnum):
     ECONOMIST_RED = "#E3120B"
     ECONOMIST_RED_60 = "#F6423C"
     CHICAGO_20 = "#141F52"

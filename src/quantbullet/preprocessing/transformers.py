@@ -40,6 +40,19 @@ class FlatRampTransformer(BaseEstimator, TransformerMixin):
             )
 
         self.n_features_in_ = 1
+
+        # pre-compute names once
+        names = []
+        if self.include_bias:
+            names.append(f"{self.feature_names_in_[0]}_bias")
+        a = self.numeric_to_string(self.knots[0])
+        names.append(f"{self.feature_names_in_[0]}_le_{a}")
+        for a, b in zip(self.knots[:-1], self.knots[1:]):
+            names.append(f"{self.feature_names_in_[0]}_{self.numeric_to_string(a)}_{self.numeric_to_string(b)}")
+        b = self.numeric_to_string(self.knots[-1])
+        names.append(f"{self.feature_names_in_[0]}_gt_{b}")
+        self.feature_names_out_ = np.array(names, dtype=object)
+
         return self
     
     @staticmethod
@@ -80,32 +93,22 @@ class FlatRampTransformer(BaseEstimator, TransformerMixin):
         x = X.ravel()
 
         basis = []
-        names = []
 
         if self.include_bias:
             basis.append(np.ones_like(x))
-            names.append(f"{self.feature_names_in_[0]}_bias")
 
         # leftmost (upper cap)
         a = self.knots[0]
         basis.append(np.clip(x, None, a))  # cap above a
-        a = self.numeric_to_string(a)
-        names.append(f"{self.feature_names_in_[0]}_le_{a}")
 
         # middle segments
         for a, b in zip(self.knots[:-1], self.knots[1:]):
             basis.append(np.clip(x, a, b))
-            a = self.numeric_to_string(a)
-            b = self.numeric_to_string(b)
-            names.append(f"{self.feature_names_in_[0]}_{a}_{b}")
 
         # rightmost (lower floor)
         b = self.knots[-1]
         basis.append(np.clip(x, b, None))  # floor at b
-        b = self.numeric_to_string(b)
-        names.append(f"{self.feature_names_in_[0]}_gt_{b}")
-
-        self.feature_names_out_ = np.array(names, dtype=object)
+        
         return np.column_stack(basis)
 
     def get_feature_names_out(self, input_features=None):

@@ -1,2 +1,3 @@
 from .classifier import LinearProductClassifierScipy, LinearProductClassifierBCD
 from .regressor import LinearProductRegressorScipy, LinearProductRegressorBCD
+from .toolkit import LinearProductModelToolkit
