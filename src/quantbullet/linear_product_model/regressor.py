@@ -13,37 +13,43 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
     def loss_function(self, y_hat, y):
         return np.mean((y - y_hat) ** 2)
 
-    def fit( self, X, y, feature_groups, init_params=1, early_stopping_rounds=None, n_iterations=10, verbose=1 ):
+    def fit( self, X, y, feature_groups, init_params=None, early_stopping_rounds=None, n_iterations=10, verbose=1 ):
+        self._reset_history()
         self.feature_groups_ = feature_groups
         data_blocks = { key: X[feature_groups[key]].values for key in feature_groups }
-        _, params_blocks = self.infer_init_params(init_params, data_blocks, y)
-        
-        self._reset_history()
 
-        qr_decomp_cache = {}
+        if init_params is None:
+            # absorb the mean of y to the global scaler and then init the block params so that they give a prediction of 1.
+            # the function infer_init_params will simply use the mean of y here, so a constant vector is good.
+            self.global_scale_ = np.mean(y)
+            _, params_blocks = self.infer_init_params(init_params, data_blocks, np.ones_like(y))
+        else:
+            _, params_blocks = self.infer_init_params(init_params, data_blocks, y)
+
+        # qr_decomp_cache = {}
 
         for i in range(n_iterations):
             for feature_group in feature_groups:
                 floating_data = data_blocks[feature_group]
-
                 fixed_params_blocks = { key: params_blocks[key] for key in feature_groups if key != feature_group }
                 fixed_data_blocks = { key: data_blocks[key] for key in feature_groups if key != feature_group }
-                fixed_predictions = self.forward(fixed_params_blocks, fixed_data_blocks)
-                residuals = y / fixed_predictions
+                # We hope to maintain the average output of each feature group is 1
+                # so the global scaler is not used to scale the floating data util the actual regression step
+                fixed_predictions = self.forward(fixed_params_blocks, fixed_data_blocks, ignore_global_scale=True)
+                floating_data = floating_data * fixed_predictions[:, None]
 
                 # fit a OLS model to the residuals using matrix operations
-                # floating_params = np.linalg.lstsq(floating_data, residuals, rcond=None)[0]
+                floating_params = np.linalg.lstsq( self.global_scale_ * floating_data, y, rcond=None)[0]
                 # UPDATE: across iterations, only y will be different, so we can cache
-                if feature_group not in qr_decomp_cache:
-                    Q, R = np.linalg.qr( floating_data )
-                    qr_decomp_cache[feature_group] = (Q, R)
-                else:
-                    Q, R = qr_decomp_cache[feature_group]
+                # if feature_group not in qr_decomp_cache:
+                #     Q, R = np.linalg.qr( floating_data )
+                #     qr_decomp_cache[feature_group] = (Q, R)
+                # else:
+                #     Q, R = qr_decomp_cache[feature_group]
 
-                floating_params = np.linalg.solve(R, Q.T @ residuals)
+                # floating_params = np.linalg.solve(R, Q.T @ y)
 
                 # normalize the floating parameters
-                # first calculate the mean of the floating predictions
                 floating_predictions = floating_data @ floating_params
                 floating_mean = np.mean(floating_predictions)
                 
