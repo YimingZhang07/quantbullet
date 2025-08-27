@@ -189,7 +189,7 @@ class LinearProductClassifierBCD( LinearProductClassifierBase, LinearProductMode
                     # normalize the parameters by the mean
                     floating_params /= floating_mean
                     # update the global scale
-                    self.global_scale_ = self.global_scale_ * floating_mean
+                    self.global_scalar_ = self.global_scalar_ * floating_mean
                 else:
                     print(f"Warning: Mean of predictions for block '{feature_group}' is close to zero. Skipping normalization.")
                 
@@ -200,7 +200,7 @@ class LinearProductClassifierBCD( LinearProductClassifierBase, LinearProductMode
             loss = self.loss_function(predictions, y)
             self.loss_history_.append(loss)
             self.params_history_.append( copy.deepcopy(params_blocks) )
-            self.global_scale_history_.append(self.global_scale_)
+            self.global_scalar_history_.append(self.global_scalar_)
             
             # track the best parameters
             if loss < self.best_loss_:
@@ -218,7 +218,7 @@ class LinearProductClassifierBCD( LinearProductClassifierBase, LinearProductMode
                     break
                 
         self.coef_ = copy.deepcopy(self.best_params_)
-        self.global_scale_ = self.global_scale_history_[self.best_iteration_]
+        self.global_scalar_ = self.global_scalar_history_[self.best_iteration_]
         
         # archive the mean of each block's predictions
         for key in feature_groups:
@@ -266,7 +266,7 @@ class LinearProductClassifierBCD( LinearProductClassifierBase, LinearProductMode
             result *= np.dot(X_blocks[key], params_blocks[key])
 
         if not ignore_global_scale:
-            result = result * self.global_scale_
+            result = result * self.global_scalar_
         return result
     
     def forward(self, params_blocks, X_blocks, ignore_global_scale=False):

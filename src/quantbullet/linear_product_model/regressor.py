@@ -13,20 +13,18 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
     def loss_function(self, y_hat, y):
         return np.mean((y - y_hat) ** 2)
 
-    def fit( self, X, y, feature_groups, init_params=None, early_stopping_rounds=None, n_iterations=10, verbose=1 ):
-        self._reset_history()
+    def fit( self, X, y, feature_groups, init_params=None, early_stopping_rounds=5, n_iterations=20, verbose=1, cache_qr_decomp=False ):
+        self._reset_history( cache_qr_decomp=cache_qr_decomp )
         self.feature_groups_ = feature_groups
         data_blocks = { key: X[feature_groups[key]].values for key in feature_groups }
 
         if init_params is None:
             # absorb the mean of y to the global scaler and then init the block params so that they give a prediction of 1.
             # the function infer_init_params will simply use the mean of y here, so a constant vector is good.
-            self.global_scale_ = np.mean(y)
+            self.global_scalar_ = np.mean(y)
             _, params_blocks = self.infer_init_params(init_params, data_blocks, np.ones_like(y))
         else:
             _, params_blocks = self.infer_init_params(init_params, data_blocks, y)
-
-        # qr_decomp_cache = {}
 
         for i in range(n_iterations):
             for feature_group in feature_groups:
@@ -36,28 +34,28 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
                 # We hope to maintain the average output of each feature group is 1
                 # so the global scaler is not used to scale the floating data util the actual regression step
                 fixed_predictions = self.forward(fixed_params_blocks, fixed_data_blocks, ignore_global_scale=True)
-                floating_data = floating_data * fixed_predictions[:, None]
 
-                # fit a OLS model to the residuals using matrix operations
-                floating_params = np.linalg.lstsq( self.global_scale_ * floating_data, y, rcond=None)[0]
-                # UPDATE: across iterations, only y will be different, so we can cache
-                # if feature_group not in qr_decomp_cache:
-                #     Q, R = np.linalg.qr( floating_data )
-                #     qr_decomp_cache[feature_group] = (Q, R)
-                # else:
-                #     Q, R = qr_decomp_cache[feature_group]
+                if not cache_qr_decomp:
+                    floating_data = floating_data * fixed_predictions[:, None]
+                    floating_params = np.linalg.lstsq( self.global_scalar_ * floating_data, y, rcond=None)[0]
+                else:
+                    # use the cached QR decomposition to solve the least squares problem so that we do not need to recompute the inverse of X'X every time
+                    # the downside is we need to put the global scaler and fixed predictions into the y cause they will change every iteration
+                    if feature_group not in self.qr_decomp_cache_:
+                        Q, R = np.linalg.qr( floating_data )
+                        self.qr_decomp_cache_[feature_group] = (Q, R)
+                    else:
+                        Q, R = self.qr_decomp_cache_[feature_group]
+                    scaled_y = y / self.global_scalar_ / fixed_predictions
+                    floating_params = np.linalg.solve( R, Q.T @ scaled_y )
 
-                # floating_params = np.linalg.solve(R, Q.T @ y)
-
-                # normalize the floating parameters
+                # normalize the floating parameters by its mean so that each block's prediction has a mean of 1
                 floating_predictions = floating_data @ floating_params
                 floating_mean = np.mean(floating_predictions)
                 
                 if not np.isclose(floating_mean, 0):
-                    # normalize the parameters by the mean
                     floating_params /= floating_mean
-                    # update the global scale
-                    self.global_scale_ = self.global_scale_ * floating_mean
+                    self.global_scalar_ = self.global_scalar_ * floating_mean
                 else:
                     print(f"Warning: floating mean is close to zero for feature group {feature_group} at iteration {i}. Skipping normalization.")
                 
@@ -68,7 +66,7 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
             loss = self.loss_function(predictions, y)
             self.loss_history_.append(loss)
             self.params_history_.append(  copy.deepcopy(params_blocks) )
-            self.global_scale_history_.append(self.global_scale_)
+            self.global_scalar_history_.append(self.global_scalar_)
             
             # track the best parameters
             if loss < self.best_loss_:
@@ -77,16 +75,16 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
                 self.best_iteration_ = i
             
             if verbose > 0:
-                print(f"Iteration {i+1}/{n_iterations}, Loss: {loss:.4f}")
+                print(f"Iteration {i+1}/{n_iterations}, Loss: {loss:.4e}")
             
             # add the early stopping condition
             if early_stopping_rounds is not None and len(self.loss_history_) > early_stopping_rounds:
                 if self.loss_history_[-1] >= self.loss_history_[-early_stopping_rounds]:
-                    print(f"Early stopping at iteration {i+1} with Loss: {loss:.4f}")
+                    print(f"Early stopping at iteration {i+1} with Loss: {loss:.4e}")
                     break
                 
         self.coef_ = copy.deepcopy(self.best_params_)
-        self.global_scale_ = self.global_scale_history_[self.best_iteration_]
+        self.global_scalar_ = self.global_scalar_history_[self.best_iteration_]
         
         # archive the mean of each block's predictions
         for key in feature_groups:
@@ -134,7 +132,7 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
             result *= np.dot(X_blocks[key], params_blocks[key])
 
         if not ignore_global_scale:
-            result = result * self.global_scale_
+            result = result * self.global_scalar_
         return result
 
 

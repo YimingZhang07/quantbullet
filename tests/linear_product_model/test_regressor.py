@@ -62,12 +62,15 @@ class TestLinearProductModel(unittest.TestCase):
         feature_groups = self.feature_groups
 
         lprm_ols = LinearProductRegressorBCD()
-        lprm_ols.fit( train_df, df['y'], feature_groups=feature_groups, n_iterations=10, early_stopping_rounds=5 )
+        lprm_ols.fit( train_df, df['y'], feature_groups=feature_groups, n_iterations=100, early_stopping_rounds=20, cache_qr_decomp=True )
         df['model_pred_BCD'] = lprm_ols.predict(train_df)
 
-        # check the mean squared error
+        # check the mean squared error; whether the model converges
         mse = mean_squared_error(df['y'], df['model_pred_BCD'])
         self.assertTrue( np.isclose(mse, 0.52, atol=0.01), f"MSE is {mse}, expected around 0.52" )
+        
+        # check whether the global scale converges to the mean of y
+        self.assertTrue( abs( lprm_ols.global_scalar_ / df['y'].mean() -1 ) < 0.05 )
 
     def test_LinearProductRegressorScipy(self):
         df = self.df

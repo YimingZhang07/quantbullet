@@ -14,16 +14,18 @@ class LinearProductModelBCD(ABC):
     def __init__(self):
         self._reset_history()
 
-    def _reset_history( self ):
+    def _reset_history( self, cache_qr_decomp=False ):
         self.params_history_ = []
         self.coef_ = None
         self.loss_history_ = []
         self.best_loss_ = float('inf')
         self.best_params_ = None
         self.best_iteration_ = None
-        self.global_scale_ = 1.0
-        self.global_scale_history_ = []
+        self.global_scalar_ = 1.0
+        self.global_scalar_history_ = []
         self.block_means_ = {}
+        if cache_qr_decomp:
+            self.qr_decomp_cache_ = {}
 
     @abstractmethod
     def loss_function(self, y_hat, y):
@@ -226,8 +228,8 @@ class LinearProductModelBase(ABC):
         keep_params_dict = { key: params_dict[key] for key in params_dict if key != group_to_exclude }
 
         if not keep_feature_groups or not keep_params_dict:
-            if hasattr(self, 'global_scale_'):
-                return np.full(X.shape[0], self.global_scale_)
+            if hasattr(self, 'global_scalar_'):
+                return np.full(X.shape[0], self.global_scalar_)
             else:
                 return np.ones(X.shape[0], dtype=float)
 
