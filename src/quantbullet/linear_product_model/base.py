@@ -310,6 +310,8 @@ class LinearProductModelBase(ABC):
 class LinearProductRegressorBase(LinearProductModelBase):
     def __init__(self):
         super().__init__()
+        # we will allow a constant offset to the response variable
+        self.offset_y = None
         
     def calculate_feature_group_se( self, feature_group, X, y ):
         """Calculate the standard error of the coefficients for a specific feature group."""
@@ -322,6 +324,10 @@ class LinearProductRegressorBase(LinearProductModelBase):
         if self.feature_groups_ is None or self.coef_ is None:
             raise ValueError("Model not fitted yet. Please call fit() first.")
         data_blocks = { key: X[self.feature_groups_[key]].values for key in self.feature_groups_ }
+
+        if self.offset_y is not None:
+            # if there is an offset, we need to subtract it from the prediction
+            return self.forward(self.coef_, data_blocks) - self.offset_y
         return self.forward(self.coef_, data_blocks)
     
     def forward(self, params_blocks, X_blocks, ignore_global_scale=False):

@@ -4,7 +4,6 @@ import pandas as pd
 from scipy.optimize import least_squares
 from .base import LinearProductModelBase, LinearProductModelBCD, LinearProductRegressorBase
 
-
 class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelBCD ):
     def __init__(self):
         LinearProductModelBase.__init__(self)
@@ -13,10 +12,14 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
     def loss_function(self, y_hat, y):
         return np.mean((y - y_hat) ** 2)
 
-    def fit( self, X, y, feature_groups, init_params=None, early_stopping_rounds=5, n_iterations=20, verbose=1, cache_qr_decomp=False, ftol=1e-5 ):
+    def fit( self, X, y, feature_groups, init_params=None, early_stopping_rounds=5, n_iterations=20, verbose=1, cache_qr_decomp=False, ftol=1e-5, offset_y = None ):
         self._reset_history( cache_qr_decomp=cache_qr_decomp )
         self.feature_groups_ = feature_groups
         data_blocks = { key: X[feature_groups[key]].values for key in feature_groups }
+
+        if offset_y is not None:
+            self.offset_y = offset_y
+            y = y + offset_y
 
         if init_params is None:
             # absorb the mean of y to the global scaler and then init the block params so that they give a prediction of 1.

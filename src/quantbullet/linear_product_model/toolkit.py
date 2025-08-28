@@ -160,6 +160,10 @@ class LinearProductModelToolkit:
         return min_size + (max_size - min_size) * (counts - global_min) / (global_max - global_min)
 
     def plot_discretized_implied_errors( self, model, X, y, train_df, sample_frac=0.1, quantile=None, n_bins=20, min_scatter_size=30, max_scatter_size=300, hspace=0.4, vspace=0.3 ):
+
+        if hasattr( model, 'offset_y') and getattr( model, 'offset_y') is not None:
+            y = y + getattr( model, 'offset_y')
+
         n_features = len( self.numerical_feature_groups )
         fig, axes = get_grid_fig_axes( n_charts=n_features, n_cols=3 )
         fig.subplots_adjust(hspace=hspace, wspace=0.3)
