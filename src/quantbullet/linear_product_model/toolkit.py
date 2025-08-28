@@ -7,6 +7,7 @@ from quantbullet.plot.colors import EconomistBrandColor
 from sklearn.preprocessing import OneHotEncoder
 from quantbullet.preprocessing.transformers import FlatRampTransformer
 from quantbullet.dfutils import get_bins_and_labels
+from collections import namedtuple
 
 class LinearProductModelToolkit:
     def __init__( self, feature_config = None ):
@@ -154,11 +155,17 @@ class LinearProductModelToolkit:
         close_unused_axes( axes )
         plt.tight_layout()
         plt.show()
+        
+    def scale_sizes(self, counts, min_size=30, max_size=300, global_min=None, global_max=None):
+        return min_size + (max_size - min_size) * (counts - global_min) / (global_max - global_min)
 
-    def plot_discretized_implied_errors( self, model, X, y, train_df, sample_frac=0.1, quantile=None, n_bins=20 ):
+    def plot_discretized_implied_errors( self, model, X, y, train_df, sample_frac=0.1, quantile=None, n_bins=20, min_scatter_size=30, max_scatter_size=300 ):
         n_features = len( self.numerical_feature_groups )
         _, axes = get_grid_fig_axes( n_charts=n_features, n_cols=3 )
         X_sample, y_sample ,train_df_sample = self.sample_data( X, y, train_df, sample_frac )
+
+        PlottingCache = namedtuple('PlottingCache', ['feature', 'agg_df', 'x_grid', 'this_feature_preds'])
+        plotting_caches = []
 
         for i, ( feature, transformer ) in enumerate( self.numerical_feature_groups.items() ):
             if isinstance(transformer, FlatRampTransformer):
@@ -195,20 +202,29 @@ class LinearProductModelToolkit:
 
                 agg_df['feature_bin_right'] = cutoff_values + [X_sample[feature].max()]
                 x_grid, this_feature_preds = self.get_feature_grid_and_predictions( X[feature], transformer, model )
+                plotting_caches.append( PlottingCache(feature, agg_df, x_grid, this_feature_preds) )
 
-                # codes for plotting
-                ax = axes[i]
-                ax.scatter( agg_df['feature_bin_right'], 
-                            agg_df['implied_actual_mean'], 
-                            alpha=0.7, 
-                            color=EconomistBrandColor.LONDON_70, 
-                            label='Implied Actual',
-                            s=100 * (agg_df['count'] / agg_df['count'].max()) )
-                ax.plot( x_grid, this_feature_preds, color=EconomistBrandColor.ECONOMIST_RED, label='Model Prediction', linewidth=2 )
-                # off the chart title, duplicate with xlabel
-                # ax.set_title(f'{feature} Discretized Implied Error', fontdict={'fontsize': 14} )
-                ax.set_xlabel(f'{feature} Value', fontdict={'fontsize': 12} )
-                ax.set_ylabel('Implied Actual', fontdict={'fontsize': 12} )
+        # get global min and max counts for scaling point sizes
+        global_min_count = min( cache.agg_df['count'].min() for cache in plotting_caches )
+        global_max_count = max( cache.agg_df['count'].max() for cache in plotting_caches )
+        for i, cache in enumerate(plotting_caches):
+            feature = cache.feature
+            agg_df = cache.agg_df
+            x_grid = cache.x_grid
+            this_feature_preds = cache.this_feature_preds
+            ax = axes[i]
+            sizes = self.scale_sizes( agg_df['count'], min_size=min_scatter_size, max_size=max_scatter_size, global_min=global_min_count, global_max=global_max_count )
+            ax.scatter( agg_df['feature_bin_right'], 
+                        agg_df['implied_actual_mean'], 
+                        alpha=0.7, 
+                        color=EconomistBrandColor.LONDON_70, 
+                        label='Implied Actual',
+                        s=sizes )
+            ax.plot( x_grid, this_feature_preds, color=EconomistBrandColor.ECONOMIST_RED, label='Model Prediction', linewidth=2 )
+            # off the chart title, duplicate with xlabel
+            # ax.set_title(f'{feature} Discretized Implied Error', fontdict={'fontsize': 14} )
+            ax.set_xlabel(f'{feature} Value', fontdict={'fontsize': 12} )
+            ax.set_ylabel('Implied Actual', fontdict={'fontsize': 12} )
         close_unused_axes( axes )
         plt.tight_layout()
         plt.show()

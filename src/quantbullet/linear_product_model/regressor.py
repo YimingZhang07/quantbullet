@@ -13,7 +13,7 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
     def loss_function(self, y_hat, y):
         return np.mean((y - y_hat) ** 2)
 
-    def fit( self, X, y, feature_groups, init_params=None, early_stopping_rounds=5, n_iterations=20, verbose=1, cache_qr_decomp=False ):
+    def fit( self, X, y, feature_groups, init_params=None, early_stopping_rounds=5, n_iterations=20, verbose=1, cache_qr_decomp=False, ftol=1e-5 ):
         self._reset_history( cache_qr_decomp=cache_qr_decomp )
         self.feature_groups_ = feature_groups
         data_blocks = { key: X[feature_groups[key]].values for key in feature_groups }
@@ -81,6 +81,11 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
             if early_stopping_rounds is not None and len(self.loss_history_) > early_stopping_rounds:
                 if self.loss_history_[-1] >= self.loss_history_[-early_stopping_rounds]:
                     print(f"Early stopping at iteration {i+1} with Loss: {loss:.4e}")
+                    break
+                
+            if ftol is not None and len(self.loss_history_) >= 2:
+                if abs(self.loss_history_[-1] / self.loss_history_[-2]) > 1 - ftol:
+                    print(f"Converged at iteration {i+1} with Loss: {loss:.4e}")
                     break
                 
         self.coef_ = copy.deepcopy(self.best_params_)
