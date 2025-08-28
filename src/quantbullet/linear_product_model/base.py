@@ -5,6 +5,8 @@ from .utils import (
     init_betas_by_response_mean, 
     estimate_ols_beta_se_with_scalar_vector
 )
+from quantbullet.log_config import setup_logger
+logger = setup_logger(__name__)
 
 class LinearProductModelBCD(ABC):
     """
@@ -194,7 +196,7 @@ class LinearProductModelBase(ABC):
             n_blocks = len(self.block_names)
             block_target = true_mean ** (1 / n_blocks)
             init_params_blocks = { key: init_betas_by_response_mean(X_blocks[key], block_target) for key in self.block_names }
-            print(f"Using initial params: {init_params_blocks}")
+            logger.debug(f"Using initial params: {init_params_blocks}")
             init_params = self.flatten_params(init_params_blocks)
         else:
             if np.isscalar(init_params):

@@ -155,7 +155,7 @@ class LinearProductModelToolkit:
         plt.tight_layout()
         plt.show()
 
-    def plot_discretized_implied_errors( self, model, X, y, train_df, sample_frac=0.1 ):
+    def plot_discretized_implied_errors( self, model, X, y, train_df, sample_frac=0.1, quantile=None, n_bins=20 ):
         n_features = len( self.numerical_feature_groups )
         _, axes = get_grid_fig_axes( n_charts=n_features, n_cols=3 )
         X_sample, y_sample ,train_df_sample = self.sample_data( X, y, train_df, sample_frac )
@@ -164,9 +164,16 @@ class LinearProductModelToolkit:
             if isinstance(transformer, FlatRampTransformer):
                 # bin the feature based on quantiles
                 feature_series = X_sample[feature]
-                feature_quantiles = feature_series.quantile( np.arange(0.02, 1.01, 0.05) )
-                quantile_values = feature_quantiles.drop_duplicates().tolist()
-                bins, labels = get_bins_and_labels( cutoffs=quantile_values, decimal_places=4 )
+                if quantile is not None:
+                    # use quantiles to define bins
+                    feature_quantiles = feature_series.quantile( np.arange(0.02, 1.01, 0.05) )
+                    cutoff_values = feature_quantiles.drop_duplicates().tolist()
+                else:
+                    # use eual-width bins
+                    cutoff_values = list( np.linspace( feature_series.min(), feature_series.max(), n_bins + 1 ) )
+                    # remove the first and last value to avoid having bins with -inf and inf
+                    cutoff_values = cutoff_values[1:-1]
+                bins, labels = get_bins_and_labels( cutoffs=cutoff_values, decimal_places=4 )
                 binned_df = pd.DataFrame( { 'feature' : X_sample[feature] } )
                 binned_df['feature_bin'] = pd.cut( binned_df['feature'], bins=bins, labels=labels )
 
@@ -186,12 +193,17 @@ class LinearProductModelToolkit:
                     count               = ('implied_actual', 'count')
                 ).reset_index()
 
-                agg_df['feature_bin_right'] = quantile_values + [X_sample[feature].max()]
+                agg_df['feature_bin_right'] = cutoff_values + [X_sample[feature].max()]
                 x_grid, this_feature_preds = self.get_feature_grid_and_predictions( X[feature], transformer, model )
 
                 # codes for plotting
                 ax = axes[i]
-                ax.scatter( agg_df['feature_bin_right'], agg_df['implied_actual_mean'], alpha=0.7, color=EconomistBrandColor.LONDON_70, label='Implied Actual' )
+                ax.scatter( agg_df['feature_bin_right'], 
+                            agg_df['implied_actual_mean'], 
+                            alpha=0.7, 
+                            color=EconomistBrandColor.LONDON_70, 
+                            label='Implied Actual',
+                            s=100 * (agg_df['count'] / agg_df['count'].max()) )
                 ax.plot( x_grid, this_feature_preds, color=EconomistBrandColor.ECONOMIST_RED, label='Model Prediction', linewidth=2 )
                 # off the chart title, duplicate with xlabel
                 # ax.set_title(f'{feature} Discretized Implied Error', fontdict={'fontsize': 14} )
