@@ -48,6 +48,8 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
                         Q, R = self.qr_decomp_cache_[feature_group]
                     scaled_y = y / self.global_scalar_ / fixed_predictions
                     floating_params = np.linalg.solve( R, Q.T @ scaled_y )
+                    # even we reuse the QR decomposition, we still need to scale the floating data here to make sure the global scaler is correctly updated
+                    floating_data = floating_data * fixed_predictions[:, None]
 
                 # normalize the floating parameters by its mean so that each block's prediction has a mean of 1
                 floating_predictions = floating_data @ floating_params
@@ -100,45 +102,6 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
             self.block_means_[key] = block_mean
             
         return self
-    
-    def predict( self, X ):
-        if self.feature_groups_ is None or self.coef_ is None:
-            raise ValueError("Model not fitted yet. Please call fit() first.")
-        data_blocks = { key: X[self.feature_groups_[key]].values for key in self.feature_groups_ }
-        return self.forward(self.coef_, data_blocks)
-    
-    def forward(self, params_blocks, X_blocks, ignore_global_scale=False):
-        """
-        Compute the forward pass for the model.
-
-        Parameters
-        ----------
-        params_blocks : dict
-            A dictionary mapping feature block names to their parameter vectors.
-        X_blocks : dict
-            A dictionary mapping feature block names to their input data matrices.
-
-        Returns
-        -------
-        np.ndarray
-            The model's predictions for the input data.
-        """
-        # Find any block to get n_obs
-        for key in X_blocks:
-            n_obs = X_blocks[key].shape[0]
-            break
-        else:
-            raise ValueError("X_blocks is empty.")
-
-        result = np.ones(n_obs, dtype=float)
-        for key in params_blocks:
-            if key not in X_blocks:
-                raise ValueError(f"Feature block '{key}' not found in input blocks.")
-            result *= np.dot(X_blocks[key], params_blocks[key])
-
-        if not ignore_global_scale:
-            result = result * self.global_scalar_
-        return result
 
 
 class LinearProductRegressorScipy(LinearProductRegressorBase):
@@ -153,23 +116,6 @@ class LinearProductRegressorScipy(LinearProductRegressorBase):
     # -----------------------------
     # Model math
     # -----------------------------
-    def forward(self, params_blocks, X_blocks, ignore_global_scale=False):
-        for key in X_blocks:
-            n_obs = X_blocks[key].shape[0]
-            break
-        else:
-            raise ValueError("X_blocks is empty.")
-        
-        result = np.ones(n_obs, dtype=float)
-
-        for key in params_blocks:
-            theta = params_blocks[key]
-            X = X_blocks[key]
-            inner = X @ theta
-            result *= inner
-
-        return result
-
     def jacobian(self, params_blocks, X_blocks):
         n_obs = X_blocks[ self.block_names[0] ].shape[0]
         n_features = self.n_features
@@ -233,11 +179,3 @@ class LinearProductRegressorScipy(LinearProductRegressorBase):
         self.coef_ = self.unflatten_params(result.x)
         self.result_ = result
         return self
-
-    def predict(self, X):
-        if self.coef_ is None:
-            raise ValueError("Model not fitted yet.")
-        
-        X_blocks = { key: X[self.feature_groups_[key]].values for key in self.feature_groups_ }
-        
-        return self.forward(self.coef_, X_blocks)

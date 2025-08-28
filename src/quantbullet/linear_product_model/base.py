@@ -79,6 +79,7 @@ class LinearProductModelBase(ABC):
         self.feature_groups_ = None
         self.se_= None
         self.coef_ = None
+        self.global_scalar_ = 1.0
 
     def flatten_params(self, params_blocks):
         """
@@ -316,6 +317,45 @@ class LinearProductRegressorBase(LinearProductModelBase):
         X_block_coef = self.coef_blocks[feature_group]
         X_block = X[self.feature_groups_[feature_group]].values
         return estimate_ols_beta_se_with_scalar_vector( X_block, y, beta=X_block_coef, scalar_vector=fixed_blocks_preds )
+    
+    def predict( self, X ):
+        if self.feature_groups_ is None or self.coef_ is None:
+            raise ValueError("Model not fitted yet. Please call fit() first.")
+        data_blocks = { key: X[self.feature_groups_[key]].values for key in self.feature_groups_ }
+        return self.forward(self.coef_, data_blocks)
+    
+    def forward(self, params_blocks, X_blocks, ignore_global_scale=False):
+        """
+        Compute the forward pass for the model.
+
+        Parameters
+        ----------
+        params_blocks : dict
+            A dictionary mapping feature block names to their parameter vectors.
+        X_blocks : dict
+            A dictionary mapping feature block names to their input data matrices.
+
+        Returns
+        -------
+        np.ndarray
+            The model's predictions for the input data.
+        """
+        # Find any block to get n_obs
+        for key in X_blocks:
+            n_obs = X_blocks[key].shape[0]
+            break
+        else:
+            raise ValueError("X_blocks is empty.")
+
+        result = np.ones(n_obs, dtype=float)
+        for key in params_blocks:
+            if key not in X_blocks:
+                raise ValueError(f"Feature block '{key}' not found in input blocks.")
+            result *= np.dot(X_blocks[key], params_blocks[key])
+
+        if not ignore_global_scale:
+            result = result * self.global_scalar_
+        return result
     
 class LinearProductClassifierBase(LinearProductModelBase):
     def __init__(self):
