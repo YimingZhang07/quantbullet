@@ -98,6 +98,14 @@ class LinearProductModelToolkit:
     def sample_data( self, X, y, train_df, sample_frac ):
         sample_mask = np.random.rand( len( X ) ) <= sample_frac
         return X[ sample_mask ], y[ sample_mask ], train_df[ sample_mask ]
+    
+    def get_feature_grid_and_predictions( self, feature_series, transformer, model, n_points=200 ):
+        x_min, x_max = feature_series.min(), feature_series.max()
+        x_grid = np.linspace(x_min, x_max, n_points).reshape(-1, 1)
+        transformed_x_grid = transformer.transform(x_grid)
+        coef_vector = model.coef_blocks[ feature_series.name ]
+        y_grid = transformed_x_grid @ coef_vector
+        return x_grid, y_grid
 
     def plot_model_implied_errors( self, model, X, y, train_df, sample_frac=0.1 ):
         """For each feature, plot the implied actual vs model prediction
@@ -129,10 +137,7 @@ class LinearProductModelToolkit:
                 # codes for plotting
                 ax = axes[i]
                 ax.scatter(X_sample[feature], implied_actual, alpha=0.2, color=EconomistBrandColor.LONDON_70)
-                this_feature_coef = model.coef_blocks[feature]
-                x_min, x_max = X[feature].min(), X[feature].max()
-                x_grid = np.linspace(x_min, x_max, 200).reshape(-1, 1)
-                this_feature_preds = transformer.transform(x_grid) @ this_feature_coef
+                x_grid, this_feature_preds = self.get_feature_grid_and_predictions( X[feature], transformer, model )
                 ax.plot(x_grid, this_feature_preds, color=EconomistBrandColor.ECONOMIST_RED, label='Model Prediction', linewidth=2)
                 ax.set_title(f'{feature} Implied Error', fontdict={'fontsize': 14} )
                 ax.set_xlabel(f'{feature} Value', fontdict={'fontsize': 12} )
@@ -167,20 +172,22 @@ class LinearProductModelToolkit:
                 binned_df['feature_pred'] = train_df_sample[ self.feature_groups_[feature] ] @ this_feature_coef
 
                 # aggregate by bin
-                agg_df = binned_df.groupby('feature_bin').agg(
+                agg_df = binned_df.groupby('feature_bin', observed=False).agg(
                     implied_actual_mean = ('implied_actual', 'mean'),
                     feature_pred_mean   = ('feature_pred', 'mean'),
                     count               = ('implied_actual', 'count')
                 ).reset_index()
 
+                agg_df['feature_bin_right'] = quantile_values + [X_sample[feature].max()]
+                x_grid, this_feature_preds = self.get_feature_grid_and_predictions( X[feature], transformer, model )
+
                 # codes for plotting
                 ax = axes[i]
-                ax.scatter( quantile_values, agg_df['implied_actual_mean'], alpha=0.7, color=EconomistBrandColor.LONDON_70, label='Implied Actual' )
-                ax.plot( quantile_values, agg_df['feature_pred_mean'], color=EconomistBrandColor.ECONOMIST_RED, label='Model Prediction', linewidth=2 )
+                ax.scatter( agg_df['feature_bin_right'], agg_df['implied_actual_mean'], alpha=0.7, color=EconomistBrandColor.LONDON_70, label='Implied Actual' )
+                ax.plot( x_grid, this_feature_preds, color=EconomistBrandColor.ECONOMIST_RED, label='Model Prediction', linewidth=2 )
                 ax.set_title(f'{feature} Discretized Implied Error', fontdict={'fontsize': 14} )
                 ax.set_xlabel(f'{feature} Value', fontdict={'fontsize': 12} )
                 ax.set_ylabel('Implied Actual', fontdict={'fontsize': 12} )
-                ax.legend()
         close_unused_axes( axes )
         plt.tight_layout()
         plt.show()
