@@ -169,8 +169,8 @@ class LinearProductModelToolkit:
         fig.subplots_adjust(hspace=hspace, wspace=0.3)
         X_sample, y_sample ,train_df_sample = self.sample_data( X, y, train_df, sample_frac )
 
-        PlottingCache = namedtuple('PlottingCache', ['feature', 'agg_df', 'x_grid', 'this_feature_preds'])
-        plotting_caches = []
+        PlottingDatCache = namedtuple('PlottingCache', ['feature', 'agg_df', 'x_grid', 'this_feature_preds'])
+        plotting_data_caches = []
 
         for i, ( feature, transformer ) in enumerate( self.numerical_feature_groups.items() ):
             if isinstance(transformer, FlatRampTransformer):
@@ -207,12 +207,12 @@ class LinearProductModelToolkit:
 
                 agg_df['feature_bin_right'] = cutoff_values + [X_sample[feature].max()]
                 x_grid, this_feature_preds = self.get_feature_grid_and_predictions( X[feature], transformer, model )
-                plotting_caches.append( PlottingCache(feature, agg_df, x_grid, this_feature_preds) )
+                plotting_data_caches.append( PlottingDatCache(feature, agg_df, x_grid, this_feature_preds) )
 
-        # get global min and max counts for scaling point sizes
-        global_min_count = min( cache.agg_df['count'].min() for cache in plotting_caches )
-        global_max_count = max( cache.agg_df['count'].max() for cache in plotting_caches )
-        for i, cache in enumerate(plotting_caches):
+        # since we have multiple subplots, we want to have a common scale for the scatter sizes
+        global_min_count = min( cache.agg_df['count'].min() for cache in plotting_data_caches )
+        global_max_count = max( cache.agg_df['count'].max() for cache in plotting_data_caches )
+        for i, cache in enumerate(plotting_data_caches):
             feature = cache.feature
             agg_df = cache.agg_df
             x_grid = cache.x_grid
@@ -234,3 +234,4 @@ class LinearProductModelToolkit:
         # we cannot use tight_layout here because we have adjusted hspace; or else this will override hspace
         # plt.tight_layout()
         plt.show()
+        return fig, axes

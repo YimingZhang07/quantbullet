@@ -103,3 +103,14 @@ def load_cache_variables(load_dir, *var_names, assign_to_globals=False):
             if assign_to_globals:
                 globals()[name] = obj
     return results
+
+def object_to_pickle(obj, filepath):
+    """Save an object to a pickle file."""
+    with open(filepath, 'wb') as f:
+        pickle.dump(obj, f)
+
+def pickle_to_object(filepath):
+    """Load an object from a pickle file."""
+    with open(filepath, 'rb') as f:
+        obj = pickle.load(f)
+    return obj
