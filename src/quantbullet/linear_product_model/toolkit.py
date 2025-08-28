@@ -38,16 +38,24 @@ class LinearProductModelToolkit:
         return len(self.feature_groups_)
     
     @property
-    def categorical_feature_groups(self):
+    def categorical_feature_group_names(self):
         return [ name for name, transformer in self.feature_config.items() if isinstance(transformer, OneHotEncoder) ]
 
     @property
-    def numerical_feature_groups(self):
+    def numerical_feature_groups_names(self):
         return [ name for name, transformer in self.feature_config.items() if not isinstance(transformer, OneHotEncoder) ]
     
     @property
     def feature_groups(self):
         return self.feature_groups_
+    
+    @property
+    def categorical_feature_groups(self):
+        return { name: transformer for name, transformer in self.feature_config.items() if isinstance(transformer, OneHotEncoder) }
+    
+    @property
+    def numerical_feature_groups(self):
+        return { name: transformer for name, transformer in self.feature_config.items() if not isinstance(transformer, OneHotEncoder) }
 
     def plot_model_curves( self, model ):
         n_features = self.n_feature_groups
@@ -152,13 +160,13 @@ class LinearProductModelToolkit:
         _, axes = get_grid_fig_axes( n_charts=n_features, n_cols=3 )
         X_sample, y_sample ,train_df_sample = self.sample_data( X, y, train_df, sample_frac )
 
-        for i, ( feature, transformer ) in enumerate( self.feature_config.items() ):
+        for i, ( feature, transformer ) in enumerate( self.numerical_feature_groups.items() ):
             if isinstance(transformer, FlatRampTransformer):
                 # bin the feature based on quantiles
                 feature_series = X_sample[feature]
-                feature_quantiles = feature_series.quantile( np.arange(0.02, 1.01, 0.02) )
-                quantile_values = feature_quantiles.tolist()
-                bins, labels = get_bins_and_labels( cutoffs=quantile_values )
+                feature_quantiles = feature_series.quantile( np.arange(0.02, 1.01, 0.05) )
+                quantile_values = feature_quantiles.drop_duplicates().tolist()
+                bins, labels = get_bins_and_labels( cutoffs=quantile_values, decimal_places=4 )
                 binned_df = pd.DataFrame( { 'feature' : X_sample[feature] } )
                 binned_df['feature_bin'] = pd.cut( binned_df['feature'], bins=bins, labels=labels )
 
@@ -185,7 +193,8 @@ class LinearProductModelToolkit:
                 ax = axes[i]
                 ax.scatter( agg_df['feature_bin_right'], agg_df['implied_actual_mean'], alpha=0.7, color=EconomistBrandColor.LONDON_70, label='Implied Actual' )
                 ax.plot( x_grid, this_feature_preds, color=EconomistBrandColor.ECONOMIST_RED, label='Model Prediction', linewidth=2 )
-                ax.set_title(f'{feature} Discretized Implied Error', fontdict={'fontsize': 14} )
+                # off the chart title, duplicate with xlabel
+                # ax.set_title(f'{feature} Discretized Implied Error', fontdict={'fontsize': 14} )
                 ax.set_xlabel(f'{feature} Value', fontdict={'fontsize': 12} )
                 ax.set_ylabel('Implied Actual', fontdict={'fontsize': 12} )
         close_unused_axes( axes )
