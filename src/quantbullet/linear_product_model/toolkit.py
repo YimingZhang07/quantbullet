@@ -159,9 +159,10 @@ class LinearProductModelToolkit:
     def scale_sizes(self, counts, min_size=30, max_size=300, global_min=None, global_max=None):
         return min_size + (max_size - min_size) * (counts - global_min) / (global_max - global_min)
 
-    def plot_discretized_implied_errors( self, model, X, y, train_df, sample_frac=0.1, quantile=None, n_bins=20, min_scatter_size=30, max_scatter_size=300 ):
+    def plot_discretized_implied_errors( self, model, X, y, train_df, sample_frac=0.1, quantile=None, n_bins=20, min_scatter_size=30, max_scatter_size=300, hspace=0.4 ):
         n_features = len( self.numerical_feature_groups )
-        _, axes = get_grid_fig_axes( n_charts=n_features, n_cols=3 )
+        fig, axes = get_grid_fig_axes( n_charts=n_features, n_cols=3 )
+        fig.subplots_adjust(hspace=hspace)
         X_sample, y_sample ,train_df_sample = self.sample_data( X, y, train_df, sample_frac )
 
         PlottingCache = namedtuple('PlottingCache', ['feature', 'agg_df', 'x_grid', 'this_feature_preds'])
@@ -223,8 +224,9 @@ class LinearProductModelToolkit:
             ax.plot( x_grid, this_feature_preds, color=EconomistBrandColor.ECONOMIST_RED, label='Model Prediction', linewidth=2 )
             # off the chart title, duplicate with xlabel
             # ax.set_title(f'{feature} Discretized Implied Error', fontdict={'fontsize': 14} )
-            ax.set_xlabel(f'{feature} Value', fontdict={'fontsize': 12} )
+            ax.set_xlabel(f'{feature}', fontdict={'fontsize': 12} )
             ax.set_ylabel('Implied Actual', fontdict={'fontsize': 12} )
         close_unused_axes( axes )
-        plt.tight_layout()
+        # we cannot use tight_layout here because we have adjusted hspace; or else this will override hspace
+        # plt.tight_layout()
         plt.show()
