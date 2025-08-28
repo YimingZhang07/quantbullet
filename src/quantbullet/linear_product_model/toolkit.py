@@ -6,6 +6,7 @@ from quantbullet.plot.utils import get_grid_fig_axes, close_unused_axes
 from quantbullet.plot.colors import EconomistBrandColor
 from sklearn.preprocessing import OneHotEncoder
 from quantbullet.preprocessing.transformers import FlatRampTransformer
+from quantbullet.dfutils import get_bins_and_labels
 
 class LinearProductModelToolkit:
     def __init__( self, feature_config = None ):
@@ -43,6 +44,10 @@ class LinearProductModelToolkit:
     @property
     def numerical_feature_groups(self):
         return [ name for name, transformer in self.feature_config.items() if not isinstance(transformer, OneHotEncoder) ]
+    
+    @property
+    def feature_groups(self):
+        return self.feature_groups_
 
     def plot_model_curves( self, model ):
         n_features = self.n_feature_groups
@@ -91,7 +96,7 @@ class LinearProductModelToolkit:
         plt.show()
 
     def sample_data( self, X, y, train_df, sample_frac ):
-        sample_mask = np.random.rand( len( X ) ) < sample_frac
+        sample_mask = np.random.rand( len( X ) ) <= sample_frac
         return X[ sample_mask ], y[ sample_mask ], train_df[ sample_mask ]
 
     def plot_model_implied_errors( self, model, X, y, train_df, sample_frac=0.1 ):
@@ -113,11 +118,11 @@ class LinearProductModelToolkit:
         """
         n_features = len( self.numerical_feature_groups )
         _, axes = get_grid_fig_axes( n_charts=n_features, n_cols=3 )
+        X_sample, y_sample ,train_df_sample = self.sample_data( X, y, train_df, sample_frac )
 
         for i, ( feature, transformer ) in enumerate( self.feature_config.items() ):
             if isinstance(transformer, FlatRampTransformer):
                 # the data size may be too large to plot all points, so we sample a fraction of the data
-                X_sample, y_sample ,train_df_sample = self.sample_data( X, y, train_df, sample_frac )
                 other_blocks_preds = model.leave_out_feature_group_predict(feature, train_df_sample)
                 implied_actual = y_sample / other_blocks_preds
 
@@ -133,6 +138,49 @@ class LinearProductModelToolkit:
                 ax.set_xlabel(f'{feature} Value', fontdict={'fontsize': 12} )
                 ax.set_ylabel('Implied Actual', fontdict={'fontsize': 12} )
 
+        close_unused_axes( axes )
+        plt.tight_layout()
+        plt.show()
+
+    def plot_discretized_implied_errors( self, model, X, y, train_df, sample_frac=0.1 ):
+        n_features = len( self.numerical_feature_groups )
+        _, axes = get_grid_fig_axes( n_charts=n_features, n_cols=3 )
+        X_sample, y_sample ,train_df_sample = self.sample_data( X, y, train_df, sample_frac )
+
+        for i, ( feature, transformer ) in enumerate( self.feature_config.items() ):
+            if isinstance(transformer, FlatRampTransformer):
+                # bin the feature based on quantiles
+                feature_series = X_sample[feature]
+                feature_quantiles = feature_series.quantile( np.arange(0.02, 1.01, 0.02) )
+                quantile_values = feature_quantiles.tolist()
+                bins, labels = get_bins_and_labels( cutoffs=quantile_values )
+                binned_df = pd.DataFrame( { 'feature' : X_sample[feature] } )
+                binned_df['feature_bin'] = pd.cut( binned_df['feature'], bins=bins, labels=labels )
+
+                # calculate the implied actual, which is y / prediction from other feature groups
+                other_blocks_preds = model.leave_out_feature_group_predict(feature, train_df_sample)
+                implied_actual = y_sample / other_blocks_preds
+                binned_df['implied_actual'] = implied_actual
+
+                # get the model prediction for this feature
+                this_feature_coef = model.coef_blocks[feature]
+                binned_df['feature_pred'] = train_df_sample[ self.feature_groups_[feature] ] @ this_feature_coef
+
+                # aggregate by bin
+                agg_df = binned_df.groupby('feature_bin').agg(
+                    implied_actual_mean = ('implied_actual', 'mean'),
+                    feature_pred_mean   = ('feature_pred', 'mean'),
+                    count               = ('implied_actual', 'count')
+                ).reset_index()
+
+                # codes for plotting
+                ax = axes[i]
+                ax.scatter( quantile_values, agg_df['implied_actual_mean'], alpha=0.7, color=EconomistBrandColor.LONDON_70, label='Implied Actual' )
+                ax.plot( quantile_values, agg_df['feature_pred_mean'], color=EconomistBrandColor.ECONOMIST_RED, label='Model Prediction', linewidth=2 )
+                ax.set_title(f'{feature} Discretized Implied Error', fontdict={'fontsize': 14} )
+                ax.set_xlabel(f'{feature} Value', fontdict={'fontsize': 12} )
+                ax.set_ylabel('Implied Actual', fontdict={'fontsize': 12} )
+                ax.legend()
         close_unused_axes( axes )
         plt.tight_layout()
         plt.show()
