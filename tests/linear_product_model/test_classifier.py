@@ -2,7 +2,7 @@ import unittest
 import numpy as np
 import pandas as pd
 from quantbullet.preprocessing import FlatRampTransformer
-from quantbullet.linear_product_model import LinearProductClassifierScipy
+from quantbullet.linear_product_model import LinearProductClassifierScipy, LinearProductClassifierBCD
 
 from quantbullet.utils.decorators import log_runtime
 
@@ -37,7 +37,7 @@ class TestLinearProductClassifierSingleFeatureGroup(unittest.TestCase):
         self.train_df = train_df
         self.feature_groups = feature_groups
         
-    def test_fit(self):
+    def test_scipy_fit(self):
         df = self.df
         train_df = self.train_df
         feature_groups = self.feature_groups
@@ -46,4 +46,15 @@ class TestLinearProductClassifierSingleFeatureGroup(unittest.TestCase):
         lpc_scipy.fit( train_df, df['binary_y'], feature_groups=feature_groups, use_jacobian=True )
         preds = lpc_scipy.predict(train_df)
         
+        self.assertTrue( np.isclose(preds.mean(), df['binary_y'].mean(), atol=1e-4) )
+
+    def test_bcd_fit(self):
+        df = self.df
+        train_df = self.train_df
+        feature_groups = self.feature_groups
+
+        lpc_bcd = LinearProductClassifierBCD(eps=1e-5)
+        lpc_bcd.fit(train_df, df['binary_y'], feature_groups=feature_groups, n_iterations=20)
+        preds = lpc_bcd.predict(train_df)
+
         self.assertTrue( np.isclose(preds.mean(), df['binary_y'].mean(), atol=1e-4) )

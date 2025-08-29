@@ -6,7 +6,7 @@ from .base import LinearProductModelBase, LinearProductModelBCD, LinearProductRe
 
 class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelBCD ):
     def __init__(self):
-        LinearProductModelBase.__init__(self)
+        LinearProductRegressorBase.__init__(self)
         LinearProductModelBCD.__init__(self)
 
     def loss_function(self, y_hat, y):

@@ -153,11 +153,17 @@ class LinearProductClassifierBCD( LinearProductClassifierBase, LinearProductMode
         return log_loss(y_hat, y)
 
     def fit( self, X, y, feature_groups, init_params=None, early_stopping_rounds=None, n_iterations=10, verbose=1 ):
+        self._reset_history()
         self.feature_groups_ = feature_groups
         data_blocks = { key: X[feature_groups[key]].values for key in feature_groups }
-        _, params_blocks = self.infer_init_params(init_params, data_blocks, y)
         
-        self._reset_history()
+        if init_params is None:
+            self.global_scalar_ = np.mean(y)
+            _, params_blocks = self.infer_init_params( init_params, data_blocks, np.ones_like(y) )
+        else:
+            _, params_blocks = self.infer_init_params( init_params, data_blocks, y)
+
+
         for i in range(n_iterations):
             for feature_group in feature_groups:
                 floating_data = data_blocks[feature_group]
@@ -168,27 +174,22 @@ class LinearProductClassifierBCD( LinearProductClassifierBase, LinearProductMode
                 if len(fixed_params_blocks) == 0:
                     fixed_predictions = np.ones(floating_data.shape[0], dtype=float)
                 else:
-                    fixed_predictions = self.forward(fixed_params_blocks, fixed_data_blocks)
+                    fixed_predictions = self.forward(fixed_params_blocks, fixed_data_blocks, ignore_global_scale=True)
 
                 # treat the products of other blocks as a vector to scale the X
                 # then just minimize the clipped cross-entropy loss on this block
-                fixed_predictions = np.clip(fixed_predictions, self.eps, 1 - self.eps)
-                m = fixed_predictions.reshape(-1, 1)
-                mX = floating_data * m
-                floating_params, status = minimize_clipped_cross_entropy_loss(mX, y, beta0=None, eps=self.eps)
+                floating_data = floating_data * fixed_predictions[:, None]
+                floating_params, status = minimize_clipped_cross_entropy_loss( self.global_scalar_ * floating_data, y, beta0=None, eps=self.eps )
                 
                 if not status.success:
                     print(f"Warning: Optimization for block '{feature_group}' did not converge: {status.message}")
 
                 # normalize the floating parameters
                 floating_predictions = floating_data @ floating_params
-                floating_predictions = np.clip(floating_predictions, self.eps, 1 - self.eps)
                 floating_mean = np.mean(floating_predictions)
                 
                 if not np.isclose(floating_mean, 0):
-                    # normalize the parameters by the mean
                     floating_params /= floating_mean
-                    # update the global scale
                     self.global_scalar_ = self.global_scalar_ * floating_mean
                 else:
                     print(f"Warning: Mean of predictions for block '{feature_group}' is close to zero. Skipping normalization.")
@@ -236,7 +237,7 @@ class LinearProductClassifierBCD( LinearProductClassifierBase, LinearProductMode
         data_blocks = { key: X[self.feature_groups_[key]].values for key in self.feature_groups_ }
         return self.forward(self.coef_, data_blocks)
     
-    def forward_raw(self, params_blocks, X_blocks, ignore_global_scale=False):
+    def forward(self, params_blocks, X_blocks, ignore_global_scale=False):
         """
         Compute the forward pass for the model.
 
@@ -268,7 +269,3 @@ class LinearProductClassifierBCD( LinearProductClassifierBase, LinearProductMode
         if not ignore_global_scale:
             result = result * self.global_scalar_
         return result
-    
-    def forward(self, params_blocks, X_blocks, ignore_global_scale=False):
-        y_hat = self.forward_raw(params_blocks, X_blocks, ignore_global_scale)
-        return np.clip(y_hat, self.eps, 1 - self.eps)
