@@ -8,7 +8,7 @@ from .utils import (
     fit_logistic_no_intercept,
 )
 
-from .base import LinearProductClassifierBase, LinearProductModelBCD
+from .base import LinearProductClassifierBase, LinearProductModelBCD, memorize_fit_args
 
 class LinearProductClassifierScipy(LinearProductClassifierBase):
     def __init__(self, gtol=1e-8, ftol=1e-8, eps=1e-3):
@@ -152,6 +152,7 @@ class LinearProductClassifierBCD( LinearProductClassifierBase, LinearProductMode
     def loss_function(self, y_hat, y):
         return log_loss(y_hat, y)
 
+    @memorize_fit_args
     def fit( self, X, y, feature_groups, init_params=None, early_stopping_rounds=None, n_iterations=10, verbose=1 ):
         self._reset_history()
         self.feature_groups_ = feature_groups
