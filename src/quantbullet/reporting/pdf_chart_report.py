@@ -6,7 +6,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from .utils import copy_axis, copy_figure
 
 class PdfChartReport:
-    def __init__(self, filepath: str, layout=(2,2), figsize: Tuple[int, int]=(11, 8.5)):
+    def __init__(self, filepath: str, layout=(2,2), figsize: Tuple[int, int]=(11, 8.5), corner_text=None):
         """
         Initializes the PDF report creator.
         Parameters
@@ -26,6 +26,7 @@ class PdfChartReport:
         self.axes_list = []
         self.current_ax_idx = 0
         self.suptitle = None
+        self.corner_text = corner_text
 
     # -------------------------------
     # Internal
@@ -57,6 +58,9 @@ class PdfChartReport:
                 for ax in self.axes_list[self.current_ax_idx:]:
                     ax.set_visible(False)
 
+            if self.corner_text is not None:
+                self.fig.text(0.99, 0.01, self.corner_text, ha='right', va='bottom', fontsize=10, color='gray', alpha=0.7)
+
             self.pdf.savefig( self.fig )
             plt.close( self.fig )
             self.fig = None
@@ -83,9 +87,7 @@ class PdfChartReport:
         if layout is None:
             layout = self.layout
 
-        if suptitle is not None:
-            self.suptitle = suptitle
-
+        self.suptitle = suptitle
         self.layout = layout
         self._finalize_page()
         self._add_page()

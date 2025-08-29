@@ -14,7 +14,7 @@ from reportlab.platypus import Table, TableStyle
 from reportlab.lib import colors
 
 # Local application/library imports
-from quantbullet.plot.utils import get_grid_fig_axes, close_unused_axes
+from quantbullet.plot.utils import get_grid_fig_axes, close_unused_axes, scale_scatter_sizes
 from quantbullet.plot.colors import EconomistBrandColor
 from quantbullet.preprocessing.transformers import FlatRampTransformer
 from quantbullet.dfutils import get_bins_and_labels
@@ -51,6 +51,7 @@ class LinearProductModelReportMixin:
 class LinearProductModelToolkit( LinearProductModelReportMixin ):
     def __init__( self, feature_config = None ):
         self.feature_config = feature_config
+        self.additional_plots = []
 
     def fit( self, X ):
         col_names = []
@@ -173,7 +174,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
 
         """
         n_features = len( self.numerical_feature_groups )
-        _, axes = get_grid_fig_axes( n_charts=n_features, n_cols=3 )
+        fig, axes = get_grid_fig_axes( n_charts=n_features, n_cols=3 )
         X_sample, y_sample ,train_df_sample = self.sample_data( X, y, train_df, sample_frac )
 
         for i, ( feature, transformer ) in enumerate( self.feature_config.items() ):
@@ -193,12 +194,10 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
 
         close_unused_axes( axes )
         plt.tight_layout()
-        plt.show()
-        
-    def scale_sizes(self, counts, min_size=30, max_size=300, global_min=None, global_max=None):
-        return min_size + (max_size - min_size) * (counts - global_min) / (global_max - global_min)
+        self.errors_plot_axes = axes
+        return fig, axes
 
-    def plot_discretized_implied_errors( self, model, X, y, train_df, sample_frac=0.1, quantile=None, n_bins=20, min_scatter_size=30, max_scatter_size=300, hspace=0.4, vspace=0.3 ):
+    def plot_discretized_implied_errors( self, model, X, y, train_df, sample_frac=1, quantile=None, n_bins=20, min_scatter_size=10, max_scatter_size=500, hspace=0.4, vspace=0.3 ):
 
         if hasattr( model, 'offset_y') and getattr( model, 'offset_y') is not None:
             y = y + getattr( model, 'offset_y')
@@ -257,7 +256,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
             x_grid  = cache.x_grid
             this_feature_preds = cache.this_feature_preds
             ax = axes[i]
-            sizes = self.scale_sizes( agg_df['count'], min_size=min_scatter_size, max_size=max_scatter_size, global_min=global_min_count, global_max=global_max_count )
+            sizes = scale_scatter_sizes( agg_df['count'], min_size=min_scatter_size, max_size=max_scatter_size, global_min=global_min_count, global_max=global_max_count )
             ax.scatter( agg_df['feature_bin_right'], 
                         agg_df['implied_actual_mean'], 
                         alpha=0.7, 
@@ -272,7 +271,6 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         close_unused_axes( axes )
         # we cannot use tight_layout here because we have adjusted hspace; or else this will override hspace
         # plt.tight_layout()
-        plt.show()
         self.errors_plot_axes = axes
         return fig, axes
     
@@ -332,12 +330,21 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
 
         pdf_full_path = f"{report_name}-Errors.pdf"
 
-        chart_pdf = PdfChartReport( pdf_full_path )
+        chart_pdf = PdfChartReport( pdf_full_path, corner_text=report_name )
         chart_pdf.new_page( layout=( 3,3 ), suptitle = 'Implied Errors' )
         chart_pdf.add_external_axes( self.errors_plot_axes )
+
+        # Add additional plots if any
+        for additional_axes, layout, suptitle in self.additional_plots:
+            chart_pdf.new_page( layout=layout, suptitle=suptitle )
+            chart_pdf.add_external_axes( additional_axes )
+
         chart_pdf.save()
 
         return pdf_full_path
+    
+    def add_additional_plots( self, axes, layout=(2, 2), suptitle=None ):
+        self.additional_plots.append( ( axes, layout, suptitle ) )
 
     def generate_full_report_pdf( self, model, report_name='Model-Report' ):
         if not hasattr( self, 'errors_plot_axes' ):
@@ -347,8 +354,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
 
         pdf1 = self.generate_fitting_summary_pdf( model, report_name=report_name )
         pdf2 = self.generate_error_plots_pdf( model, report_name=report_name )
-
-        # merge pdfs
+            
         merged_pdf_path = merge_pdfs([pdf1, pdf2], pdf_full_path)
 
         # cleanup

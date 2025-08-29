@@ -6,7 +6,10 @@ from reportlab.pdfbase.ttfonts import TTFont
 from PyPDF2 import PdfMerger
 
 def copy_axis(src_ax: plt.Axes, dst_ax: plt.Axes,
-              with_legend: bool = True, with_title: bool = True):
+              with_legend: bool = True, 
+              with_title: bool = True, 
+              with_grid: bool = True, 
+              with_ticks: bool = True):
     """Safely replicate the contents of one Axes into another."""
     # Copy lines
     for line in src_ax.get_lines():
@@ -67,6 +70,45 @@ def copy_axis(src_ax: plt.Axes, dst_ax: plt.Axes,
         handles, labels = src_ax.get_legend_handles_labels()
         dst_ax.legend(handles, labels)
 
+    # --- Ticks ---
+    if with_ticks:
+        # formatters
+        dst_ax.xaxis.set_major_formatter(src_ax.xaxis.get_major_formatter())
+        dst_ax.yaxis.set_major_formatter(src_ax.yaxis.get_major_formatter())
+        dst_ax.xaxis.set_minor_formatter(src_ax.xaxis.get_minor_formatter())
+        dst_ax.yaxis.set_minor_formatter(src_ax.yaxis.get_minor_formatter())
+
+        # locators
+        dst_ax.xaxis.set_major_locator(src_ax.xaxis.get_major_locator())
+        dst_ax.yaxis.set_major_locator(src_ax.yaxis.get_major_locator())
+        dst_ax.xaxis.set_minor_locator(src_ax.xaxis.get_minor_locator())
+        dst_ax.yaxis.set_minor_locator(src_ax.yaxis.get_minor_locator())
+
+        # Formatters & locators
+        dst_ax.xaxis.set_major_formatter(src_ax.xaxis.get_major_formatter())
+        dst_ax.yaxis.set_major_formatter(src_ax.yaxis.get_major_formatter())
+        dst_ax.xaxis.set_minor_formatter(src_ax.xaxis.get_minor_formatter())
+        dst_ax.yaxis.set_minor_formatter(src_ax.yaxis.get_minor_formatter())
+
+        dst_ax.xaxis.set_major_locator(src_ax.xaxis.get_major_locator())
+        dst_ax.yaxis.set_major_locator(src_ax.yaxis.get_major_locator())
+        dst_ax.xaxis.set_minor_locator(src_ax.xaxis.get_minor_locator())
+        dst_ax.yaxis.set_minor_locator(src_ax.yaxis.get_minor_locator())
+
+    # --- Grid ---
+    if with_grid:
+        # Major gridlines = just check if any visible gridline exists
+        major_on = any(gl.get_visible() for gl in src_ax.get_xgridlines() + src_ax.get_ygridlines())
+        dst_ax.grid(major_on, which="major")
+
+        # Minor gridlines = filter by line properties (if available)
+        all_x = src_ax.get_xgridlines()
+        all_y = src_ax.get_ygridlines()
+        # Matplotlib marks minor gridlines with `_is_minor` internally
+        minor_lines = [gl for gl in all_x + all_y if getattr(gl, "_is_minor", False)]
+        minor_on = any(gl.get_visible() for gl in minor_lines)
+        dst_ax.grid(minor_on, which="minor")
+
 def copy_figure(src_fig: plt.Figure, dst_fig: plt.Figure, include_margins: bool = False, include_spacing: bool = True):
     """
     Copy subplot spacing/layout params from src_fig to dst_fig.
@@ -103,6 +145,12 @@ def merge_pdfs(pdf_paths, output_path):
     merger = PdfMerger()
     for pdf in pdf_paths:
         merger.append(pdf)
-    merger.write(output_path)
+
+    # if the write is failed, need to close the pdfs
+    try:
+        merger.write(output_path)
+    except:
+        merger.close()
+        raise
     merger.close()
     return output_path

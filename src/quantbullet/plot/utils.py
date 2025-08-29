@@ -19,3 +19,15 @@ def close_unused_axes( axes ):
         has_data = len(ax.lines) > 0 or len(ax.patches) > 0 or len(ax.collections) > 0 or len(ax.images) > 0
         if not has_data:
             ax.set_visible(False)
+
+def scale_scatter_sizes(nums, min_size=30, max_size=300, global_min=None, global_max=None):
+    if global_min is None:
+        global_min = np.min(nums)
+    if global_max is None:
+        global_max = np.max(nums)
+
+    # Avoid division by zero
+    if global_max == global_min:
+        return np.full_like(nums, fill_value=min_size)
+
+    return min_size + (max_size - min_size) * (nums - global_min) / (global_max - global_min)
