@@ -1,6 +1,7 @@
-import copy
 import matplotlib.pyplot as plt
-import numpy as np
+import importlib.resources
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 
 def copy_axis(src_ax: plt.Axes, dst_ax: plt.Axes,
               with_legend: bool = True, with_title: bool = True):
@@ -83,3 +84,13 @@ def copy_figure(src_fig: plt.Figure, dst_fig: plt.Figure, include_margins: bool 
             wspace=sp.wspace,
             hspace=sp.hspace,
         )
+
+def register_fonts_from_package():
+    # fonts/ lives inside your_package
+    font_dir = importlib.resources.files("quantbullet.reporting.fonts")
+
+    for font_file in font_dir.iterdir():
+        if font_file.suffix.lower() == ".ttf":
+            # Use filename (without extension) as fontName
+            font_name = font_file.stem
+            pdfmetrics.registerFont(TTFont(font_name, str(font_file)))

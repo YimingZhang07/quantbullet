@@ -5,7 +5,7 @@ from typing import Optional
 from matplotlib.backends.backend_pdf import PdfPages
 from .utils import copy_axis, copy_figure
 
-class PdfReport:
+class PdfChartReport:
     def __init__(self, filepath: str, layout=(2,2), figsize: Tuple[int, int]=(11, 8.5)):
         """
         Initializes the PDF report creator.
