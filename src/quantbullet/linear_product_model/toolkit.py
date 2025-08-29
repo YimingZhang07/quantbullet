@@ -2,6 +2,7 @@
 from collections import namedtuple
 
 # Third-party imports
+import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -9,16 +10,45 @@ from matplotlib import ticker as mticker
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
 from reportlab.lib.pagesizes import landscape, letter
 from sklearn.preprocessing import OneHotEncoder
+from reportlab.platypus import Table, TableStyle
+from reportlab.lib import colors
 
 # Local application/library imports
 from quantbullet.plot.utils import get_grid_fig_axes, close_unused_axes
 from quantbullet.plot.colors import EconomistBrandColor
 from quantbullet.preprocessing.transformers import FlatRampTransformer
 from quantbullet.dfutils import get_bins_and_labels
-from quantbullet.reporting import AdobeSourceFontStyles
-from quantbullet.reporting.utils import register_fonts_from_package
+from quantbullet.reporting import AdobeSourceFontStyles, PdfChartReport
+from quantbullet.reporting.utils import register_fonts_from_package, merge_pdfs
+from quantbullet.reporting.formatters import numberarray2string
 
-class LinearProductModelToolkit:
+class LinearProductModelReportMixin:
+    @property
+    def fit_summary_table_style( self ):
+        style = TableStyle([
+            ("FONTNAME",      (0,0), (-1,-1), "SourceCodePro-Regular"),  # mono font
+            ("FONTSIZE",      (0,0), (-1,-1), 10),
+            ("ALIGN",         (1,0), (1,-1),  "RIGHT"),  # numbers right-aligned
+            ("BOTTOMPADDING", (0,0), (-1,-1), 2),
+        ])
+        return style
+
+    @property
+    def feature_config_table_style( self ):
+        style = TableStyle([
+            ("FONTNAME",      (0,0), (-1,-1), "SourceCodePro-Regular"),
+            ("FONTSIZE",      (0,0), (-1,-1), 10),
+            ("ALIGN",         (0,0), (0,-1),  "RIGHT"),    # feature names left
+            ("ALIGN",         (1,0), (1,-1),  "CENTER"),  # transformer name centered
+            ("ALIGN",         (2,0), (2,-1),  "LEFT"),    # params left
+            ("VALIGN",        (0,0), (-1,-1), "TOP"),
+            ("BOTTOMPADDING", (0,0), (-1,-1), 4),
+            ("TOPPADDING",    (0,0), (-1,-1), 4),
+            ("GRID",          (0,0), (-1,-1), 0.25, colors.lightgrey),
+        ])
+        return style
+
+class LinearProductModelToolkit( LinearProductModelReportMixin ):
     def __init__( self, feature_config = None ):
         self.feature_config = feature_config
 
@@ -223,8 +253,8 @@ class LinearProductModelToolkit:
         global_max_count = max( cache.agg_df['count'].max() for cache in plotting_data_caches )
         for i, cache in enumerate(plotting_data_caches):
             feature = cache.feature
-            agg_df = cache.agg_df
-            x_grid = cache.x_grid
+            agg_df  = cache.agg_df
+            x_grid  = cache.x_grid
             this_feature_preds = cache.this_feature_preds
             ax = axes[i]
             sizes = self.scale_sizes( agg_df['count'], min_size=min_scatter_size, max_size=max_scatter_size, global_min=global_min_count, global_max=global_max_count )
@@ -243,7 +273,85 @@ class LinearProductModelToolkit:
         # we cannot use tight_layout here because we have adjusted hspace; or else this will override hspace
         # plt.tight_layout()
         plt.show()
+        self.errors_plot_axes = axes
         return fig, axes
     
-    def generate_fitting_summary_pdf( self, model ):
-        pass
+    def generate_fitting_summary_pdf( self, model, report_name='Model-Report' ):
+        pdf_full_path = f"{report_name}-Summary.pdf"
+
+        # register fonts from local package directory
+        register_fonts_from_package()
+
+        doc = SimpleDocTemplate(
+            pdf_full_path,
+            pagesize=landscape(letter),
+        )
+
+        story = []
+        story.append( Paragraph( f"{report_name} Summary", AdobeSourceFontStyles.SerifItalic ) )
+
+        # ========== Table of Fitting Summary ==========
+
+        fit_summary_data = [
+            ["Number of Features",      f"{model.fit_metadata_.n_features:,}"],
+            ["Number of Obs",           f"{model.fit_metadata_.n_obs:,}"],
+            ["Mean Y",                  f"{model.fit_metadata_.mean_y:,.6f}"],
+            ["Model Scalar",            f"{model.global_scalar_:,.6f}"],
+            ["Best Loss",               f"{model.best_loss_:,.6f}"],
+            ["ftol",                    f"{model.fit_metadata_.ftol}"],
+            ["Use QR Decompsition",     f"{model.fit_metadata_.cache_qr_decomp}"],
+        ]
+
+        fit_summary_table = Table(fit_summary_data, colWidths=[200, 100])  # adjust widths
+        fit_summary_table.setStyle( self.fit_summary_table_style )
+        story.append(fit_summary_table)
+
+        story.append( Spacer(2, 20) )
+
+        # ========== Table of Feature Configurations ==========
+        feature_config_data = []
+        for feature_group_name, transformer in self.feature_config.items():
+            if isinstance(transformer, OneHotEncoder):
+                feature_config_data.append( [ feature_group_name, "OneHotEncoder", "" ] )
+            else:
+                text = f"knots={ numberarray2string( transformer.knots ) }"
+                feature_config_data.append( [ feature_group_name, 
+                                              "FlatRampTransformer", 
+                                              Paragraph(text,AdobeSourceFontStyles.MonoCode ) ] )
+
+        feature_config_table = Table( feature_config_data, colWidths=[150, 200, 300] )
+        feature_config_table.setStyle( self.feature_config_table_style )
+        story.append(feature_config_table)
+
+        doc.build(story)
+        return pdf_full_path
+
+    def generate_error_plots_pdf( self, model, report_name='Model-Report' ):
+        if not hasattr( self, 'errors_plot_axes' ):
+            raise ValueError("No error plots found. Please run implied_errors functions first.")
+
+        pdf_full_path = f"{report_name}-Errors.pdf"
+
+        chart_pdf = PdfChartReport( pdf_full_path )
+        chart_pdf.new_page( layout=( 3,3 ), suptitle = 'Implied Errors' )
+        chart_pdf.add_external_axes( self.errors_plot_axes )
+        chart_pdf.save()
+
+        return pdf_full_path
+
+    def generate_full_report_pdf( self, model, report_name='Model-Report' ):
+        if not hasattr( self, 'errors_plot_axes' ):
+            raise ValueError("No error plots found. Please run implied_errors functions first.")
+
+        pdf_full_path = f"{report_name}-Full.pdf"
+
+        pdf1 = self.generate_fitting_summary_pdf( model, report_name=report_name )
+        pdf2 = self.generate_error_plots_pdf( model, report_name=report_name )
+
+        # merge pdfs
+        merged_pdf_path = merge_pdfs([pdf1, pdf2], pdf_full_path)
+
+        # cleanup
+        os.remove( pdf1 )
+        os.remove( pdf2 )
+        return merged_pdf_path

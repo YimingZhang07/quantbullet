@@ -1,7 +1,9 @@
 import matplotlib.pyplot as plt
 import importlib.resources
+import os
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from PyPDF2 import PdfMerger
 
 def copy_axis(src_ax: plt.Axes, dst_ax: plt.Axes,
               with_legend: bool = True, with_title: bool = True):
@@ -94,3 +96,13 @@ def register_fonts_from_package():
             # Use filename (without extension) as fontName
             font_name = font_file.stem
             pdfmetrics.registerFont(TTFont(font_name, str(font_file)))
+
+
+def merge_pdfs(pdf_paths, output_path):
+    """Merge multiple PDFs into a single PDF."""
+    merger = PdfMerger()
+    for pdf in pdf_paths:
+        merger.append(pdf)
+    merger.write(output_path)
+    merger.close()
+    return output_path
