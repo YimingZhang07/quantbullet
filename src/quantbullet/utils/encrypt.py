@@ -1,4 +1,7 @@
-import os, pickle, base64
+import os
+import pickle
+import zlib
+import secrets
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -70,3 +73,31 @@ def decrypt_variable(data: bytes, passphrase: str):
     decrypted = aesgcm.decrypt(nonce, ciphertext, None)
 
     return pickle.loads(decrypted)
+
+def split_and_shrink(input_file, out_dir="chunks", chunk_size=1024*1024):
+    os.makedirs(out_dir, exist_ok=True)
+
+    # Read + compress
+    with open(input_file, "rb") as f:
+        data = f.read()
+    compressed = zlib.compress(data, level=9)
+
+    # Split into chunks with numbered prefix
+    for i in range(0, len(compressed), chunk_size):
+        chunk = compressed[i:i+chunk_size]
+        randname = secrets.token_hex(6)  # random suffix
+        fname = f"{i:08d}_{randname}.bin"  # numbered prefix ensures order
+        with open(os.path.join(out_dir, fname), "wb") as f:
+            f.write(chunk)
+    print(f"Done! Split into {len(os.listdir(out_dir))} chunks under {out_dir}/")
+
+def reassemble_and_expand(out_dir, output_file):
+    # Sort by numeric prefix
+    files = sorted(os.listdir(out_dir))
+    combined = b"".join(open(os.path.join(out_dir, f), "rb").read() for f in files)
+
+    # Decompress
+    restored = zlib.decompress(combined)
+    with open(output_file, "wb") as f:
+        f.write(restored)
+    print(f"Reassembled file written to {output_file}")
