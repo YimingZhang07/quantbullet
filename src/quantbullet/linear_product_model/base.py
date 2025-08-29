@@ -1,12 +1,38 @@
-from abc import ABC, abstractmethod
+import functools
 import numpy as np
 import pandas as pd
+from abc import ABC, abstractmethod
 from .utils import (
     init_betas_by_response_mean, 
     estimate_ols_beta_se_with_scalar_vector
 )
 from quantbullet.log_config import setup_logger
+from dataclasses import dataclass
 logger = setup_logger(__name__)
+
+@dataclass
+class FitMetadata:
+    n_obs: int
+    n_features: int
+    offset_y: float | None
+    mean_y: float
+    ftol: float | None = None
+    cache_qr_decomp: bool | None = None
+
+def memorize_fit_args(func):
+    """Decorator for fit methods to memorize some basic info about the input data X and y."""
+    @functools.wraps(func)
+    def wrapper(self, X, y, *args, **kwargs):
+        self.fit_metadata_ = FitMetadata(
+            n_obs=X.shape[0],
+            n_features=X.shape[1],
+            offset_y=kwargs.get('offset_y', None),
+            mean_y=np.mean(y),
+            ftol=kwargs.get('ftol', None),
+            cache_qr_decomp=kwargs.get('cache_qr_decomp', False)
+        )
+        return func(self, X, y, *args, **kwargs)
+    return wrapper
 
 class LinearProductModelBCD(ABC):
     """
@@ -82,9 +108,7 @@ class LinearProductModelBase(ABC):
         self.global_scalar_ = 1.0
 
     def flatten_params(self, params_blocks):
-        """
-        Flatten the parameters from a dictionary of blocks into a single array.
-        """
+        """Flatten the parameters from a dictionary of blocks into a single array."""
         if not isinstance(params_blocks, dict):
             raise ValueError("params_blocks must be a dictionary.")
         
@@ -97,9 +121,7 @@ class LinearProductModelBase(ABC):
         return np.array(flat_params, dtype=float)
     
     def unflatten_params(self, flat_params):
-        """
-        Unflatten the parameters from a single array into a dictionary of blocks.
-        """
+        """Unflatten the parameters from a single array into a dictionary of blocks."""
         if not isinstance(flat_params, np.ndarray):
             raise ValueError("flat_params must be a numpy array.")
         
@@ -116,18 +138,14 @@ class LinearProductModelBase(ABC):
     
     @property
     def coef_vector(self):
-        """
-        Return the coefficients as a flattened numpy array.
-        """
+        """Return the coefficients as a flattened numpy array."""
         if self.coef_ is None:
             raise ValueError("Model not fitted yet. Please call fit() first.")
         return self.flatten_params(self.coef_)
     
     @property
     def coef_blocks(self):
-        """
-        Return the coefficients as a dictionary of arrays;
-        """
+        """Return the coefficients as a dictionary of arrays."""
         return self.coef_
 
     @property
@@ -141,9 +159,7 @@ class LinearProductModelBase(ABC):
         return {group: dict(zip(self.feature_groups_[group], self.coef_[group])) for group in self.feature_groups_}
     
     def coef_dict_to_blocks(self, coef_dict):
-        """
-        Convert a dictionary of coefficients to a dictionary of blocks.
-        """
+        """Convert a dictionary of coefficients to a dictionary of blocks."""
         if not isinstance(coef_dict, dict):
             raise ValueError("coef_dict must be a dictionary.")
         

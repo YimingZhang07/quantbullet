@@ -1,13 +1,22 @@
+# Standard library imports
+from collections import namedtuple
+
+# Third-party imports
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib import ticker as mticker
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+from reportlab.lib.pagesizes import landscape, letter
+from sklearn.preprocessing import OneHotEncoder
+
+# Local application/library imports
 from quantbullet.plot.utils import get_grid_fig_axes, close_unused_axes
 from quantbullet.plot.colors import EconomistBrandColor
-from sklearn.preprocessing import OneHotEncoder
 from quantbullet.preprocessing.transformers import FlatRampTransformer
 from quantbullet.dfutils import get_bins_and_labels
-from collections import namedtuple
+from quantbullet.reporting import AdobeSourceFontStyles
+from quantbullet.reporting.utils import register_fonts_from_package
 
 class LinearProductModelToolkit:
     def __init__( self, feature_config = None ):
@@ -235,3 +244,6 @@ class LinearProductModelToolkit:
         # plt.tight_layout()
         plt.show()
         return fig, axes
+    
+    def generate_fitting_summary_pdf( self, model ):
+        pass

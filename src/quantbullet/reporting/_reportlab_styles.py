@@ -54,7 +54,7 @@ class AdobeSourceFontStyles:
     MonoCode = ParagraphStyle(
         "MonoCode",
         fontName="SourceCodePro-Regular",
-        fontSize=12,
+        fontSize=10,
         alignment=TA_LEFT,
         leading=16,
         spaceAfter=12,

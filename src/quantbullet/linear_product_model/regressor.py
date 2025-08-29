@@ -2,7 +2,7 @@ import numpy as np
 import copy
 import pandas as pd
 from scipy.optimize import least_squares
-from .base import LinearProductModelBase, LinearProductModelBCD, LinearProductRegressorBase
+from .base import LinearProductModelBase, LinearProductModelBCD, LinearProductRegressorBase, memorize_fit_args
 
 class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelBCD ):
     def __init__(self):
@@ -12,6 +12,7 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
     def loss_function(self, y_hat, y):
         return np.mean((y - y_hat) ** 2)
 
+    @memorize_fit_args
     def fit( self, X, y, feature_groups, init_params=None, early_stopping_rounds=5, n_iterations=20, verbose=1, cache_qr_decomp=False, ftol=1e-5, offset_y = None ):
         self._reset_history( cache_qr_decomp=cache_qr_decomp )
         self.feature_groups_ = feature_groups
