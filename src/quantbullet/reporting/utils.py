@@ -63,3 +63,23 @@ def copy_axis(src_ax: plt.Axes, dst_ax: plt.Axes,
     if with_legend and src_ax.get_legend() is not None:
         handles, labels = src_ax.get_legend_handles_labels()
         dst_ax.legend(handles, labels)
+
+def copy_figure(src_fig: plt.Figure, dst_fig: plt.Figure, include_margins: bool = False, include_spacing: bool = True):
+    """
+    Copy subplot spacing/layout params from src_fig to dst_fig.
+    """
+    sp = src_fig.subplotpars
+
+    if include_margins:
+        dst_fig.subplots_adjust(
+            left=sp.left,
+            right=sp.right,
+            bottom=sp.bottom,
+            top=sp.top,
+        )
+
+    if include_spacing:
+        dst_fig.subplots_adjust(
+            wspace=sp.wspace,
+            hspace=sp.hspace,
+        )

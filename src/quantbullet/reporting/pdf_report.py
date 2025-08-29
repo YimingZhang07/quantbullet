@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from typing import Tuple
 from typing import Optional
 from matplotlib.backends.backend_pdf import PdfPages
-from .utils import copy_axis
+from .utils import copy_axis, copy_figure
 
 class PdfReport:
     def __init__(self, filepath: str, layout=(2,2), figsize: Tuple[int, int]=(11, 8.5)):
@@ -106,7 +106,7 @@ class PdfReport:
         else:
             self._finalize_page()
 
-    def add_axes(self, src_axes, with_legend: bool = True, with_title: bool = True, layout: Optional[Tuple[int, int]] = None):
+    def add_external_axes(self, src_axes, with_legend: bool = True, with_title: bool = True, layout: Optional[Tuple[int, int]] = None, copy_figure_format = False):
         """
         Copy axes (single Axes or array of Axes) into this PDF report grids.
         """
@@ -121,8 +121,11 @@ class PdfReport:
 
         # If it's an ndarray or list of Axes
         elif isinstance(src_axes, (list, tuple, np.ndarray)):
-            # Flatten
             flat_axes = np.array(src_axes).flatten()
+
+            if copy_figure_format:
+                copy_figure( flat_axes[0].figure, self.fig, include_margins=False, include_spacing=True )
+
             for ax in flat_axes:
                 if isinstance(ax, plt.Axes):
                     dst_ax = self.get_next_ax()
