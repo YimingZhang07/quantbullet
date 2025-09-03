@@ -191,7 +191,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         """
         n_features = len( self.numerical_feature_groups )
         fig, axes = get_grid_fig_axes( n_charts=n_features, n_cols=3 )
-        X_sample, y_sample ,train_df_sample = self.sample_data( X, y, train_df, sample_frac )
+        X_sample, y_sample ,train_df_sample = self.sample_data( sample_frac, X, y, train_df )
 
         for i, ( feature, transformer ) in enumerate( self.feature_config.items() ):
             if isinstance(transformer, FlatRampTransformer):
@@ -221,7 +221,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         n_features = len( self.numerical_feature_groups )
         fig, axes = get_grid_fig_axes( n_charts=n_features, n_cols=3 )
         fig.subplots_adjust(hspace=hspace, wspace=0.3)
-        X_sample, y_sample ,train_df_sample = self.sample_data( X, y, train_df, sample_frac )
+        X_sample, y_sample ,train_df_sample = self.sample_data( sample_frac, X, y, train_df )
 
         PlottingDatCache = namedtuple('PlottingCache', ['feature', 'agg_df', 'x_grid', 'this_feature_preds'])
         plotting_data_caches = []
@@ -298,7 +298,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         n_features = len( self.categorical_feature_groups )
         fig, axes = get_grid_fig_axes( n_charts=n_features, n_cols=3 )
         fig.subplots_adjust(hspace=hspace, wspace=0.3)
-        X_sample, y_sample ,train_df_sample = self.sample_data( X, y, train_df, sample_frac )
+        X_sample, y_sample ,train_df_sample = self.sample_data( sample_frac, X, y, train_df )
 
         for i, (feature, transformer) in enumerate(self.categorical_feature_groups.items()):
             ax = axes[i]
