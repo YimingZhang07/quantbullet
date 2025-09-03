@@ -213,7 +213,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         self.errors_plot_axes = axes
         return fig, axes
 
-    def plot_discretized_implied_errors( self, model, X, y, train_df, sample_frac=1, quantile=None, n_bins=20, min_scatter_size=10, max_scatter_size=500, hspace=0.4, vspace=0.3, m_floor=0 ):
+    def plot_discretized_implied_errors( self, model, X, y, train_df, sample_frac=1, n_quantile_groups=None, n_bins=20, min_scatter_size=10, max_scatter_size=500, hspace=0.4, vspace=0.3, m_floor=0 ):
         """Generate discretized implied errors plots for the model. This is used for a binary target specifically"""
         if hasattr( model, 'offset_y') and getattr( model, 'offset_y') is not None:
             y = y + getattr( model, 'offset_y')
@@ -230,18 +230,20 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
             if isinstance(transformer, FlatRampTransformer):
                 # bin the feature based on quantiles
                 feature_series = X_sample[feature]
-                if quantile is not None:
-                    # use quantiles to define bins
-                    feature_quantiles = feature_series.quantile( np.arange(0.02, 1.01, 0.05) )
-                    cutoff_values = feature_quantiles.drop_duplicates().tolist()
+                binned_df = pd.DataFrame( { 'feature' : X_sample[feature] } )
+                if n_quantile_groups is not None:
+                    binned_df['feature_bin'] = pd.qcut( feature_series, n_quantile_groups, duplicates='drop' )
+                    cutoff_values = [ interval.right for interval in binned_df['feature_bin'].cat.categories ]
+                    cutoff_values_right = cutoff_values
                 else:
                     # use eual-width bins
                     cutoff_values = list( np.linspace( feature_series.min(), feature_series.max(), n_bins + 1 ) )
                     # remove the first and last value to avoid having bins with -inf and inf
                     cutoff_values = cutoff_values[1:-1]
-                bins, labels = get_bins_and_labels( cutoffs=cutoff_values, decimal_places=4 )
-                binned_df = pd.DataFrame( { 'feature' : X_sample[feature] } )
-                binned_df['feature_bin'] = pd.cut( binned_df['feature'], bins=bins, labels=labels )
+                    # the decimal places ensures that bin labels are not duplicated due to rounding...
+                    bins, labels = get_bins_and_labels( cutoffs=cutoff_values, decimal_places=4 )
+                    binned_df['feature_bin'] = pd.cut( binned_df['feature'], bins=bins, labels=labels )
+                    cutoff_values_right = cutoff_values + [feature_series.max()]
 
                 # calculate the implied actual, which is y / prediction from other feature groups
                 other_blocks_preds = model.leave_out_feature_group_predict(feature, train_df_sample)
@@ -260,7 +262,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
                     count               = ('implied_actual', 'count')
                 ).reset_index()
 
-                agg_df['feature_bin_right'] = cutoff_values + [X_sample[feature].max()]
+                agg_df['feature_bin_right'] = cutoff_values_right
                 x_grid, this_feature_preds = self.get_feature_grid_and_predictions( X[feature], transformer, model )
                 plotting_data_caches.append( PlottingDatCache(feature, agg_df, x_grid, this_feature_preds) )
 
