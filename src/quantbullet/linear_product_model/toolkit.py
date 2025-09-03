@@ -213,8 +213,11 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         self.errors_plot_axes = axes
         return fig, axes
 
-    def plot_discretized_implied_errors( self, model, X, y, train_df, sample_frac=1, n_quantile_groups=None, n_bins=20, min_scatter_size=10, max_scatter_size=500, hspace=0.4, vspace=0.3, m_floor=0 ):
-        """Generate discretized implied errors plots for the model. This is used for a binary target specifically"""
+    def plot_discretized_implied_errors_simple( self, model, X, y, train_df, sample_frac=1, n_quantile_groups=None, n_bins=20, min_scatter_size=10, max_scatter_size=500, hspace=0.4, vspace=0.3, m_floor=0 ):
+        """Generate discretized implied errors plots for the model. This is used for a binary target specifically
+        
+        The scatter plot has y-axis called 'implied actual' defined as y / m; binned as well to take the average. m is the predicted values using other blocks only.
+        """
         if hasattr( model, 'offset_y') and getattr( model, 'offset_y') is not None:
             y = y + getattr( model, 'offset_y')
 
@@ -283,8 +286,85 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
                         label='Implied Actual',
                         s=sizes )
             ax.plot( x_grid, this_feature_preds, color=EconomistBrandColor.ECONOMIST_RED, label='Model Prediction', linewidth=2 )
-            # off the chart title, duplicate with xlabel
-            # ax.set_title(f'{feature} Discretized Implied Error', fontdict={'fontsize': 14} )
+            ax.set_xlabel(f'{feature}', fontdict={'fontsize': 12} )
+            ax.set_ylabel('Implied Actual', fontdict={'fontsize': 12} )
+        close_unused_axes( axes )
+        # we cannot use tight_layout here because we have adjusted hspace; or else this will override hspace
+        # plt.tight_layout()
+        self.errors_plot_axes = axes
+        return fig, axes
+    
+    def plot_discretized_implied_errors( self, model, X, y, train_df, sample_frac=1, n_quantile_groups=None, n_bins=20, min_scatter_size=10, max_scatter_size=500, hspace=0.4, vspace=0.3, m_floor=0 ):
+        """Generate discretized implied errors plots for the model. This is used for a binary target specifically
+        
+        Different from the simple version. Here we bin first, and then calculate the sum( y ) / sum( m ) for each bin. 
+        """
+        if hasattr( model, 'offset_y') and getattr( model, 'offset_y') is not None:
+            y = y + getattr( model, 'offset_y')
+
+        n_features = len( self.numerical_feature_groups )
+        fig, axes = get_grid_fig_axes( n_charts=n_features, n_cols=3 )
+        fig.subplots_adjust(hspace=hspace, wspace=0.3)
+        X_sample, y_sample ,train_df_sample = self.sample_data( sample_frac, X, y, train_df )
+
+        PlottingDatCache = namedtuple('PlottingCache', ['feature', 'agg_df', 'x_grid', 'this_feature_preds'])
+        plotting_data_caches = []
+
+        for i, ( feature, transformer ) in enumerate( self.numerical_feature_groups.items() ):
+            if isinstance(transformer, FlatRampTransformer):
+                # bin the feature based on quantiles
+                feature_series = X_sample[feature]
+                binned_df = pd.DataFrame( { 'feature' : X_sample[feature] } )
+                if n_quantile_groups is not None:
+                    binned_df['feature_bin'] = pd.qcut( feature_series, n_quantile_groups, duplicates='drop' )
+                    cutoff_values = [ interval.right for interval in binned_df['feature_bin'].cat.categories ]
+                    cutoff_values_right = cutoff_values
+                else:
+                    # use eual-width bins
+                    cutoff_values = list( np.linspace( feature_series.min(), feature_series.max(), n_bins + 1 ) )
+                    # remove the first and last value to avoid having bins with -inf and inf
+                    cutoff_values = cutoff_values[1:-1]
+                    # the decimal places ensures that bin labels are not duplicated due to rounding...
+                    bins, labels = get_bins_and_labels( cutoffs=cutoff_values, decimal_places=4 )
+                    binned_df['feature_bin'] = pd.cut( binned_df['feature'], bins=bins, labels=labels )
+                    cutoff_values_right = cutoff_values + [feature_series.max()]
+
+                other_blocks_preds = model.leave_out_feature_group_predict( feature, train_df_sample )
+                other_blocks_preds = np.maximum( other_blocks_preds, m_floor )  # avoid division by zero
+                records = []
+                for bin in binned_df['feature_bin'].cat.categories:
+                    bin_mask = binned_df['feature_bin'] == bin
+                    sum_y = np.sum( y_sample[bin_mask] )
+                    sum_m = np.sum( other_blocks_preds[bin_mask] )
+                    if np.isclose( sum_m, 0 ):
+                        implied_actual = 0
+                    else:
+                        implied_actual = sum_y / sum_m
+                    binned_df.loc[bin_mask, 'implied_actual'] = implied_actual
+                    records.append((bin, implied_actual, len(y_sample[bin_mask])))
+                agg_df = pd.DataFrame.from_records(records, columns=['feature_bin', 'implied_actual_mean', 'count'])
+
+                agg_df['feature_bin_right'] = cutoff_values_right
+                x_grid, this_feature_preds = self.get_feature_grid_and_predictions( X[feature], transformer, model )
+                plotting_data_caches.append( PlottingDatCache(feature, agg_df, x_grid, this_feature_preds) )
+
+        # since we have multiple subplots, we want to have a common scale for the scatter sizes
+        global_min_count = min( cache.agg_df['count'].min() for cache in plotting_data_caches )
+        global_max_count = max( cache.agg_df['count'].max() for cache in plotting_data_caches )
+        for i, cache in enumerate(plotting_data_caches):
+            feature = cache.feature
+            agg_df  = cache.agg_df
+            x_grid  = cache.x_grid
+            this_feature_preds = cache.this_feature_preds
+            ax = axes[i]
+            sizes = scale_scatter_sizes( agg_df['count'], min_size=min_scatter_size, max_size=max_scatter_size, global_min=global_min_count, global_max=global_max_count )
+            ax.scatter( agg_df['feature_bin_right'], 
+                        agg_df['implied_actual_mean'], 
+                        alpha=0.7, 
+                        color=EconomistBrandColor.LONDON_70, 
+                        label='Implied Actual',
+                        s=sizes )
+            ax.plot( x_grid, this_feature_preds, color=EconomistBrandColor.ECONOMIST_RED, label='Model Prediction', linewidth=2 )
             ax.set_xlabel(f'{feature}', fontdict={'fontsize': 12} )
             ax.set_ylabel('Implied Actual', fontdict={'fontsize': 12} )
         close_unused_axes( axes )
