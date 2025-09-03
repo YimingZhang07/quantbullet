@@ -23,6 +23,27 @@ def copy_axis(src_ax: plt.Axes, dst_ax: plt.Axes,
             label=line.get_label() if line.get_label() != "_nolegend_" else None,
         )
 
+
+    # Copy patches (bars, rectangles, etc.)
+    for patch in src_ax.patches:
+        if hasattr(patch, 'get_xy') and hasattr(patch, 'get_width') and hasattr(patch, 'get_height'):
+            # Handle Rectangle patches (bar charts)
+            x, y = patch.get_xy()
+            width = patch.get_width()
+            height = patch.get_height()
+            
+            dst_ax.bar(
+                x + width/2,  # bar() expects center position
+                height,
+                width=width,
+                bottom=y,
+                color=patch.get_facecolor(),
+                edgecolor=patch.get_edgecolor(),
+                linewidth=patch.get_linewidth(),
+                alpha=patch.get_alpha(),
+                label=patch.get_label() if hasattr(patch, 'get_label') and patch.get_label() != "_nolegend_" else None
+            )
+
     # Scatter & other collections (like PathCollections from scatter)
     for col in src_ax.collections:
         try:
@@ -70,30 +91,67 @@ def copy_axis(src_ax: plt.Axes, dst_ax: plt.Axes,
         handles, labels = src_ax.get_legend_handles_labels()
         dst_ax.legend(handles, labels)
 
-    # --- Ticks ---
+    # Enhanced Ticks with Rotation Support
     if with_ticks:
-        # formatters
+        # Copy formatters and locators
         dst_ax.xaxis.set_major_formatter(src_ax.xaxis.get_major_formatter())
         dst_ax.yaxis.set_major_formatter(src_ax.yaxis.get_major_formatter())
         dst_ax.xaxis.set_minor_formatter(src_ax.xaxis.get_minor_formatter())
         dst_ax.yaxis.set_minor_formatter(src_ax.yaxis.get_minor_formatter())
-
-        # locators
         dst_ax.xaxis.set_major_locator(src_ax.xaxis.get_major_locator())
         dst_ax.yaxis.set_major_locator(src_ax.yaxis.get_major_locator())
         dst_ax.xaxis.set_minor_locator(src_ax.xaxis.get_minor_locator())
         dst_ax.yaxis.set_minor_locator(src_ax.yaxis.get_minor_locator())
-
-        # Formatters & locators
-        dst_ax.xaxis.set_major_formatter(src_ax.xaxis.get_major_formatter())
-        dst_ax.yaxis.set_major_formatter(src_ax.yaxis.get_major_formatter())
-        dst_ax.xaxis.set_minor_formatter(src_ax.xaxis.get_minor_formatter())
-        dst_ax.yaxis.set_minor_formatter(src_ax.yaxis.get_minor_formatter())
-
-        dst_ax.xaxis.set_major_locator(src_ax.xaxis.get_major_locator())
-        dst_ax.yaxis.set_major_locator(src_ax.yaxis.get_major_locator())
-        dst_ax.xaxis.set_minor_locator(src_ax.xaxis.get_minor_locator())
-        dst_ax.yaxis.set_minor_locator(src_ax.yaxis.get_minor_locator())
+        
+        # Copy tick label properties (including rotations)
+        # X-axis major ticks
+        src_x_major = src_ax.get_xticklabels()
+        dst_x_major = dst_ax.get_xticklabels()
+        for src_tick, dst_tick in zip(src_x_major, dst_x_major):
+            dst_tick.set_rotation(src_tick.get_rotation())
+            dst_tick.set_horizontalalignment(src_tick.get_horizontalalignment())
+            dst_tick.set_verticalalignment(src_tick.get_verticalalignment())
+            dst_tick.set_fontsize(src_tick.get_fontsize())
+            dst_tick.set_color(src_tick.get_color())
+            dst_tick.set_weight(src_tick.get_weight())
+            dst_tick.set_style(src_tick.get_style())
+        
+        # Y-axis major ticks
+        src_y_major = src_ax.get_yticklabels()
+        dst_y_major = dst_ax.get_yticklabels()
+        for src_tick, dst_tick in zip(src_y_major, dst_y_major):
+            dst_tick.set_rotation(src_tick.get_rotation())
+            dst_tick.set_horizontalalignment(src_tick.get_horizontalalignment())
+            dst_tick.set_verticalalignment(src_tick.get_verticalalignment())
+            dst_tick.set_fontsize(src_tick.get_fontsize())
+            dst_tick.set_color(src_tick.get_color())
+            dst_tick.set_weight(src_tick.get_weight())
+            dst_tick.set_style(src_tick.get_style())
+        
+        # Copy minor tick labels if they exist
+        try:
+            src_x_minor = src_ax.get_xticklabels(minor=True)
+            dst_x_minor = dst_ax.get_xticklabels(minor=True)
+            for src_tick, dst_tick in zip(src_x_minor, dst_x_minor):
+                dst_tick.set_rotation(src_tick.get_rotation())
+                dst_tick.set_horizontalalignment(src_tick.get_horizontalalignment())
+                dst_tick.set_verticalalignment(src_tick.get_verticalalignment())
+                dst_tick.set_fontsize(src_tick.get_fontsize())
+                dst_tick.set_color(src_tick.get_color())
+        except:
+            pass
+            
+        try:
+            src_y_minor = src_ax.get_yticklabels(minor=True)
+            dst_y_minor = dst_ax.get_yticklabels(minor=True)
+            for src_tick, dst_tick in zip(src_y_minor, dst_y_minor):
+                dst_tick.set_rotation(src_tick.get_rotation())
+                dst_tick.set_horizontalalignment(src_tick.get_horizontalalignment())
+                dst_tick.set_verticalalignment(src_tick.get_verticalalignment())
+                dst_tick.set_fontsize(src_tick.get_fontsize())
+                dst_tick.set_color(src_tick.get_color())
+        except:
+            pass
 
     # --- Grid ---
     if with_grid:

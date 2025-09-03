@@ -197,8 +197,8 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         self.errors_plot_axes = axes
         return fig, axes
 
-    def plot_discretized_implied_errors( self, model, X, y, train_df, sample_frac=1, quantile=None, n_bins=20, min_scatter_size=10, max_scatter_size=500, hspace=0.4, vspace=0.3 ):
-
+    def plot_discretized_implied_errors( self, model, X, y, train_df, sample_frac=1, quantile=None, n_bins=20, min_scatter_size=10, max_scatter_size=500, hspace=0.4, vspace=0.3, m_floor=0 ):
+        """Generate discretized implied errors plots for the model. This is used for a binary target specifically"""
         if hasattr( model, 'offset_y') and getattr( model, 'offset_y') is not None:
             y = y + getattr( model, 'offset_y')
 
@@ -229,6 +229,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
 
                 # calculate the implied actual, which is y / prediction from other feature groups
                 other_blocks_preds = model.leave_out_feature_group_predict(feature, train_df_sample)
+                other_blocks_preds = np.maximum( other_blocks_preds, m_floor )  # avoid division by zero
                 implied_actual = y_sample / other_blocks_preds
                 binned_df['implied_actual'] = implied_actual
 
@@ -274,6 +275,66 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         self.errors_plot_axes = axes
         return fig, axes
     
+    def plot_categorical_plots( self, model, X, y, train_df, sample_frac=1, hspace=0.4, vspace=0.3, m_floor=0 ):
+        if hasattr( model, 'offset_y') and getattr( model, 'offset_y') is not None:
+            y = y + getattr( model, 'offset_y')
+
+        n_features = len( self.categorical_feature_groups )
+        fig, axes = get_grid_fig_axes( n_charts=n_features, n_cols=3 )
+        fig.subplots_adjust(hspace=hspace, wspace=0.3)
+        X_sample, y_sample ,train_df_sample = self.sample_data( X, y, train_df, sample_frac )
+
+        for i, (feature, transformer) in enumerate(self.categorical_feature_groups.items()):
+            ax = axes[i]
+            # get the implied actuals
+            other_blocks_preds = model.leave_out_feature_group_predict( feature, train_df_sample )
+            other_blocks_preds = np.maximum( other_blocks_preds, m_floor )
+            implied_actual = y_sample / other_blocks_preds
+
+            # get the feature predictions
+            this_feature_coef = model.coef_blocks[feature]
+            this_feature_preds = train_df_sample[ self.feature_groups_[feature] ] @ this_feature_coef
+
+            binned_df = pd.DataFrame({
+                'feature_bin': X_sample[feature],
+                'implied_actual': implied_actual,
+                'feature_pred': this_feature_preds
+            })
+
+            # aggregate and plot
+            agg_df = binned_df.groupby( 'feature_bin', observed=False ).agg(
+                implied_actual_mean         = ('implied_actual', 'mean'),
+                this_feature_preds_mean     = ('feature_pred', 'mean'),
+                count                       = ('implied_actual', 'count')
+            )
+
+
+            # plot bar chart for each feature bin
+            x = np.arange(len(agg_df.index))  # numeric positions
+            width = 0.35  # width of each bar
+
+            ax.bar(x - width/2, agg_df['implied_actual_mean'], width,
+                label='Impl Act', alpha=0.7, color = EconomistBrandColor.LONDON_70)
+            ax.bar(x + width/2, agg_df['this_feature_preds_mean'], width,
+                label='Pred', alpha=0.7, color = EconomistBrandColor.CHICAGO_55)
+
+            # replace categorical x-labels
+            ax.set_xticks(x)
+            if len( transformer.get_feature_names_out() ) <= 8:
+                ax.set_xticklabels(agg_df.index)
+            elif len( transformer.get_feature_names_out() ) >= 16:
+                ax.set_xticklabels(agg_df.index, rotation=90)
+            else:
+                ax.set_xticklabels(agg_df.index, rotation=45)
+
+            ax.set_xlabel(f'{feature}', fontdict={'fontsize': 12} )
+            ax.set_ylabel('Implied Actual', fontdict={'fontsize': 12} )
+            ax.legend()
+
+        close_unused_axes( axes )
+        self.categorical_plot_axes = axes
+        return fig, axes
+
     def generate_fitting_summary_pdf( self, model, report_name='Model-Report' ):
         pdf_full_path = f"{report_name}-Summary.pdf"
 
@@ -324,15 +385,18 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         doc.build(story)
         return pdf_full_path
 
-    def generate_error_plots_pdf( self, model, report_name='Model-Report' ):
+    def generate_error_plots_pdf( self, report_name='Model-Report' ):
         if not hasattr( self, 'errors_plot_axes' ):
             raise ValueError("No error plots found. Please run implied_errors functions first.")
 
         pdf_full_path = f"{report_name}-Errors.pdf"
 
         chart_pdf = PdfChartReport( pdf_full_path, corner_text=report_name )
-        chart_pdf.new_page( layout=( 3,3 ), suptitle = 'Implied Errors' )
+        chart_pdf.new_page( layout=( 3,3 ), suptitle = 'Numerical - Implied Errors' )
         chart_pdf.add_external_axes( self.errors_plot_axes )
+
+        chart_pdf.new_page( layout=( 2,2 ), suptitle = 'Categorical - Implied Errors' )
+        chart_pdf.add_external_axes( self.categorical_plot_axes )
 
         # Add additional plots if any
         for additional_axes, layout, suptitle in self.additional_plots:
@@ -347,13 +411,14 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         self.additional_plots.append( ( axes, layout, suptitle ) )
 
     def generate_full_report_pdf( self, model, report_name='Model-Report' ):
+        """Generate a full report PDF including fitting summary and error plots."""
         if not hasattr( self, 'errors_plot_axes' ):
             raise ValueError("No error plots found. Please run implied_errors functions first.")
 
         pdf_full_path = f"{report_name}-Full.pdf"
 
         pdf1 = self.generate_fitting_summary_pdf( model, report_name=report_name )
-        pdf2 = self.generate_error_plots_pdf( model, report_name=report_name )
+        pdf2 = self.generate_error_plots_pdf( report_name=report_name )
             
         merged_pdf_path = merge_pdfs([pdf1, pdf2], pdf_full_path)
 
