@@ -403,26 +403,28 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         doc.build(story)
         return pdf_full_path
 
-    def generate_error_plots_pdf( self, report_name='Model-Report' ):
+    def generate_plots_pdf( self, report_name='Model-Report' ):
         if not hasattr( self, 'errors_plot_axes' ):
             raise ValueError("No error plots found. Please run implied_errors functions first.")
 
         pdf_full_path = f"{report_name}-Errors.pdf"
 
+        # step 1: add numerical implied errors plots
         chart_pdf = PdfChartReport( pdf_full_path, corner_text=report_name )
         chart_pdf.new_page( layout=( 3,3 ), suptitle = 'Numerical - Implied Errors' )
         chart_pdf.add_external_axes( self.errors_plot_axes )
 
+        # step 2: add categorical error plots
         chart_pdf.new_page( layout=( 2,2 ), suptitle = 'Categorical - Implied Errors' )
         chart_pdf.add_external_axes( self.categorical_plot_axes )
 
-        # Add additional plots if any
+        # Add additional plots
         for additional_axes, layout, suptitle in self.additional_plots:
             chart_pdf.new_page( layout=layout, suptitle=suptitle )
             chart_pdf.add_external_axes( additional_axes )
 
         chart_pdf.save()
-
+        
         return pdf_full_path
     
     def add_additional_plots( self, axes, layout=(2, 2), suptitle=None ):
@@ -436,7 +438,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         pdf_full_path = f"{report_name}-Full.pdf"
 
         pdf1 = self.generate_fitting_summary_pdf( model, report_name=report_name )
-        pdf2 = self.generate_error_plots_pdf( report_name=report_name )
+        pdf2 = self.generate_plots_pdf( report_name=report_name )
             
         merged_pdf_path = merge_pdfs([pdf1, pdf2], pdf_full_path)
 
