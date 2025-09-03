@@ -201,7 +201,7 @@ class LinearProductClassifierBCD( LinearProductClassifierBase, LinearProductMode
             predictions = self.forward(params_blocks, data_blocks)
             loss = self.loss_function(predictions, y)
             self.loss_history_.append(loss)
-            self.params_history_.append( copy.deepcopy(params_blocks) )
+            self.coef_history_.append( copy.deepcopy(params_blocks) )
             self.global_scalar_history_.append(self.global_scalar_)
             
             # track the best parameters

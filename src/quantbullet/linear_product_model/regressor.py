@@ -68,11 +68,11 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
                 params_blocks[feature_group] = floating_params
               
             # track the training progress  
-            predictions = self.forward(params_blocks, data_blocks)
-            loss = self.loss_function(predictions, y)
-            self.loss_history_.append(loss)
-            self.params_history_.append(  copy.deepcopy(params_blocks) )
-            self.global_scalar_history_.append(self.global_scalar_)
+            predictions = self.forward( params_blocks, data_blocks )
+            loss = self.loss_function( predictions, y )
+            self.loss_history_.append( loss )
+            self.coef_history_.append( copy.deepcopy(params_blocks) )
+            self.global_scalar_history_.append( self.global_scalar_ )
             
             # track the best parameters
             if loss < self.best_loss_:
@@ -89,8 +89,8 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
                     print(f"Early stopping at iteration {i+1} with Loss: {loss:.4e}")
                     break
                 
-            if ftol is not None and len(self.loss_history_) >= 2:
-                if abs(self.loss_history_[-1] / self.loss_history_[-2]) > 1 - ftol:
+            if ftol is not None and len(self.loss_history_) >= 5:
+                if abs(self.loss_history_[-1] / self.loss_history_[-5]) > 1 - ftol:
                     print(f"Converged at iteration {i+1} with Loss: {loss:.4e}")
                     break
                 

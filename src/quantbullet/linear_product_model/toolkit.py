@@ -13,6 +13,7 @@ from sklearn.preprocessing import OneHotEncoder
 from reportlab.platypus import Table, TableStyle
 from reportlab.lib import colors
 from typing import List, Optional, Tuple
+from dataclasses import dataclass
 
 # Local application/library imports
 from quantbullet.plot.utils import get_grid_fig_axes, close_unused_axes, scale_scatter_sizes
@@ -22,6 +23,19 @@ from quantbullet.dfutils import get_bins_and_labels
 from quantbullet.reporting import AdobeSourceFontStyles, PdfChartReport
 from quantbullet.reporting.utils import register_fonts_from_package, merge_pdfs
 from quantbullet.reporting.formatters import numberarray2string
+
+@dataclass
+class SingleFeatureGroupFitData:
+    """Holds the fit data for a single feature group.
+    
+    m: a vector that holds the predictions from all other feature groups (normalized at 1)
+    """
+    scalar  : np.float64
+    m       : np.array
+    X       : np.array
+    y       : np.array
+    X_pred  : np.array
+
 
 class LinearProductModelReportMixin:
     @property
@@ -530,3 +544,10 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         os.remove( pdf1 )
         os.remove( pdf2 )
         return merged_pdf_path
+    
+    def extract_single_feature_group_fit_data( self, X, y, train_df, model, feature_group_name ):
+        s = model.global_scalar_
+        m = model.leave_out_feature_group_predict( feature_group_name, train_df, ignore_global_scale=True )
+        X = train_df[ self.feature_groups_[ feature_group_name ] ]
+        X_pred = model.single_feature_group_predict( feature_group_name, train_df, ignore_global_scale=True )
+        return SingleFeatureGroupFitData( y=y, scalar=s, m=m, X=X, X_pred=X_pred )

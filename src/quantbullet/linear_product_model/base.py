@@ -43,7 +43,7 @@ class LinearProductModelBCD(ABC):
         self._reset_history()
 
     def _reset_history( self, cache_qr_decomp=False ):
-        self.params_history_ = []
+        self.coef_history_ = []
         self.coef_ = None
         self.loss_history_ = []
         self.best_loss_ = float('inf')
@@ -239,7 +239,7 @@ class LinearProductModelBase(ABC):
         
         return { key: X[feature_groups[key]].values for key in feature_groups }
 
-    def leave_out_feature_group_predict(self, group_to_exclude, X, params_dict = None):
+    def leave_out_feature_group_predict( self, group_to_exclude, X, params_dict = None, ignore_global_scale=False ):
         """Predict all other feature groups except the one specified. Note that this includes the global scalar"""
         if params_dict is None:
             params_dict = self.coef_dict
@@ -256,10 +256,10 @@ class LinearProductModelBase(ABC):
         X_blocks = self.get_X_blocks( X, keep_feature_groups )
         params_blocks = self.coef_dict_to_blocks( keep_params_dict )
 
-        preds = self.forward(params_blocks, X_blocks, ignore_global_scale=False)
+        preds = self.forward( params_blocks, X_blocks, ignore_global_scale=ignore_global_scale )
         return preds
     
-    def single_feature_group_predict(self, group_to_include, X, params_dict = None):
+    def single_feature_group_predict(self, group_to_include, X, params_dict = None, ignore_global_scale=True):
         """Predict only the specified feature group. Note that this excludes the global scalar"""
         if not group_to_include in self.feature_groups_:
             raise ValueError(f"Feature group '{group_to_include}' not found in feature_groups_.")
@@ -273,7 +273,7 @@ class LinearProductModelBase(ABC):
         X_blocks = self.get_X_blocks( X, include_feature_groups )
         params_blocks = self.coef_dict_to_blocks( include_params_dict )
 
-        preds = self.forward(params_blocks, X_blocks, ignore_global_scale=True)
+        preds = self.forward(params_blocks, X_blocks, ignore_global_scale=ignore_global_scale)
         return preds
     
     @abstractmethod
