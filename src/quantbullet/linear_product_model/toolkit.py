@@ -144,11 +144,27 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         plt.tight_layout()
         plt.show()
 
-    def sample_data( self, X, y, train_df, sample_frac ):
-        sample_mask = np.random.rand( len( X ) ) <= sample_frac
-        return X[ sample_mask ], y[ sample_mask ], train_df[ sample_mask ]
+    def sample_data( self, sample_frac, *args, seed=42 ):
+        """Randomly subsample multiple arrays/dataframes with the same mask."""
+        if not 0 <= sample_frac <= 1:
+            raise ValueError("sample_frac must be between 0 and 1")
+
+        lengths = [len(arg) for arg in args]
+        if len(set(lengths)) != 1:
+            raise ValueError(f"All arguments must have the same length, got {lengths}")
+
+        if seed is not None:
+            rng = np.random.RandomState(seed)
+        else:
+            rng = np.random
+
+        n = lengths[0]
+        sample_mask = rng.rand(n) <= sample_frac
+
+        return tuple(arg[sample_mask] for arg in args)
     
     def get_feature_grid_and_predictions( self, feature_series, transformer, model, n_points=200 ):
+        """Get a grid of feature values and the corresponding model predictions for that feature."""
         x_min, x_max = feature_series.min(), feature_series.max()
         x_grid = np.linspace(x_min, x_max, n_points).reshape(-1, 1)
         transformed_x_grid = transformer.transform(x_grid)
