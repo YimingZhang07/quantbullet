@@ -2,7 +2,8 @@ import keyword
 import warnings
 from enum import Enum
 from types import SimpleNamespace
-from dataclasses import dataclass
+from typing import Any, Dict
+from dataclasses import dataclass, field
 from quantbullet.core.enums import DataType
     
 class FeatureRole(Enum):
@@ -17,6 +18,7 @@ class Feature:
     name    : str
     dtype   : DataType
     role    : FeatureRole
+    specs   : Dict[str, Any] = field(default_factory=dict)
 
 class FeatureSpec:
     def __init__(self, features: list[Feature]):

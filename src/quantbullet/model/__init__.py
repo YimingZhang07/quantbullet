@@ -5,11 +5,12 @@ from ..core.enums import DataType
 from .core import Model
 
 _lazy_by_module = {
-    ".linear_model"             : ["ols_regression", "wls_regression"],
-    ".consts"                   : ["ModelMetricsConsts"],
-    ".time_weighted_xgboost"    : ["TimeWeightedXGBRegressor"],
-    ".neighbors"                : ["FeatureScaledKNNRegressor"],
-    ".constrained_regression"   : ["ConstrainedLinearRegressor"],
+    ".linear_model"             : [ "ols_regression", "wls_regression" ],
+    ".consts"                   : [ "ModelMetricsConsts" ],
+    ".time_weighted_xgboost"    : [ "TimeWeightedXGBRegressor" ],
+    ".neighbors"                : [ "FeatureScaledKNNRegressor" ],
+    ".constrained_regression"   : [ "ConstrainedLinearRegressor" ],
+    ".gam"                      : [ "WrapperGAM" ]
 }
 
 _lazy_map = {
@@ -37,3 +38,4 @@ if TYPE_CHECKING:
     from .time_weighted_xgboost import TimeWeightedXGBRegressor
     from .neighbors import FeatureScaledKNNRegressor
     from .constrained_regression import ConstrainedLinearRegressor
+    from .gam import WrapperGAM
