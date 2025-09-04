@@ -68,8 +68,8 @@ class WrapperGAM:
     def __repr__(self):
         return f"WrapperGAM( { self.gam_ } )"
     
-    def plot_partial_dependence( self ):
-        fig, axes=  get_grid_fig_axes( n_charts= len( self.feature_spec.x ), n_cols=3 )
+    def plot_partial_dependence( self, n_cols=3, suptitle=None ):
+        fig, axes=  get_grid_fig_axes( n_charts= len( self.feature_spec.x ), n_cols=n_cols )
         for i, feature_name in enumerate( self.feature_spec.x ):
             ax = axes[ i ]
             x_grid = self.gam_.generate_X_grid( term=i )
@@ -78,8 +78,11 @@ class WrapperGAM:
             ax.plot( x_grid[ :, i ], confi, linestyle='--', color='gray' )
             ax.set_xlabel( f"{ feature_name }", fontdict={ 'fontsize': 12 } )
             ax.set_ylabel( 'Partial Dependence', fontdict={ 'fontsize': 12 } )
+        if suptitle:
+            plt.suptitle( suptitle, fontsize=14 )
         plt.tight_layout()
         plt.show()
+        return fig, axes
 
     def __getattr__(self, name):
         """Delegate attribute/method access to the underlying GAM model"""
