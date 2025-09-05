@@ -13,3 +13,7 @@ ReportLab native support fonts are:
 - Times-Italic
 - Times-BoldItalic
 """
+
+class PdfTextReport:
+    def __init__( self, file_path: str, layout=str, report_title=None ):
+        pass
