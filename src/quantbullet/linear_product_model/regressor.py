@@ -101,8 +101,8 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
         # NOTE The optimal loss does not indicate that the model converges. we care more about the shape of the curves after convergence
         # it could happen that the first few iterations yield the best loss, but we really care the last few stable results.
         self.coef_ = copy.deepcopy( self.coef_history_[ -1 ] )
-        self.global_scalar_ = self.global_scalar_history_[ self.global_scalar_history_[ -1 ] ]
-        
+        self.global_scalar_ = self.global_scalar_history_[ -1 ]
+
         # archive the mean of each block's predictions
         for key in feature_groups:
             block_params = self.coef_[key]
