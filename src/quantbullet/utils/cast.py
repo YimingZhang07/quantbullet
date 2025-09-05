@@ -23,13 +23,17 @@ def to_date(input_date):
     ValueError
         If the input cannot be parsed into a date.
     """
-    formats = ["%Y-%m-%d", "%Y%m%d"]
+
+    if isinstance(input_date, np.datetime64):
+        input_date = pd.Timestamp(input_date)
 
     if isinstance(input_date, datetime.date) and not isinstance(input_date, datetime.datetime):
         return input_date
 
     if isinstance(input_date, (datetime.datetime, pd.Timestamp)):
         return input_date.date()
+
+    formats = ["%Y-%m-%d", "%Y%m%d"]
 
     if isinstance(input_date, str):
         for fmt in formats:
@@ -39,8 +43,31 @@ def to_date(input_date):
                 continue
 
     raise ValueError(
-        f"Unsupported date format or type: {input_date} (expected formats: {formats})"
+        f"Unsupported date format or type: {input_date} (type: {type(input_date).__name__})"
     )
+
+def to_date_str(input_date, format="%Y%m%d"):
+    """
+    Convert various date-like inputs into a string representation.
+
+    Parameters
+    ----------
+    input_date : str | datetime.date | datetime.datetime | pd.Timestamp
+        Input date in different formats.
+    format : str, optional
+        The format string to use for the output date. Defaults to "%Y-%m-%d".
+
+    Returns
+    -------
+    str
+
+    Raises
+    ------
+    ValueError
+        If the input cannot be parsed into a date.
+    """
+    date_obj = to_date(input_date)
+    return date_obj.strftime(format)
 
 def df_columns_to_tuples(*args: pd.Series) -> list[tuple]:
     """

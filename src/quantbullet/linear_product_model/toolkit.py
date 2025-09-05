@@ -24,19 +24,6 @@ from quantbullet.reporting import AdobeSourceFontStyles, PdfChartReport
 from quantbullet.reporting.utils import register_fonts_from_package, merge_pdfs
 from quantbullet.reporting.formatters import numberarray2string
 
-@dataclass
-class SingleFeatureGroupFitData:
-    """Holds the fit data for a single feature group.
-    
-    m: a vector that holds the predictions from all other feature groups (normalized at 1)
-    """
-    scalar  : np.float64
-    m       : np.array
-    X       : np.array
-    y       : np.array
-    X_pred  : np.array
-
-
 class LinearProductModelReportMixin:
     @property
     def fit_summary_table_style( self ):
@@ -331,20 +318,39 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         return fig, axes
 
     def _create_bins(self, feature_series: pd.Series, n_quantile_groups: Optional[int], n_bins: int) -> Tuple[pd.DataFrame, List[float]]:
-        """Create binned dataframe with feature bins and return cutoff values."""
-        binned_df = pd.DataFrame({'feature': feature_series})
+        """Create binned dataframe based on a feature series.
+        
+        Parameters
+        ----------
+        feature_series : pd.Series
+            The feature series to bin.
+        n_quantile_groups : int, optional
+            The number of quantile groups to create.
+        n_bins : int
+            The number of bins to create if not using quantiles.
+
+        Returns
+        -------
+        pd.DataFrame
+            The binned dataframe with feature bins and cutoff values.
+            Columns include:
+              - feature: The original feature values.
+              - feature_bin: The binned feature values.
+              - cutoff_values_right: The right edges of the bins.
+        """
+        binned_df = pd.DataFrame( { 'feature': feature_series } )
         
         if n_quantile_groups is not None:
-            binned_df['feature_bin'] = pd.qcut(feature_series, n_quantile_groups, duplicates='drop')
-            cutoff_values_right = [interval.right for interval in binned_df['feature_bin'].cat.categories]
+            binned_df[ 'feature_bin' ] = pd.qcut( feature_series, n_quantile_groups, duplicates='drop' )
+            cutoff_values_right = [ interval.right for interval in binned_df[ 'feature_bin' ].cat.categories ]
         else:
             # Equal-width bins
-            cutoff_values = list(np.linspace(feature_series.min(), feature_series.max(), n_bins + 1))
-            cutoff_values = cutoff_values[1:-1]  # Remove first and last to avoid -inf/inf bins
+            cutoff_values = list( np.linspace( feature_series.min(), feature_series.max(), n_bins + 1 ) )
+            cutoff_values = cutoff_values[ 1:-1 ]  # Remove first and last to avoid -inf/inf bins
             
-            bins, labels = get_bins_and_labels(cutoffs=cutoff_values, decimal_places=4)
-            binned_df['feature_bin'] = pd.cut(binned_df['feature'], bins=bins, labels=labels)
-            cutoff_values_right = cutoff_values + [feature_series.max()]
+            bins, labels = get_bins_and_labels( cutoffs=cutoff_values, decimal_places=4 )
+            binned_df['feature_bin'] = pd.cut( binned_df[ 'feature' ], bins=bins, labels=labels )
+            cutoff_values_right = cutoff_values + [ feature_series.max() ]
         
         return binned_df, cutoff_values_right
 
@@ -391,7 +397,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         agg_df['feature_bin_right'] = cutoff_values_right
         return agg_df
     
-    def plot_categorical_plots( self, model, X, y, train_df, sample_frac=1, hspace=0.4, vspace=0.3, m_floor=0 ):
+    def plot_categorical_plots( self, model, X, y, train_df, sample_frac=1, hspace=0.4, vspace=0.3, m_floor=0, method:str='bin' ):
         if hasattr( model, 'offset_y') and getattr( model, 'offset_y') is not None:
             y = y + getattr( model, 'offset_y')
 
@@ -402,28 +408,45 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
 
         for i, (feature, transformer) in enumerate(self.categorical_feature_groups.items()):
             ax = axes[i]
-            # get the implied actuals
             other_blocks_preds = model.leave_out_feature_group_predict( feature, train_df_sample )
             other_blocks_preds = np.maximum( other_blocks_preds, m_floor )
-            implied_actual = y_sample / other_blocks_preds
-
-            # get the feature predictions
             this_feature_coef = model.coef_blocks[feature]
             this_feature_preds = train_df_sample[ self.feature_groups_[feature] ] @ this_feature_coef
 
             binned_df = pd.DataFrame({
                 'feature_bin': X_sample[feature],
-                'implied_actual': implied_actual,
                 'feature_pred': this_feature_preds
             })
 
-            # aggregate and plot
-            agg_df = binned_df.groupby( 'feature_bin', observed=False ).agg(
-                implied_actual_mean         = ('implied_actual', 'mean'),
-                this_feature_preds_mean     = ('feature_pred', 'mean'),
-                count                       = ('implied_actual', 'count')
-            )
+            if method == 'avg':
+                implied_actual = y_sample / other_blocks_preds
+                binned_df['implied_actual'] = implied_actual
+                agg_df = binned_df.groupby( 'feature_bin', observed=False ).agg(
+                    implied_actual_mean         = ('implied_actual', 'mean'),
+                    this_feature_preds_mean     = ('feature_pred', 'mean'),
+                    count                       = ('implied_actual', 'count')
+                )
+            elif method == 'bin':
+                records = []
+                for bin_category in binned_df['feature_bin'].cat.categories:
+                    bin_mask = binned_df['feature_bin'] == bin_category
+                    sum_y = np.sum(y_sample[bin_mask])
+                    sum_m = np.sum(other_blocks_preds[bin_mask])
 
+                    implied_actual = 0 if np.isclose(sum_m, 0) else sum_y / sum_m
+                    count = np.sum(bin_mask)
+
+                    this_feature_preds_mean = binned_df.loc[ bin_mask, 'feature_pred' ].mean()
+
+                    records.append((bin_category, implied_actual, count, this_feature_preds_mean))
+
+                agg_df = pd.DataFrame.from_records(
+                    records,
+                    columns=['feature_bin', 'implied_actual_mean', 'count', 'this_feature_preds_mean']
+                )
+                agg_df.set_index('feature_bin', inplace=True)
+            else:
+                raise ValueError(f"Unknown method: {method}")
 
             # plot bar chart for each feature bin
             x = np.arange(len(agg_df.index))  # numeric positions
@@ -546,8 +569,37 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         return merged_pdf_path
     
     def extract_single_feature_group_fit_data( self, X, y, train_df, model, feature_group_name ):
+        """Extract data related to a single feature group for detailed analysis.
+        
+        Parameters
+        ----------
+        X : pd.DataFrame
+            The original feature matrix.
+        y : pd.Series
+            The target variable.
+        train_df : pd.DataFrame
+            The expanded training data from the original dataset X; after the feature engineering steps.
+        model : BaseModel
+            The trained model.
+        feature_group_name : str
+            The name of the feature group to analyze.
+
+        Returns
+        -------
+        pd.DataFrame
+            A DataFrame containing the extracted data for the specified feature group.
+        """
         s = model.global_scalar_
         m = model.leave_out_feature_group_predict( feature_group_name, train_df, ignore_global_scale=True )
-        X = train_df[ self.feature_groups_[ feature_group_name ] ]
+        train_features = train_df[ self.feature_groups_[ feature_group_name ] ]
         X_pred = model.single_feature_group_predict( feature_group_name, train_df, ignore_global_scale=True )
-        return SingleFeatureGroupFitData( y=y, scalar=s, m=m, X=X, X_pred=X_pred )
+        # return a DataFrame with the relevant columns
+        result_df = train_features.copy()
+        result_df[ 'y' ] = y
+        result_df[ 'global_scalar' ] = s
+        result_df[ 'other_blocks_pred' ] = m
+        result_df[ 'other_blocks_pred_scaled' ] = m * s
+        result_df[ 'feature_pred' ] = X_pred
+        result_df[ 'full_pred' ] = result_df[ 'other_blocks_pred_scaled' ] * result_df[ 'feature_pred' ]
+        result_df[f"{feature_group_name}"] = X[ feature_group_name ].values  # add back original feature values
+        return result_df

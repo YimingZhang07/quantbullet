@@ -13,7 +13,7 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
         return np.mean((y - y_hat) ** 2)
 
     @memorize_fit_args
-    def fit( self, X, y, feature_groups, init_params=None, early_stopping_rounds=5, n_iterations=20, verbose=1, cache_qr_decomp=False, ftol=1e-5, offset_y = None ):
+    def fit( self, X, y, feature_groups, init_params=None, early_stopping_rounds=5, n_iterations=20, force_rounds=5, verbose=1, cache_qr_decomp=False, ftol=1e-5, offset_y = None ):
         self._reset_history( cache_qr_decomp=cache_qr_decomp )
         self.feature_groups_ = feature_groups
         data_blocks = { key: X[feature_groups[key]].values for key in feature_groups }
@@ -75,14 +75,18 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
             self.global_scalar_history_.append( self.global_scalar_ )
             
             # track the best parameters
-            if loss < self.best_loss_:
+            if loss <= self.best_loss_:
                 self.best_loss_ = loss
                 self.best_params_ = copy.deepcopy(params_blocks)
                 self.best_iteration_ = i
             
             if verbose > 0:
-                print(f"Iteration {i+1}/{n_iterations}, Loss: {loss:.4e}")
-            
+                print(f"Iteration {i+1}/{n_iterations}, Loss: {loss:.6e}")
+
+            # don't check for early stopping if we're forcing a certain number of rounds
+            if force_rounds is not None and i + 1 < force_rounds:
+                continue
+
             # add the early stopping condition
             if early_stopping_rounds is not None and len(self.loss_history_) > early_stopping_rounds:
                 if self.loss_history_[-1] >= self.loss_history_[-early_stopping_rounds]:
@@ -94,8 +98,10 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
                     print(f"Converged at iteration {i+1} with Loss: {loss:.4e}")
                     break
                 
-        self.coef_ = copy.deepcopy(self.best_params_)
-        self.global_scalar_ = self.global_scalar_history_[self.best_iteration_]
+        # NOTE The optimal loss does not indicate that the model converges. we care more about the shape of the curves after convergence
+        # it could happen that the first few iterations yield the best loss, but we really care the last few stable results.
+        self.coef_ = copy.deepcopy( self.coef_history_[ -1 ] )
+        self.global_scalar_ = self.global_scalar_history_[ self.global_scalar_history_[ -1 ] ]
         
         # archive the mean of each block's predictions
         for key in feature_groups:
