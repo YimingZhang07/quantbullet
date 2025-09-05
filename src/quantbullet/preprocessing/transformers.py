@@ -6,11 +6,26 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from quantbullet.dfutils import get_bins_and_labels
 
 class FlatRampTransformer(BaseEstimator, TransformerMixin):
-    def __init__(self, knots, include_bias=False):
+    def __init__(self, knots, include_bias=False, dummy_segments=None, keep_ramp_for_dummies=False):
         self.knots = np.asarray(knots)
         if not np.all(np.diff(self.knots) > 0):
             raise ValueError("Knots must be strictly increasing.")
         self.include_bias = include_bias
+        self.dummy_segments = dummy_segments or []
+        self.keep_ramp_for_dummies = keep_ramp_for_dummies
+        
+    def _normalize_segment_indices(self, indices):
+        """Convert dummy segment indices (with negatives) to 0..n_pieces-1."""
+        if not indices:
+            return set()
+        normalized = set()
+        for idx in indices:
+            if idx < 0:
+                idx = self.n_pieces_ + idx  # convert negative
+            if idx < 0 or idx >= self.n_pieces_:
+                raise ValueError(f"dummy_segments index {idx} out of range 0..{self.n_pieces_-1}")
+            normalized.add(idx)
+        return normalized
 
     def fit(self, X, y=None):
         # accept pandas Series or 1-column DataFrame
@@ -40,19 +55,45 @@ class FlatRampTransformer(BaseEstimator, TransformerMixin):
             )
 
         self.n_features_in_ = 1
-
-        # pre-compute names once
+        self.n_pieces_ = len(self.knots) + 1
+        self.dummy_segments_ = self._normalize_segment_indices(self.dummy_segments)
+        
+        fname = self.feature_names_in_[0]
         names = []
-        if self.include_bias:
-            names.append(f"{self.feature_names_in_[0]}_bias")
-        a = self.numeric_to_string(self.knots[0])
-        names.append(f"{self.feature_names_in_[0]}_le_{a}")
-        for a, b in zip(self.knots[:-1], self.knots[1:]):
-            names.append(f"{self.feature_names_in_[0]}_{self.numeric_to_string(a)}_{self.numeric_to_string(b)}")
-        b = self.numeric_to_string(self.knots[-1])
-        names.append(f"{self.feature_names_in_[0]}_gt_{b}")
-        self.feature_names_out_ = np.array(names, dtype=object)
 
+        if self.include_bias:
+            names.append(f"{fname}_bias")
+
+        # leftmost piece (index 0)
+        a = self.numeric_to_string(self.knots[0])
+        if 0 in self.dummy_segments_:
+            if self.keep_ramp_for_dummies:
+                names.append(f"{fname}_le_{a}")
+            names.append(f"{fname}_le_{a}_d")
+        else:
+            names.append(f"{fname}_le_{a}")
+
+        # middle pieces (1..n_knots-1)
+        for seg_idx, (a, b) in enumerate(zip(self.knots[:-1], self.knots[1:]), start=1):
+            sa, sb = self.numeric_to_string(a), self.numeric_to_string(b)
+            if seg_idx in self.dummy_segments_:
+                if self.keep_ramp_for_dummies:
+                    names.append(f"{fname}_in_{sa}_{sb}")
+                names.append(f"{fname}_in_{sa}_{sb}_d")
+            else:
+                names.append(f"{fname}_{sa}_{sb}")
+
+        # rightmost piece (last index)
+        last_idx = self.n_pieces_ - 1
+        b = self.numeric_to_string(self.knots[-1])
+        if last_idx in self.dummy_segments_:
+            if self.keep_ramp_for_dummies:
+                names.append(f"{fname}_gt_{b}")
+            names.append(f"{fname}_gt_{b}_d")
+        else:
+            names.append(f"{fname}_gt_{b}")
+
+        self.feature_names_out_ = np.array(names, dtype=object)
         return self
     
     @staticmethod
@@ -91,7 +132,6 @@ class FlatRampTransformer(BaseEstimator, TransformerMixin):
             X = check_array(X, ensure_2d=True, dtype=float)
 
         x = X.ravel()
-
         basis = []
 
         if self.include_bias:
@@ -99,16 +139,32 @@ class FlatRampTransformer(BaseEstimator, TransformerMixin):
 
         # leftmost (upper cap)
         a = self.knots[0]
-        basis.append(np.clip(x, None, a))  # cap above a
+        if 0 in self.dummy_segments_:
+            if self.keep_ramp_for_dummies:
+                basis.append(np.clip(x, None, a))
+            basis.append((x <= a).astype(float))
+        else:
+            basis.append(np.clip(x, None, a))
 
-        # middle segments
-        for a, b in zip(self.knots[:-1], self.knots[1:]):
-            basis.append(np.clip(x, a, b))
+        # middle pieces
+        for seg_idx, (a, b) in enumerate(zip(self.knots[:-1], self.knots[1:]), start=1):
+            if seg_idx in self.dummy_segments_:
+                if self.keep_ramp_for_dummies:
+                    basis.append(np.clip(x, a, b))
+                basis.append(((x >= a) & (x < b)).astype(float))
+            else:
+                basis.append(np.clip(x, a, b))
 
-        # rightmost (lower floor)
+        # rightmost piece
+        last_idx = self.n_pieces_ - 1
         b = self.knots[-1]
-        basis.append(np.clip(x, b, None))  # floor at b
-        
+        if last_idx in self.dummy_segments_:
+            if self.keep_ramp_for_dummies:
+                basis.append(np.clip(x, b, None))
+            basis.append((x >= b).astype(float))
+        else:
+            basis.append(np.clip(x, b, None))
+
         return np.column_stack(basis)
 
     def get_feature_names_out(self, input_features=None):
