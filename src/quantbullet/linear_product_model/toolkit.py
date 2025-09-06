@@ -222,7 +222,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
 
         close_unused_axes( axes )
         plt.tight_layout()
-        self.errors_plot_axes = axes
+        self.implied_actual_plot_axes = axes
         return fig, axes
 
     def plot_discretized_implied_errors(
@@ -263,8 +263,8 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         X_sample, y_sample, train_df_sample = self.sample_data(sample_frac, X, y, train_df)
         
         # Process each feature and create plotting caches
-        PlottingDataCache = namedtuple('PlottingDataCache', ['feature', 'agg_df', 'x_grid', 'this_feature_preds'])
-        plotting_data_caches = []
+        ImpliedActualDataCache = namedtuple('ImpliedActualDataCache', ['feature', 'agg_df', 'x_grid', 'this_feature_preds'])
+        data_caches = {}
         
         for feature, transformer in self.numerical_feature_groups.items():
             if isinstance(transformer, FlatRampTransformer):
@@ -324,8 +324,9 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
             ax.set_ylabel('Implied Actual', fontdict={'fontsize': 12})
         
         close_unused_axes(axes)
-        self.errors_plot_axes = axes
-        return fig, axes
+        self.implied_actual_plot_axes = axes
+        self.implied_actual_data_caches = data_caches
+        return fig, axes, data_caches
 
     def _create_bins(self, feature_series: pd.Series, n_quantile_groups: Optional[int], n_bins: int) -> Tuple[pd.DataFrame, List[float]]:
         """Create binned dataframe based on a feature series.
@@ -535,7 +536,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         return pdf_full_path
 
     def generate_plots_pdf( self, report_name='Model-Report' ):
-        if not hasattr( self, 'errors_plot_axes' ):
+        if not hasattr( self, 'implied_actual_axes' ):
             raise ValueError("No error plots found. Please run implied_errors functions first.")
 
         pdf_full_path = f"{report_name}-Errors.pdf"
@@ -543,7 +544,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         # step 1: add numerical implied errors plots
         chart_pdf = PdfChartReport( pdf_full_path, corner_text=report_name )
         chart_pdf.new_page( layout=( 3,3 ), suptitle = 'Numerical - Implied Errors' )
-        chart_pdf.add_external_axes( self.errors_plot_axes )
+        chart_pdf.add_external_axes( self.implied_actual_axes )
 
         # step 2: add categorical error plots
         chart_pdf.new_page( layout=( 2,2 ), suptitle = 'Categorical - Implied Errors' )
@@ -563,7 +564,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
 
     def generate_full_report_pdf( self, model, report_name='Model-Report' ):
         """Generate a full report PDF including fitting summary and error plots."""
-        if not hasattr( self, 'errors_plot_axes' ):
+        if not hasattr( self, 'implied_actual_axes' ):
             raise ValueError("No error plots found. Please run implied_errors functions first.")
 
         pdf_full_path = f"{report_name}-Full.pdf"
