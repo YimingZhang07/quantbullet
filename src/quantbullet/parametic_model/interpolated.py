@@ -29,6 +29,10 @@ class InterpolatedModel:
                                  fill_value=(self.y_grid[0], self.y_grid[-1]), 
                                  bounds_error=False)
 
+    @property
+    def model_name(self):
+        return "InterpolatedModel"
+
     @classmethod
     def from_model(cls, model, x_min, x_max, n_points=200, **kwargs):
         x_grid = np.linspace(x_min, x_max, n_points)

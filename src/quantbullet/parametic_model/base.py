@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 from abc import ABC, abstractmethod
 
@@ -68,3 +69,9 @@ class ParametricModel(ABC):
 
     def __repr__(self):
         return f"{self.model_name}({self.params_dict})"
+
+    def plot_data_and_model(self, x, y, **kwargs):
+        fig, ax = plt.subplots()
+        ax.plot(x, y, **kwargs)
+        ax.plot(x, self.predict(x), **kwargs)
+        return fig, ax
