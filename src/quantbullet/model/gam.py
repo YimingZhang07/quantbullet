@@ -81,7 +81,6 @@ class WrapperGAM:
         if suptitle:
             plt.suptitle( suptitle, fontsize=14 )
         plt.tight_layout()
-        plt.show()
         return fig, axes
 
     def __getattr__(self, name):
