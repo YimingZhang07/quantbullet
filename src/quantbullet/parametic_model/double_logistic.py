@@ -2,12 +2,10 @@ from .base import ParametricModel
 import numpy as np
 
 class DoubleLogisticModel( ParametricModel ):
+    default_model_name = "DoubleLogisticModel"
+    
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
-    @property
-    def model_name(self):
-        return "DoubleLogisticModel"
 
     def func_with_kwargs( self, x, **params_dict ):
         """

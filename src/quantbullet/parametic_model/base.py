@@ -4,8 +4,12 @@ from scipy.optimize import curve_fit
 from abc import ABC, abstractmethod
 
 class ParametricModel(ABC):
-    __slots__ = ['params_dict', 'allow_extrapolation', 'left_bound_', 'right_bound_']
-    def __init__(self, params_dict=None, allow_extrapolation=False):
+    __slots__ = ['params_dict', 'allow_extrapolation', 'left_bound_', 'right_bound_', '_model_name']
+
+    # Default model name; subclasses should override
+    default_model_name = "ParametricModel"
+
+    def __init__(self, params_dict=None, allow_extrapolation=False, model_name=None):
         """
         Parameters
         ----------
@@ -13,11 +17,15 @@ class ParametricModel(ABC):
             The function to fit.
         params : dict
             The parameters of the function.
+        model_name : str | None
+            Optional custom model name. If None, falls back to class default.
         """
         self.params_dict = params_dict
         self.allow_extrapolation = allow_extrapolation
         self.left_bound_ = None
         self.right_bound_ = None
+        # Allow instance-level override of model name; None means use default
+        self._model_name = model_name
         
     def fit(self, x, y, p0=None, bounds=(-np.inf, np.inf), weights=None):
 
@@ -37,9 +45,12 @@ class ParametricModel(ABC):
         return self.func_with_kwargs(x, **self.params_dict)
 
     @property
-    @abstractmethod
     def model_name(self):
-        pass
+        return self._model_name if self._model_name is not None else self.default_model_name
+
+    @model_name.setter
+    def model_name(self, value):
+        self._model_name = value
 
     @abstractmethod
     def func_with_kwargs( self, x, **kwargs ):
@@ -61,7 +72,8 @@ class ParametricModel(ABC):
         # Extract constructor parameters
         constructor_params = {
             'params_dict': data_dict.get('params_dict'),
-            'allow_extrapolation': data_dict.get('allow_extrapolation', False)
+            'allow_extrapolation': data_dict.get('allow_extrapolation', False),
+            'model_name': data_dict.get('model_name', data_dict.get('_model_name'))
         }
         
         # Create instance
@@ -72,6 +84,11 @@ class ParametricModel(ABC):
             instance.left_bound_ = data_dict['left_bound_']
         if 'right_bound_' in data_dict:
             instance.right_bound_ = data_dict['right_bound_']
+        # Backward/forward compatibility if only the internal name is present
+        if 'model_name' in data_dict and data_dict['model_name'] is not None:
+            instance.model_name = data_dict['model_name']
+        elif '_model_name' in data_dict and data_dict['_model_name'] is not None:
+            instance.model_name = data_dict['_model_name']
         
         return instance
 
@@ -81,6 +98,8 @@ class ParametricModel(ABC):
         for slot in self.__slots__:
             if hasattr(self, slot):
                 result[slot] = getattr(self, slot)
+        # Include user-facing model_name for easier serialization
+        result['model_name'] = self.model_name
         return result
 
     def __repr__(self):

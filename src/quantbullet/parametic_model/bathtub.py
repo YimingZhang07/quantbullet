@@ -2,12 +2,10 @@ from .base import ParametricModel
 import numpy as np
 
 class BathtubModel( ParametricModel ):
+    default_model_name = "BathtubModel"
+    
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
-    @property
-    def model_name(self):
-        return "BathtubModel"
 
     def func_with_kwargs( self, x, **params_dict ):
         """

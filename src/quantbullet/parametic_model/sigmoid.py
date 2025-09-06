@@ -2,12 +2,10 @@ from .base import ParametricModel
 import numpy as np
 
 class SigmoidModel( ParametricModel ):
+    default_model_name = "SigmoidModel"
+    
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
-    @property
-    def model_name(self):
-        return "SigmoidModel"
 
     def func_with_kwargs( self, x, **params_dict ):
         """

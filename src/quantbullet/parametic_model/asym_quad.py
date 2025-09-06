@@ -2,12 +2,11 @@ from .base import ParametricModel
 import numpy as np
 
 class AsymQuadModel( ParametricModel ):
+    # Default name for this subclass; can be overridden per instance via model_name
+    default_model_name = "AsymQuadModel"
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
-    @property
-    def model_name(self):
-        return "AsymQuadModel"
 
     def func_with_kwargs( self, x, **params_dict ):
         a = params_dict['a']

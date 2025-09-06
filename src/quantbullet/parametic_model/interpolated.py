@@ -2,6 +2,7 @@ import numpy as np
 from scipy.interpolate import interp1d
 
 class InterpolatedModel:
+    default_model_name = "InterpolatedModel"
     def __init__(self, x_grid, y_grid, kind="linear", extrapolation="flat"):
         """
         Parameters
@@ -28,11 +29,7 @@ class InterpolatedModel:
             self.interp = interp1d(self.x_grid, self.y_grid, kind=kind, 
                                  fill_value=(self.y_grid[0], self.y_grid[-1]), 
                                  bounds_error=False)
-
-    @property
-    def model_name(self):
-        return "InterpolatedModel"
-
+    
     @classmethod
     def from_model(cls, model, x_min, x_max, n_points=200, **kwargs):
         x_grid = np.linspace(x_min, x_max, n_points)
