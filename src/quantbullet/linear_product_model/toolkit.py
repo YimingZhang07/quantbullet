@@ -239,7 +239,6 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         max_scatter_size: int = 500,
         hspace: float = 0.4,
         vspace: float = 0.3,
-        m_floor: float = 0
     ) -> Tuple[object, List[object]]:
         """
         Generate discretized implied errors plots for the model.
@@ -273,7 +272,6 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
                 
                 # Get predictions from other blocks
                 other_blocks_preds = model.leave_out_feature_group_predict(feature, train_df_sample)
-                other_blocks_preds = np.maximum(other_blocks_preds, m_floor)
                 
                 # Calculate implied actual based on method
                 agg_df = self._calculate_implied_actual_agg(
@@ -284,6 +282,8 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
                 x_grid, this_feature_preds = self.get_feature_grid_and_predictions(
                     X_sample[feature], model
                 )
+
+                agg_df['model_pred'] = self.get_single_feature_pred_given_values( feature, agg_df['feature_bin_right'], model )
                 
                 data_caches[feature] = ImpliedActualDataCache(feature, agg_df, x_grid, this_feature_preds)
         
@@ -408,7 +408,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         agg_df['feature_bin_right'] = cutoff_values_right
         return agg_df
     
-    def plot_categorical_plots( self, model, X, y, train_df, sample_frac=1, hspace=0.4, vspace=0.3, m_floor=0, method:str='bin' ):
+    def plot_categorical_plots( self, model, X, y, train_df, sample_frac=1, hspace=0.4, vspace=0.3, method:str='bin' ):
         if hasattr( model, 'offset_y') and getattr( model, 'offset_y') is not None:
             y = y + getattr( model, 'offset_y')
 
@@ -420,7 +420,6 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         for i, (feature, transformer) in enumerate(self.categorical_feature_groups.items()):
             ax = axes[i]
             other_blocks_preds = model.leave_out_feature_group_predict( feature, train_df_sample )
-            other_blocks_preds = np.maximum( other_blocks_preds, m_floor )
             this_feature_coef = model.coef_blocks[feature]
             this_feature_preds = train_df_sample[ self.feature_groups_[feature] ] @ this_feature_coef
 
