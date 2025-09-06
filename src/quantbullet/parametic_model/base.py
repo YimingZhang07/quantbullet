@@ -4,6 +4,7 @@ from scipy.optimize import curve_fit
 from abc import ABC, abstractmethod
 
 class ParametricModel(ABC):
+    __slots__ = ['params_dict', 'allow_extrapolation', 'left_bound_', 'right_bound_']
     def __init__(self, params_dict=None, allow_extrapolation=False):
         """
         Parameters
@@ -56,16 +57,31 @@ class ParametricModel(ABC):
         pass
 
     @classmethod
-    def from_dict(cls, params_dict):
-        return cls(params_dict, allow_extrapolation=params_dict.get("allow_extrapolation", False))
+    def from_dict(cls, data_dict):
+        # Extract constructor parameters
+        constructor_params = {
+            'params_dict': data_dict.get('params_dict'),
+            'allow_extrapolation': data_dict.get('allow_extrapolation', False)
+        }
+        
+        # Create instance
+        instance = cls(**constructor_params)
+        
+        # Set other attributes that aren't constructor parameters
+        if 'left_bound_' in data_dict:
+            instance.left_bound_ = data_dict['left_bound_']
+        if 'right_bound_' in data_dict:
+            instance.right_bound_ = data_dict['right_bound_']
+        
+        return instance
 
     def to_dict(self):
-        all_dict = self.params_dict.copy()
-        all_dict.update({
-            "left_bound_": self.left_bound_,
-            "right_bound_": self.right_bound_,
-        })
-        return all_dict
+        # Use __slots__ instead of __dict__
+        result = {}
+        for slot in self.__slots__:
+            if hasattr(self, slot):
+                result[slot] = getattr(self, slot)
+        return result
 
     def __repr__(self):
         return f"{self.model_name}({self.params_dict})"
