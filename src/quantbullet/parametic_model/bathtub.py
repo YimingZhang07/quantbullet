@@ -2,8 +2,8 @@ from .base import ParametricModel
 import numpy as np
 
 class BathtubModel( ParametricModel ):
-    def __init__(self, params_dict=None):
-        super().__init__(params_dict)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     @property
     def model_name(self):
@@ -31,6 +31,3 @@ class BathtubModel( ParametricModel ):
         Return parameter names in the order expected by func_with_args.
         """
         return ['lam', 'theta1', 'k1', 'theta2', 'k2']
-
-    def __repr__(self):
-        return f"{self.model_name}({self.params_dict})"
