@@ -165,14 +165,24 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
 
         return tuple(arg[sample_mask] for arg in args)
     
-    def get_feature_grid_and_predictions( self, feature_series, transformer, model, n_points=200 ):
+    def get_feature_grid_and_predictions( self, feature_series, model, n_points=200 ):
         """Get a grid of feature values and the corresponding model predictions for that feature."""
         x_min, x_max = feature_series.min(), feature_series.max()
         x_grid = np.linspace(x_min, x_max, n_points).reshape(-1, 1)
-        transformed_x_grid = transformer.transform(x_grid)
-        coef_vector = model.coef_blocks[ feature_series.name ]
-        y_grid = transformed_x_grid @ coef_vector
+        y_grid = self.get_single_feature_pred_given_values( feature_series.name, x_grid, model )
         return x_grid, y_grid
+    
+    def get_single_feature_pred_given_values( self, feature_name, feature_values, model ):
+        """Get model predictions for specific feature values."""
+        if feature_name not in self.feature_config:
+            raise ValueError(f"Feature {feature_name} not found in feature_config")
+        
+        transformer = self.feature_config[ feature_name ]
+        feature_values = np.array(feature_values).reshape(-1, 1)
+        transformed_values = transformer.transform( feature_values )
+        coef_vector = model.coef_blocks[ feature_name ]
+        y_values = transformed_values @ coef_vector
+        return y_values
 
     def plot_model_implied_errors( self, model, X, y, train_df, sample_frac=0.1 ):
         """For each feature, plot the implied actual vs model prediction
@@ -204,7 +214,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
                 # codes for plotting
                 ax = axes[i]
                 ax.scatter(X_sample[feature], implied_actual, alpha=0.2, color=EconomistBrandColor.LONDON_70)
-                x_grid, this_feature_preds = self.get_feature_grid_and_predictions( X[feature], transformer, model )
+                x_grid, this_feature_preds = self.get_feature_grid_and_predictions( X[feature], model )
                 ax.plot(x_grid, this_feature_preds, color=EconomistBrandColor.ECONOMIST_RED, label='Model Prediction', linewidth=2)
                 ax.set_title(f'{feature} Implied Error', fontdict={'fontsize': 14} )
                 ax.set_xlabel(f'{feature} Value', fontdict={'fontsize': 12} )
@@ -272,16 +282,16 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
                 
                 # Get feature grid and predictions
                 x_grid, this_feature_preds = self.get_feature_grid_and_predictions(
-                    X_sample[feature], transformer, model
+                    X_sample[feature], model
                 )
                 
-                plotting_data_caches.append(PlottingDataCache(feature, agg_df, x_grid, this_feature_preds))
+                data_caches[feature] = ImpliedActualDataCache(feature, agg_df, x_grid, this_feature_preds)
         
         # Plot all features with consistent sizing
-        global_min_count = min(cache.agg_df['count'].min() for cache in plotting_data_caches)
-        global_max_count = max(cache.agg_df['count'].max() for cache in plotting_data_caches)
+        global_min_count = min(cache.agg_df['count'].min() for _, cache in data_caches.items())
+        global_max_count = max(cache.agg_df['count'].max() for _, cache in data_caches.items())
         
-        for i, cache in enumerate(plotting_data_caches):
+        for i, (_, cache) in enumerate(data_caches.items()):
             ax = axes[i]
             sizes = scale_scatter_sizes(
                 cache.agg_df['count'], 
