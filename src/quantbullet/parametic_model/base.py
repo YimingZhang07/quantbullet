@@ -73,7 +73,7 @@ class ParametricModel(ABC):
         constructor_params = {
             'params_dict': data_dict.get('params_dict'),
             'allow_extrapolation': data_dict.get('allow_extrapolation', False),
-            'model_name': data_dict.get('model_name', data_dict.get('_model_name'))
+            'model_name': data_dict.get('_model_name', data_dict.get('model_name'))
         }
         
         # Create instance
@@ -84,12 +84,6 @@ class ParametricModel(ABC):
             instance.left_bound_ = data_dict['left_bound_']
         if 'right_bound_' in data_dict:
             instance.right_bound_ = data_dict['right_bound_']
-        # Backward/forward compatibility if only the internal name is present
-        if 'model_name' in data_dict and data_dict['model_name'] is not None:
-            instance.model_name = data_dict['model_name']
-        elif '_model_name' in data_dict and data_dict['_model_name'] is not None:
-            instance.model_name = data_dict['_model_name']
-        
         return instance
 
     def to_dict(self):
@@ -98,8 +92,8 @@ class ParametricModel(ABC):
         for slot in self.__slots__:
             if hasattr(self, slot):
                 result[slot] = getattr(self, slot)
-        # Include user-facing model_name for easier serialization
-        result['model_name'] = self.model_name
+        if result['_model_name'] is None:
+            result['_model_name'] = self.default_model_name
         return result
 
     def __repr__(self):

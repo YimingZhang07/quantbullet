@@ -3,7 +3,7 @@ from scipy.interpolate import interp1d
 
 class InterpolatedModel:
     default_model_name = "InterpolatedModel"
-    def __init__(self, x_grid, y_grid, kind="linear", extrapolation="flat"):
+    def __init__(self, x_grid, y_grid, kind="linear", extrapolation="flat", model_name=None):
         """
         Parameters
         ----------
@@ -29,6 +29,16 @@ class InterpolatedModel:
             self.interp = interp1d(self.x_grid, self.y_grid, kind=kind, 
                                  fill_value=(self.y_grid[0], self.y_grid[-1]), 
                                  bounds_error=False)
+
+        self.model_name = model_name
+
+    @property
+    def model_name(self):
+        return self._model_name if self._model_name is not None else self.default_model_name
+
+    @model_name.setter
+    def model_name(self, value):
+        self._model_name = value
     
     @classmethod
     def from_model(cls, model, x_min, x_max, n_points=200, **kwargs):
