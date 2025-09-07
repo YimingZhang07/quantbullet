@@ -233,7 +233,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         train_df: pd.DataFrame, 
         method: str = 'bin',
         sample_frac: float = 1,
-        n_quantile_groups: Optional[int] = None,
+        n_quantile_groups: Optional[int] = 100,
         n_bins: int = 20,
         min_scatter_size: int = 10,
         max_scatter_size: int = 500,

@@ -1,10 +1,15 @@
 import unittest
 import numpy as np
 import pandas as pd
-from quantbullet.dfutils.label import get_bins_and_labels
-from quantbullet.linear_product_model import LinearProductRegressorBCD, LinearProductRegressorScipy
-from quantbullet.preprocessing import FlatRampTransformer
 from sklearn.metrics import mean_squared_error
+from sklearn.preprocessing import OneHotEncoder
+
+from quantbullet.linear_product_model import (
+    LinearProductRegressorBCD,
+    LinearProductRegressorScipy,
+    LinearProductModelToolkit,
+)
+from quantbullet.preprocessing import FlatRampTransformer
 
 class TestLinearProductModel(unittest.TestCase):
     def setUp(self):
@@ -22,39 +27,24 @@ class TestLinearProductModel(unittest.TestCase):
             np.random.randn(n_samples) * 0.5 + \
             np.random.normal(loc = df['x3'].cat.codes, scale=0.5) + 10
 
-        x1_trans = FlatRampTransformer(
-            knots = list( np.arange( 4, 16, 1 ) ),
-            include_bias=True
-        )
+        feature_config = {
+            'x1': FlatRampTransformer(
+                knots = list( np.arange( 4, 16, 1 ) ),
+                include_bias=True
+            ),
+            'x2': FlatRampTransformer(
+                knots = list( np.arange( 14, 26, 1 ) ),
+                include_bias=True
+            ),
+            'x3': OneHotEncoder( drop=None )
+        }
 
-        x2_trans = FlatRampTransformer(
-            knots = list( np.arange( 14, 26, 1 ) ),
-            include_bias=True
-        )
-
-        train_df = np.concatenate([
-            x1_trans.fit_transform(df['x1']),
-            x2_trans.fit_transform(df['x2']),
-            pd.get_dummies(df['x3'], prefix='x3') * 1
-        ], axis=1)
-
-        train_df = pd.DataFrame(train_df, columns = x1_trans.get_feature_names_out().tolist() 
-                                + x2_trans.get_feature_names_out().tolist()
-                                + [ 'x3_' + str(cat) for cat in df['x3'].cat.categories.tolist() ])
-        
-        x1_bins, x1_labels = get_bins_and_labels(cutoffs=list( np.arange(4, 16, 1 ) ) )
-        x2_bins, x2_labels = get_bins_and_labels(cutoffs=list( np.arange(14, 26, 1 ) ) )
-
-        df['x1_bins'] = pd.cut( df['x1'], bins=x1_bins, labels=x1_labels )
-        df['x2_bins'] = pd.cut( df['x2'], bins=x2_bins, labels=x2_labels )
-
-        feature_groups = {'x1': x1_trans.get_feature_names_out().tolist(), 
-                        'x2': x2_trans.get_feature_names_out().tolist(),
-                        'x3': [ 'x3_' + str(cat) for cat in df['x3'].cat.categories.tolist() ]}
+        tk = LinearProductModelToolkit( feature_config ).fit( df )
+        train_df = tk.get_train_df( df )
         
         self.df = df
         self.train_df = train_df
-        self.feature_groups = feature_groups
+        self.feature_groups = tk.feature_groups
 
     def test_LinearProductRegressorBCD(self):
         df = self.df

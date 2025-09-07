@@ -90,3 +90,9 @@ class ComponentManager:
 
     def build_all_models(self):
         self.models = {name: component.build() for name, component in self.registry.items()}
+
+    def __repr__(self):
+        return f"ComponentManager(components={self.component_names})"
+
+    def __getitem__(self, name: str):
+        return self.models[name]

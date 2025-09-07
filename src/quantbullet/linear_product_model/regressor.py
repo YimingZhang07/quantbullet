@@ -2,7 +2,7 @@ import numpy as np
 import copy
 import pandas as pd
 from scipy.optimize import least_squares
-from .base import LinearProductModelBase, LinearProductModelBCD, LinearProductRegressorBase, memorize_fit_args
+from .base import LinearProductModelBCD, LinearProductRegressorBase, memorize_fit_args
 
 class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelBCD ):
     def __init__(self):
@@ -16,7 +16,7 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
     def fit( self, X, y, feature_groups, init_params=None, early_stopping_rounds=5, n_iterations=20, force_rounds=5, verbose=1, cache_qr_decomp=False, ftol=1e-5, offset_y = None ):
         self._reset_history( cache_qr_decomp=cache_qr_decomp )
         self.feature_groups_ = feature_groups
-        data_blocks = { key: X[feature_groups[key]].values for key in feature_groups }
+        data_blocks = self.get_X_blocks( X, feature_groups )
 
         if offset_y is not None:
             self.offset_y = offset_y
@@ -32,9 +32,11 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
 
         for i in range(n_iterations):
             for feature_group in feature_groups:
-                floating_data = data_blocks[feature_group]
-                fixed_params_blocks = { key: params_blocks[key] for key in feature_groups if key != feature_group }
-                fixed_data_blocks = { key: data_blocks[key] for key in feature_groups if key != feature_group }
+                floating_data = data_blocks[ feature_group ]
+                fixed_feature_groups = feature_groups.copy()
+                fixed_feature_groups.pop( feature_group )
+                fixed_params_blocks = { key: params_blocks[key] for key in fixed_feature_groups }
+                fixed_data_blocks = self.get_X_blocks( X, fixed_feature_groups )
                 # We hope to maintain the average output of each feature group is 1
                 # so the global scaler is not used to scale the floating data util the actual regression step
                 fixed_predictions = self.forward(fixed_params_blocks, fixed_data_blocks, ignore_global_scale=True)
