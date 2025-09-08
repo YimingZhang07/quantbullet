@@ -611,5 +611,5 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         result_df[ 'other_blocks_pred_scaled' ] = m * s
         result_df[ 'feature_pred' ] = X_pred
         result_df[ 'full_pred' ] = result_df[ 'other_blocks_pred_scaled' ] * result_df[ 'feature_pred' ]
-        result_df[f"{feature_group_name}"] = X[ feature_group_name ].values  # add back original feature values
+        result_df[f"{feature_group_name}"] = X[ feature_group_name ].values
         return result_df

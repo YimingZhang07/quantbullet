@@ -1,3 +1,11 @@
+"""
+ComponentManager is a class that manages the components of a linear product model.
+
+Motivation:
+The Linear Product Model's components can be replaced by other smoother models once the shapes have been discovered by the piecewise models.
+Threfore we need a flexible structure to manage each model component, with saving, reading, and recreating the models easily.
+"""
+
 import json
 from dataclasses import dataclass, field, asdict
 from typing import Dict, Any, Optional, List

@@ -6,6 +6,19 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from quantbullet.dfutils import get_bins_and_labels
 
 class FlatRampTransformer(BaseEstimator, TransformerMixin):
+    """
+    FlatRampTransformer is a transformer that creates a flat ramp basis.
+    Parameters
+    ----------
+    knots : array-like
+        The knots of the flat ramp basis.
+    include_bias : bool, default=False
+        Whether to include a bias term.
+    dummy_segments : array-like, default=None
+        The indices of the dummy segments.
+    keep_ramp_for_dummies : bool, default=False
+        Whether to keep the ramp for the dummy segments. If True, both the ramp and the dummy segment will be included.
+    """
     def __init__(self, knots, include_bias=False, dummy_segments=None, keep_ramp_for_dummies=False):
         self.knots = np.asarray(knots)
         if not np.all(np.diff(self.knots) > 0):
