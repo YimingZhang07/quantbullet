@@ -17,6 +17,7 @@ import io
 import numpy as np
 import matplotlib.pyplot as plt
 from reportlab.lib import colors
+from reportlab.lib.units import inch
 from reportlab.lib.pagesizes import landscape, letter
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle, Image
 from .formatters import number2string
@@ -24,14 +25,25 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.enums import TA_CENTER
 
 class PdfTextReport:
-    def __init__( self, file_path:str, page_size:str=None, report_title:str=None ):
+    def __init__( self, file_path:str, page_size:tuple=None, report_title:str=None, margins:tuple=(36,36,36,36) ):
+
+        if page_size is None:
+            page_size = landscape(letter)
+
+        else:
+            page_size = (page_size[0] * inch, page_size[1] * inch)
+
         self.doc = SimpleDocTemplate(
             file_path,
-            pagesize=landscape(letter)
+            pagesize=page_size,
+            leftMargin=margins[0],
+            rightMargin=margins[1],
+            topMargin=margins[2],
+            bottomMargin=margins[3]
         )
         self.story = []
         self.report_title = report_title
-        self.add_centered_text( report_title, font_size=16, space_after=24 )
+        self.add_centered_text( report_title, font_size=14, space_after=12 )
         
     @staticmethod
     def _normalize_table_data( data:list ):
