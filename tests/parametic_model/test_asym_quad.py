@@ -8,8 +8,8 @@ class TestBathtubModel(unittest.TestCase):
     def setUp(self):
         np.random.seed(42)
         x = np.linspace(1, 10, 30)
-        true_params = {'a': 1.5, 'b': 2.0, 'x0': 3.0, 'c': 2.2}
-        true_model = AsymQuadModel(true_params)
+        true_params = { 'params_dict': { 'a': 1.5, 'b': 2.0, 'x0': 3.0, 'c': 2.2 } }
+        true_model = AsymQuadModel(**true_params)
         y_true = true_model.predict(x)
         y_noisy = y_true + np.random.normal(0, 0.1, len(y_true))
         self.x, self.y_noisy = x, y_noisy

@@ -40,7 +40,7 @@ class ParametricModel(ABC):
     def predict(self, x):
         if not self.params_dict:
             raise ValueError("Model not fitted yet. Please call fit() first.")
-        if not self.allow_extrapolation:
+        if not self.allow_extrapolation and self.left_bound_ is not None and self.right_bound_ is not None:
             x = np.clip(x, self.left_bound_, self.right_bound_)
         return self.func_with_kwargs(x, **self.params_dict)
 

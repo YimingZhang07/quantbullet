@@ -3,7 +3,7 @@ from scipy.interpolate import interp1d
 
 class InterpolatedModel:
     default_model_name = "InterpolatedModel"
-    def __init__(self, x_grid, y_grid, kind="linear", extrapolation="flat", model_name=None):
+    def __init__(self, kind="linear", extrapolation="flat", model_name=None):
         """
         Parameters
         ----------
@@ -18,19 +18,20 @@ class InterpolatedModel:
             - "linear": Linear extrapolation following the slope
             - "flat": Flat extrapolation using nearest boundary value
         """
-        self.x_grid = np.asarray(x_grid)
-        self.y_grid = np.asarray(y_grid)
+        self.kind = kind
         self.extrapolation = extrapolation
-        
-        # Create interpolation function
-        if extrapolation == "linear":
-            self.interp = interp1d(self.x_grid, self.y_grid, kind=kind, fill_value="extrapolate")
+        self.model_name = model_name
+
+    def fit(self, x, y):
+        self.x_grid = np.asarray(x)
+        self.y_grid = np.asarray(y)
+        if self.extrapolation == "linear":
+            self.interp = interp1d(self.x_grid, self.y_grid, kind=self.kind, fill_value="extrapolate")
         else:  # flat extrapolation
-            self.interp = interp1d(self.x_grid, self.y_grid, kind=kind, 
+            self.interp = interp1d(self.x_grid, self.y_grid, kind=self.kind, 
                                  fill_value=(self.y_grid[0], self.y_grid[-1]), 
                                  bounds_error=False)
-
-        self.model_name = model_name
+        return self
 
     @property
     def model_name(self):
