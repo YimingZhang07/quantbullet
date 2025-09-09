@@ -12,11 +12,11 @@ class BathtubModel( ParametricModel ):
         Bathtub curve using two Weibull-like terms.
         y = lam * ( (x/theta1)^k1 + (theta2/x)^k2 )
         """
-        lam = params_dict['lam']
-        theta1 = params_dict['theta1']
-        k1 = params_dict['k1']
-        theta2 = params_dict['theta2']
-        k2 = params_dict['k2']
+        lam         = params_dict[ 'lam' ]
+        theta1      = params_dict[ 'theta1' ]
+        k1          = params_dict[ 'k1' ]
+        theta2      = params_dict[ 'theta2' ]
+        k2          = params_dict[ 'k2' ]
         x = np.asarray(x)
         x_safe = np.where(x == 0, 1e-8, x)
         return lam * ((x_safe / theta1)**k1 + (theta2 / x_safe)**k2)

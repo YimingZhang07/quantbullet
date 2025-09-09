@@ -373,7 +373,12 @@ class LinearProductRegressorBase(LinearProductModelBase):
         for key in params_blocks:
             if key not in X_blocks:
                 raise ValueError(f"Feature block '{key}' not found in input blocks.")
-            result *= np.dot(X_blocks[key], params_blocks[key])
+
+            # if the feature group is a submodel, use the submodel to predict
+            if key in self.submodels_:
+                result *= self.submodels_[key].predict(X_blocks[key])
+            else:
+                result *= np.dot(X_blocks[key], params_blocks[key])
 
         if not ignore_global_scale:
             result = result * self.global_scalar_

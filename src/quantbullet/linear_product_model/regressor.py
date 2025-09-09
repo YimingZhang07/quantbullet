@@ -2,6 +2,7 @@ import numpy as np
 import copy
 import pandas as pd
 from scipy.optimize import least_squares
+from typing import Dict, List, Optional
 from .base import LinearProductModelBCD, LinearProductRegressorBase, memorize_fit_args
 
 class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelBCD ):
@@ -13,9 +14,10 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
         return np.mean((y - y_hat) ** 2)
 
     @memorize_fit_args
-    def fit( self, X, y, feature_groups, init_params=None, early_stopping_rounds=5, n_iterations=20, force_rounds=5, verbose=1, cache_qr_decomp=False, ftol=1e-5, offset_y = None ):
+    def fit( self, X, y, feature_groups:Dict, submodels: Dict=None, init_params=None, early_stopping_rounds=5, n_iterations=20, force_rounds=5, verbose=1, cache_qr_decomp=False, ftol=1e-5, offset_y = None ):
         self._reset_history( cache_qr_decomp=cache_qr_decomp )
         self.feature_groups_ = feature_groups
+        self.submodels_ = submodels
         data_blocks = self.get_X_blocks( X, feature_groups )
 
         if offset_y is not None:
@@ -32,42 +34,46 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
 
         for i in range(n_iterations):
             for feature_group in feature_groups:
-                floating_data = data_blocks[ feature_group ]
-                fixed_feature_groups = feature_groups.copy()
-                fixed_feature_groups.pop( feature_group )
-                fixed_params_blocks = { key: params_blocks[key] for key in fixed_feature_groups }
-                fixed_data_blocks = self.get_X_blocks( X, fixed_feature_groups )
-                # We hope to maintain the average output of each feature group is 1
-                # so the global scaler is not used to scale the floating data util the actual regression step
-                fixed_predictions = self.forward(fixed_params_blocks, fixed_data_blocks, ignore_global_scale=True)
+                if feature_group not in submodels:
+                    floating_data = data_blocks[ feature_group ]
+                    fixed_feature_groups = feature_groups.copy()
+                    fixed_feature_groups.pop( feature_group )
+                    fixed_params_blocks = { key: params_blocks[key] for key in fixed_feature_groups }
+                    fixed_data_blocks = self.get_X_blocks( X, fixed_feature_groups )
+                    # We hope to maintain the average output of each feature group is 1
+                    # so the global scaler is not used to scale the floating data util the actual regression step
+                    fixed_predictions = self.forward(fixed_params_blocks, fixed_data_blocks, ignore_global_scale=True)
 
-                if not cache_qr_decomp:
-                    floating_data = floating_data * fixed_predictions[:, None]
-                    floating_params = np.linalg.lstsq( self.global_scalar_ * floating_data, y, rcond=None)[0]
-                else:
-                    # use the cached QR decomposition to solve the least squares problem so that we do not need to recompute the inverse of X'X every time
-                    # the downside is we need to put the global scaler and fixed predictions into the y cause they will change every iteration
-                    if feature_group not in self.qr_decomp_cache_:
-                        Q, R = np.linalg.qr( floating_data )
-                        self.qr_decomp_cache_[feature_group] = (Q, R)
+                    if not cache_qr_decomp:
+                        floating_data = floating_data * fixed_predictions[:, None]
+                        floating_params = np.linalg.lstsq( self.global_scalar_ * floating_data, y, rcond=None)[0]
                     else:
-                        Q, R = self.qr_decomp_cache_[feature_group]
-                    scaled_y = y / self.global_scalar_ / fixed_predictions
-                    floating_params = np.linalg.solve( R, Q.T @ scaled_y )
-                    # even we reuse the QR decomposition, we still need to scale the floating data here to make sure the global scaler is correctly updated
-                    floating_data = floating_data * fixed_predictions[:, None]
+                        # use the cached QR decomposition to solve the least squares problem so that we do not need to recompute the inverse of X'X every time
+                        # the downside is we need to put the global scaler and fixed predictions into the y cause they will change every iteration
+                        if feature_group not in self.qr_decomp_cache_:
+                            Q, R = np.linalg.qr( floating_data )
+                            self.qr_decomp_cache_[feature_group] = (Q, R)
+                        else:
+                            Q, R = self.qr_decomp_cache_[feature_group]
+                        scaled_y = y / self.global_scalar_ / fixed_predictions
+                        floating_params = np.linalg.solve( R, Q.T @ scaled_y )
+                        # even we reuse the QR decomposition, we still need to scale the floating data here to make sure the global scaler is correctly updated
+                        floating_data = floating_data * fixed_predictions[:, None]
 
-                # normalize the floating parameters by its mean so that each block's prediction has a mean of 1
-                floating_predictions = floating_data @ floating_params
-                floating_mean = np.mean(floating_predictions)
-                
-                if not np.isclose(floating_mean, 0):
-                    floating_params /= floating_mean
-                    self.global_scalar_ = self.global_scalar_ * floating_mean
+                    # normalize the floating parameters by its mean so that each block's prediction has a mean of 1
+                    floating_predictions = floating_data @ floating_params
+                    floating_mean = np.mean(floating_predictions)
+                    
+                    if not np.isclose(floating_mean, 0):
+                        floating_params /= floating_mean
+                        self.global_scalar_ = self.global_scalar_ * floating_mean
+                    else:
+                        print(f"Warning: floating mean is close to zero for feature group {feature_group} at iteration {i}. Skipping normalization.")
+                    
+                    params_blocks[feature_group] = floating_params
                 else:
-                    print(f"Warning: floating mean is close to zero for feature group {feature_group} at iteration {i}. Skipping normalization.")
-                
-                params_blocks[feature_group] = floating_params
+                    # submodels are fitted already, and we don't need any actions
+                    pass
               
             # track the training progress  
             predictions = self.forward( params_blocks, data_blocks )
