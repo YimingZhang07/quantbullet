@@ -17,8 +17,8 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
     def fit( self, X, y, feature_groups:Dict, submodels: Dict=None, init_params=None, early_stopping_rounds=5, n_iterations=20, force_rounds=5, verbose=1, cache_qr_decomp=False, ftol=1e-5, offset_y = None ):
         self._reset_history( cache_qr_decomp=cache_qr_decomp )
         self.feature_groups_ = feature_groups
-        self.submodels_ = submodels
-        data_blocks = self.get_X_blocks( X, feature_groups )
+        self.submodels_ = submodels or {}
+        data_blocks = X.get_containers_dict( list( feature_groups.keys() ) )
 
         if offset_y is not None:
             self.offset_y = offset_y
@@ -34,12 +34,12 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
 
         for i in range(n_iterations):
             for feature_group in feature_groups:
-                if feature_group not in submodels:
+                if feature_group not in self.submodels_:
                     floating_data = data_blocks[ feature_group ]
                     fixed_feature_groups = feature_groups.copy()
                     fixed_feature_groups.pop( feature_group )
                     fixed_params_blocks = { key: params_blocks[key] for key in fixed_feature_groups }
-                    fixed_data_blocks = self.get_X_blocks( X, fixed_feature_groups )
+                    fixed_data_blocks = X.get_containers_dict( list( fixed_feature_groups.keys() ) )
                     # We hope to maintain the average output of each feature group is 1
                     # so the global scaler is not used to scale the floating data util the actual regression step
                     fixed_predictions = self.forward(fixed_params_blocks, fixed_data_blocks, ignore_global_scale=True)

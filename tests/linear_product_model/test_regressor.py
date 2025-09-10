@@ -10,6 +10,7 @@ from quantbullet.linear_product_model import (
     LinearProductModelToolkit,
 )
 from quantbullet.preprocessing import FlatRampTransformer
+from quantbullet.linear_product_model.datacontainer import ProductModelDataContainer
 
 class TestLinearProductModel(unittest.TestCase):
     def setUp(self):
@@ -50,10 +51,11 @@ class TestLinearProductModel(unittest.TestCase):
         df = self.df
         train_df = self.train_df
         feature_groups = self.feature_groups
+        dcontainer = ProductModelDataContainer( df, train_df, feature_groups )
 
         lprm_ols = LinearProductRegressorBCD()
-        lprm_ols.fit( train_df, df['y'], feature_groups=feature_groups, n_iterations=100, early_stopping_rounds=20, cache_qr_decomp=True )
-        df['model_pred_BCD'] = lprm_ols.predict(train_df)
+        lprm_ols.fit( dcontainer, df['y'], feature_groups=feature_groups, n_iterations=100, early_stopping_rounds=20, cache_qr_decomp=True )
+        df['model_pred_BCD'] = lprm_ols.predict( dcontainer )
 
         # check the mean squared error; whether the model converges
         mse = mean_squared_error(df['y'], df['model_pred_BCD'])

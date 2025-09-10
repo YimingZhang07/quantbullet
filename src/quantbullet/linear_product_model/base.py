@@ -253,7 +253,7 @@ class LinearProductModelBase(ABC):
             else:
                 return np.ones(X.shape[0], dtype=float)
 
-        X_blocks = self.get_X_blocks( X, keep_feature_groups )
+        X_blocks = X.get_containers_dict( list( keep_feature_groups.keys() ) )
         params_blocks = self.coef_dict_to_blocks( keep_params_dict )
 
         preds = self.forward( params_blocks, X_blocks, ignore_global_scale=ignore_global_scale )
@@ -270,7 +270,7 @@ class LinearProductModelBase(ABC):
         include_feature_groups = { group_to_include: self.feature_groups_[group_to_include] }
         include_params_dict = { group_to_include: params_dict[group_to_include] }
 
-        X_blocks = self.get_X_blocks( X, include_feature_groups )
+        X_blocks = X.get_containers_dict( list( include_feature_groups.keys() ) )
         params_blocks = self.coef_dict_to_blocks( include_params_dict )
 
         preds = self.forward(params_blocks, X_blocks, ignore_global_scale=ignore_global_scale)
@@ -339,7 +339,7 @@ class LinearProductRegressorBase(LinearProductModelBase):
     def predict( self, X ):
         if self.feature_groups_ is None or self.coef_ is None:
             raise ValueError("Model not fitted yet. Please call fit() first.")
-        data_blocks = { key: X[self.feature_groups_[key]].values for key in self.feature_groups_ }
+        data_blocks = X.get_containers_dict( list( self.feature_groups_.keys() ) )
 
         if self.offset_y is not None:
             # if there is an offset, we need to subtract it from the prediction
@@ -376,9 +376,9 @@ class LinearProductRegressorBase(LinearProductModelBase):
 
             # if the feature group is a submodel, use the submodel to predict
             if key in self.submodels_:
-                result *= self.submodels_[key].predict(X_blocks[key])
+                result *= self.submodels_[ key ].predict( X_blocks[ key ].orig )
             else:
-                result *= np.dot(X_blocks[key], params_blocks[key])
+                result *= np.dot( X_blocks[ key ].expanded, params_blocks[ key ] )
 
         if not ignore_global_scale:
             result = result * self.global_scalar_
