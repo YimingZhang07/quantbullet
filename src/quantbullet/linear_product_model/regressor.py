@@ -4,6 +4,7 @@ import pandas as pd
 from scipy.optimize import least_squares
 from typing import Dict, List, Optional
 from .base import LinearProductModelBCD, LinearProductRegressorBase, memorize_fit_args
+from .datacontainer import ProductModelDataContainer
 
 class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelBCD ):
     def __init__(self):
@@ -14,11 +15,15 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
         return np.mean((y - y_hat) ** 2)
 
     @memorize_fit_args
-    def fit( self, X, y, feature_groups:Dict, submodels: Dict=None, init_params=None, early_stopping_rounds=5, n_iterations=20, force_rounds=5, verbose=1, cache_qr_decomp=False, ftol=1e-5, offset_y = None ):
+    def fit( self, X: ProductModelDataContainer, feature_groups:Dict, submodels: Dict=None, init_params=None, early_stopping_rounds=5, n_iterations=20, force_rounds=5, verbose=1, cache_qr_decomp=False, ftol=1e-5, offset_y = None ):
         self._reset_history( cache_qr_decomp=cache_qr_decomp )
         self.feature_groups_ = feature_groups
         self.submodels_ = submodels or {}
         data_blocks = X.get_containers_dict( list( feature_groups.keys() ) )
+        
+        if X.response is None:
+            raise ValueError("Response variable is not provided in the data container.")
+        y = X.response
 
         if offset_y is not None:
             self.offset_y = offset_y

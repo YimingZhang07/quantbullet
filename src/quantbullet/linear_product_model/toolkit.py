@@ -23,6 +23,7 @@ from quantbullet.dfutils import get_bins_and_labels
 from quantbullet.reporting import AdobeSourceFontStyles, PdfChartReport
 from quantbullet.reporting.utils import register_fonts_from_package, merge_pdfs
 from quantbullet.reporting.formatters import numberarray2string
+from quantbullet.linear_product_model.datacontainer import ProductModelDataContainer
 
 class LinearProductModelReportMixin:
     @property
@@ -227,10 +228,8 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
 
     def plot_discretized_implied_errors(
         self, 
-        model, 
-        X: pd.DataFrame, 
-        y: np.ndarray, 
-        train_df: pd.DataFrame, 
+        model,
+        X: ProductModelDataContainer,
         method: str = 'bin',
         sample_frac: float = 1,
         n_quantile_groups: Optional[int] = 100,
@@ -249,7 +248,10 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
             avg: Calculate implied actual as mean(y/m) for each bin
             bin: Calculate implied actual as sum(y)/sum(m) for each bin
         """
-        # Apply model offset if present
+        # Fetch y from container and apply offset if present
+        if X.response is None:
+            raise ValueError("ProductModelDataContainer.response must be provided for plotting implied errors.")
+        y = X.response
         if hasattr(model, 'offset_y') and getattr(model, 'offset_y') is not None:
             y = y + getattr(model, 'offset_y')
         
@@ -258,8 +260,9 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         fig, axes = get_grid_fig_axes(n_charts=n_features, n_cols=3)
         fig.subplots_adjust(hspace=hspace, wspace=0.3)
         
-        # Sample data
-        X_sample, y_sample, train_df_sample = self.sample_data(sample_frac, X, y, train_df)
+        # Sample data via container; preserve alignment across orig/expanded/response
+        X_sample = X.sample(sample_frac) if sample_frac < 1 else X
+        y_sample = X_sample.response
         
         # Process each feature and create plotting caches
         ImpliedActualDataCache = namedtuple('ImpliedActualDataCache', ['feature', 'agg_df', 'x_grid', 'this_feature_preds'])
@@ -268,10 +271,10 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         for feature, transformer in self.numerical_feature_groups.items():
             if isinstance(transformer, FlatRampTransformer):
                 # Create binned dataframe
-                binned_df, cutoff_values_right = self._create_bins(X_sample[feature], n_quantile_groups, n_bins)
+                binned_df, cutoff_values_right = self._create_bins(X_sample.orig[feature], n_quantile_groups, n_bins)
                 
                 # Get predictions from other blocks
-                other_blocks_preds = model.leave_out_feature_group_predict(feature, train_df_sample)
+                other_blocks_preds = model.leave_out_feature_group_predict( feature, X_sample )
                 
                 # Calculate implied actual based on method
                 agg_df = self._calculate_implied_actual_agg(
@@ -280,7 +283,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
                 
                 # Get feature grid and predictions
                 x_grid, this_feature_preds = self.get_feature_grid_and_predictions(
-                    X_sample[feature], model
+                    X_sample.orig[feature], model
                 )
 
                 agg_df['model_pred'] = self.get_single_feature_pred_given_values( feature, agg_df['feature_bin_right'], model )
@@ -371,7 +374,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         y_sample: np.ndarray,
         other_blocks_preds: np.ndarray,
         cutoff_values_right: List[float],
-        method: None
+        method: str = 'bin'
     ) -> pd.DataFrame:
         """Calculate aggregated implied actual values based on the specified method."""
         

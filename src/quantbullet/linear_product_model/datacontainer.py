@@ -14,11 +14,11 @@ class ProductModelDataContainer:
     Guidelines:
     To adapt the existing framework, we need this container to by default operates the same way as the expanded dataframe.
     """
-    def __init__( self, orig_df: pd.DataFrame, expanded_df: pd.DataFrame, feature_groups: dict=None ):
+    def __init__( self, orig_df: pd.DataFrame, expanded_df: pd.DataFrame, response=None, feature_groups: dict=None ):
         self.orig_df = orig_df
         self.expanded_df = expanded_df
+        self.response = response
         self.feature_groups = feature_groups
-
         # all the keys in the feature_groups dict must be in orig_df
         if self.feature_groups is not None:
             if not self._cols_in_df(self.orig_df, list(self.feature_groups.keys())):
@@ -73,3 +73,35 @@ class ProductModelDataContainer:
             A dictionary of containers for the feature group names.
         """
         return { name: self.get_container_for_feature_group(name) for name in feature_group_names }
+
+    def sample( self, frac: float ):
+        """Return a new container sampled by fraction, preserving row alignment.
+        
+        Parameters
+        ----------
+        frac : float
+            Fraction of rows to sample (0, 1].
+        """
+        if not 0 < frac <= 1:
+            raise ValueError("frac must be in (0, 1].")
+
+        # sample indices from the expanded dataframe to preserve alignment
+        sampled_idx = self.expanded_df.sample(frac=frac, random_state=42).index
+
+        orig_df_sampled = self.orig_df.loc[sampled_idx]
+        expanded_df_sampled = self.expanded_df.loc[sampled_idx]
+        if self.response is not None:
+            try:
+                response_sampled = self.response.loc[sampled_idx]
+            except AttributeError:
+                # response might be a numpy array
+                response_sampled = self.response[sampled_idx]
+        else:
+            response_sampled = None
+
+        return ProductModelDataContainer(
+            orig_df=orig_df_sampled,
+            expanded_df=expanded_df_sampled,
+            response=response_sampled,
+            feature_groups=self.feature_groups,
+        )

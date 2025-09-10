@@ -22,16 +22,16 @@ class FitMetadata:
 def memorize_fit_args(func):
     """Decorator for fit methods to memorize some basic info about the input data X and y."""
     @functools.wraps(func)
-    def wrapper(self, X, y, *args, **kwargs):
+    def wrapper(self, X, *args, **kwargs):
         self.fit_metadata_ = FitMetadata(
             n_obs=X.shape[0],
             n_features=X.shape[1],
             offset_y=kwargs.get('offset_y', None),
-            mean_y=np.mean(y),
+            mean_y=np.mean( X.response ),
             ftol=kwargs.get('ftol', None),
             cache_qr_decomp=kwargs.get('cache_qr_decomp', False)
         )
-        return func(self, X, y, *args, **kwargs)
+        return func(self, X, *args, **kwargs)
     return wrapper
 
 class LinearProductModelBCD(ABC):
