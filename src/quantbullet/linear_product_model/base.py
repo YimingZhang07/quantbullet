@@ -343,8 +343,8 @@ class LinearProductRegressorBase(LinearProductModelBase):
 
         if self.offset_y is not None:
             # if there is an offset, we need to subtract it from the prediction
-            return self.forward(self.coef_, data_blocks) - self.offset_y
-        return self.forward(self.coef_, data_blocks)
+            return self.forward( self.coef_, data_blocks ) - self.offset_y
+        return self.forward( self.coef_, data_blocks )
     
     def forward(self, params_blocks, X_blocks, ignore_global_scale=False):
         """

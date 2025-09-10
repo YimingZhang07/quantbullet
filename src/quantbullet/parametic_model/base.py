@@ -42,7 +42,9 @@ class ParametricModel(ABC):
             raise ValueError("Model not fitted yet. Please call fit() first.")
         if not self.allow_extrapolation and self.left_bound_ is not None and self.right_bound_ is not None:
             x = np.clip(x, self.left_bound_, self.right_bound_)
-        return self.func_with_kwargs(x, **self.params_dict)
+        preds = self.func_with_kwargs(x, **self.params_dict)
+        preds = np.asarray( preds ).ravel()
+        return preds
 
     @property
     def model_name(self):

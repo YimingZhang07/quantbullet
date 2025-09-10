@@ -21,7 +21,7 @@ class WrapperGAM:
             
             # One-liner to filter None values from specs
             kwargs = {k: v for k, v in (feature.specs or {}).items() 
-                    if v is not None and k in ['spline_order', 'n_splines', 'lam']}
+                    if v is not None and k in ['spline_order', 'n_splines', 'lam', 'constraints']}
             
             if feature.dtype == DataType.FLOAT:
                 t = s(i, **kwargs)

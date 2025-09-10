@@ -14,10 +14,10 @@ class ProductModelDataContainer:
     Guidelines:
     To adapt the existing framework, we need this container to by default operates the same way as the expanded dataframe.
     """
-    def __init__( self, orig_df: pd.DataFrame, expanded_df: pd.DataFrame, response=None, feature_groups: dict=None ):
-        self.orig_df = orig_df
-        self.expanded_df = expanded_df
-        self.response = response
+    def __init__( self, orig_df: pd.DataFrame, expanded_df: pd.DataFrame=None, response=None, feature_groups: dict=None ):
+        self.orig_df        = orig_df
+        self.expanded_df    = expanded_df
+        self.response       = response
         self.feature_groups = feature_groups
         # all the keys in the feature_groups dict must be in orig_df
         if self.feature_groups is not None:
@@ -27,6 +27,10 @@ class ProductModelDataContainer:
             # all the values in the feature_groups dict must be in orig_df
             if not all(self._cols_in_df(self.expanded_df, cols) for cols in self.feature_groups.values()):
                 raise ValueError("All the values in the feature_groups dict must be in expanded_df.")
+        else:
+            # if no feature groups is given, we assume that there is no groups
+            # each col in the orig_df should be a standalone group
+            self.feature_groups = { col: {} for col in orig_df.columns }
 
     def __getattr__( self, attr: str ):
         return getattr(self.expanded_df, attr)
@@ -50,19 +54,29 @@ class ProductModelDataContainer:
 
     def get_expanded_terms_for_feature_group( self, feature_group_name: str ):
         """Get the expanded terms for a feature group name."""
-        if self.feature_groups is not None:
-            return self.expanded_df[ self.feature_groups[feature_group_name] ].values
-        return None
+        return self.expanded_df[ self.feature_groups[feature_group_name] ].values
 
     def get_expanded_terms_dict( self, feature_group_names: list[str] ):
         """Get the expanded terms for a list of feature group names."""
-        if self.feature_groups is not None:
-            return { name: self.get_expanded_terms_for_feature_group(name) for name in feature_group_names }
-        return None
+        return { name: self.get_expanded_terms_for_feature_group(name) for name in feature_group_names }
 
     def get_container_for_feature_group( self, feature_group_name: str ):
         """Get the container for a feature group name."""
-        return ProductModelDataContainer( self.orig_df[ feature_group_name ], self.expanded_df[ self.feature_groups[feature_group_name] ], None )
+        orig_subset = self.orig_df[[feature_group_name]]
+
+        # expanded is only returned if they are not None
+        expanded_subset = (
+            self.expanded_df[self.feature_groups[feature_group_name]]
+            if self.expanded_df is not None and self.feature_groups is not None
+            else None
+        )
+
+        return ProductModelDataContainer(
+            orig_df         = orig_subset,
+            expanded_df     = expanded_subset,
+            response        = self.response,
+            feature_groups  = {feature_group_name: self.feature_groups[feature_group_name]} if self.feature_groups else None
+        )
 
     def get_containers_dict( self, feature_group_names: list[str] ):
         """Get the container for a list of feature group names.

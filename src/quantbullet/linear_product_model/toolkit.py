@@ -16,6 +16,7 @@ from typing import List, Optional, Tuple
 from dataclasses import dataclass
 
 # Local application/library imports
+from quantbullet.linear_product_model.base import LinearProductModelBase
 from quantbullet.plot.utils import get_grid_fig_axes, close_unused_axes, scale_scatter_sizes
 from quantbullet.plot.colors import EconomistBrandColor
 from quantbullet.preprocessing.transformers import FlatRampTransformer
@@ -178,11 +179,25 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         if feature_name not in self.feature_config:
             raise ValueError(f"Feature {feature_name} not found in feature_config")
         
-        transformer = self.feature_config[ feature_name ]
-        feature_values = np.array(feature_values).reshape(-1, 1)
-        transformed_values = transformer.transform( feature_values )
-        coef_vector = model.coef_blocks[ feature_name ]
-        y_values = transformed_values @ coef_vector
+        feature_values = np.array( feature_values ).reshape( -1, 1 )
+        transformer = self.feature_config.get( feature_name, None )
+        if transformer is not None:
+            transformed_values = transformer.transform( feature_values )
+            # make a data container
+            single_feature_container = ProductModelDataContainer(
+                orig_df = pd.DataFrame( { feature_name : feature_values.ravel() } ),
+                expanded_df=pd.DataFrame( transformed_values, columns = model.feature_groups_.get( feature_name ) ),
+                feature_groups={ feature_name: model.feature_groups_.get( feature_name ) }
+            )
+
+        else:
+            # if no transformer is given, indicating the feature do not need to be expanded.
+            single_feature_container = ProductModelDataContainer(
+                orig_df = pd.DataFrame( { f"{feature_name}" : feature_values } ),
+                feature_groups={ feature_name: {} }
+            )
+
+        y_values = model.single_feature_group_predict( group_to_include = feature_name, X=single_feature_container, ignore_global_scale=True )
         return y_values
 
     def plot_model_implied_errors( self, model, X, y, train_df, sample_frac=0.1 ):
@@ -411,20 +426,21 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         agg_df['feature_bin_right'] = cutoff_values_right
         return agg_df
     
-    def plot_categorical_plots( self, model, X, y, train_df, sample_frac=1, hspace=0.4, vspace=0.3, method:str='bin' ):
+    def plot_categorical_plots( self, model: LinearProductModelBase, dcontainer: ProductModelDataContainer, sample_frac=1, hspace=0.4, vspace=0.3, method:str='bin' ):
         if hasattr( model, 'offset_y') and getattr( model, 'offset_y') is not None:
-            y = y + getattr( model, 'offset_y')
+            y = dcontainer.response + getattr( model, 'offset_y')
 
         n_features = len( self.categorical_feature_groups )
         fig, axes = get_grid_fig_axes( n_charts=n_features, n_cols=3 )
         fig.subplots_adjust(hspace=hspace, wspace=0.3)
-        X_sample, y_sample ,train_df_sample = self.sample_data( sample_frac, X, y, train_df )
+        dcontainer_sample = dcontainer.sample(sample_frac) if sample_frac < 1 else dcontainer
+        X_sample = dcontainer_sample.orig
+        y_sample = dcontainer_sample.response
 
         for i, (feature, transformer) in enumerate(self.categorical_feature_groups.items()):
             ax = axes[i]
-            other_blocks_preds = model.leave_out_feature_group_predict( feature, train_df_sample )
-            this_feature_coef = model.coef_blocks[feature]
-            this_feature_preds = train_df_sample[ self.feature_groups_[feature] ] @ this_feature_coef
+            other_blocks_preds = model.leave_out_feature_group_predict( feature, dcontainer_sample )
+            this_feature_preds = model.single_feature_group_predict( group_to_include=feature, X=dcontainer_sample, ignore_global_scale=True )
 
             binned_df = pd.DataFrame({
                 'feature_bin': X_sample[feature],

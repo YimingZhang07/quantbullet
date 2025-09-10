@@ -1,0 +1,21 @@
+{
+    "label": "Test",
+    "components": {
+        "x1": {
+            "class_name": "AsymQuadModel",
+            "args": {
+                "params_dict": {
+                    "a": 0.0027202450697247442,
+                    "b": 0.04463333774070331,
+                    "x0": 17.69291089720739,
+                    "c": 1.15737684008293
+                },
+                "allow_extrapolation": false,
+                "left_bound_": 1.314,
+                "right_bound_": 23.437,
+                "_model_name": "x1-AsymQuadModel"
+            },
+            "metadata": {}
+        }
+    }
+}
