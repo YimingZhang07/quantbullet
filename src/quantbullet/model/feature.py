@@ -12,6 +12,7 @@ class FeatureRole(Enum):
     AUXILIARY_TARGET    = "auxiliary_target"
     REFERENCE           = "reference"
     GROUPING            = "grouping"
+    SECONDARY_INPUT     = "secondary_input"
 
 @dataclass
 class Feature:
@@ -32,13 +33,26 @@ class FeatureSpec:
         self._name_to_feature = {f.name: f for f in self._features}
         self._name_to_index = {f.name: i for i, f in enumerate(self._features)}
 
+    @property
+    def all_inputs( self ) -> list[str]:
+        """Get all model input feature names."""
+        return self.x + self.sec_x
+    
+    @property
+    def all_inputs_order_map( self ) -> Dict[str, int]:
+        """Get a map of all input feature names to their order index."""
+        return { name: idx for idx, name in enumerate( self.all_inputs ) }
+
     def _classify_features(self):
         """Classify features into model inputs, target, references, etc."""
         self.x = [f.name for f in self._features if f.role == FeatureRole.MODEL_INPUT]
         self.x_num = [f.name for f in self._features if f.role == FeatureRole.MODEL_INPUT and f.dtype.is_numeric()]
         self.x_cat = [f.name for f in self._features if f.role == FeatureRole.MODEL_INPUT and f.dtype.is_categorical()]
+        self.sec_x = [f.name for f in self._features if f.role == FeatureRole.SECONDARY_INPUT]
+        self.sec_x_num = [f.name for f in self._features if f.role == FeatureRole.SECONDARY_INPUT and f.dtype.is_numeric()]
+        self.sec_x_cat = [f.name for f in self._features if f.role == FeatureRole.SECONDARY_INPUT and f.dtype.is_categorical()]
         self.refs = [f.name for f in self._features if f.role == FeatureRole.REFERENCE]
-        
+
         # Expect exactly one target
         targets = [f.name for f in self._features if f.role == FeatureRole.TARGET]
         if len(targets) != 1:
@@ -113,8 +127,6 @@ class FeatureSpec:
             "FeatureSpec(\n"
             f"  y      : {self.y}\n"
             f"  x      : {self.x}\n"
-            f"  x_num  : {self.x_num}\n"
-            f"  x_cat  : {self.x_cat}\n"
-            f"  refs   : {self.refs}\n"
+            f"  sec_x  : {self.sec_x}\n"
             ")"
         )
