@@ -84,7 +84,11 @@ class WrapperGAM:
         return f"WrapperGAM( { self.gam_ } )"
     
     def plot_partial_dependence( self, n_cols=3, suptitle=None, scale_y_axis=True ):
-        fig, axes=  get_grid_fig_axes( n_charts= len( self.feature_term_map_ ), n_cols=n_cols )
+        """Plot partial dependence for each feature in the model."""
+        # the color cycle of the axes are determined by the plt.rcParams at the time of axes creation
+        # therefore we need to set the color cycle before creating the axes
+        with use_economist_cycle():
+            fig, axes=  get_grid_fig_axes( n_charts= len( self.feature_term_map_ ), n_cols=n_cols )
         fig.subplots_adjust(hspace=0.4, wspace=0.3)
         for i, (feature_name, term) in enumerate( self.feature_term_map_.items() ):
 
@@ -108,6 +112,7 @@ class WrapperGAM:
 
                 labels = self.category_levels_.get( by )
                 codes = list( range( len( labels ) ) )
+                
                 for code, label in zip( codes, labels ):
                     XX = np.zeros( (100, len( self.feature_spec.all_inputs )) )
                     XX[ :, i ] = x_grid
