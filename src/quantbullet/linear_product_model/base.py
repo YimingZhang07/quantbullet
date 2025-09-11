@@ -8,30 +8,31 @@ from .utils import (
 )
 from quantbullet.log_config import setup_logger
 from dataclasses import dataclass
+from quantbullet.utils.decorators import deprecated
 logger = setup_logger(__name__)
 
 @dataclass
 class FitMetadata:
-    n_obs: int
-    n_features: int
-    offset_y: float | None
-    mean_y: float
-    ftol: float | None = None
-    cache_qr_decomp: bool | None = None
+    n_obs              : int
+    n_features         : int
+    offset_y           : float | None
+    mean_y             : float
+    ftol               : float | None = None
+    cache_qr_decomp    : bool  | None = None
 
 def memorize_fit_args(func):
-    """Decorator for fit methods to memorize some basic info about the input data X and y."""
+    """Decorator for fit methods to memorize some additional info about the input data X and y."""
     @functools.wraps(func)
-    def wrapper(self, X, *args, **kwargs):
+    def wrapper( self, X, *args, **kwargs ):
         self.fit_metadata_ = FitMetadata(
-            n_obs=X.shape[0],
-            n_features=X.shape[1],
-            offset_y=kwargs.get('offset_y', None),
-            mean_y=np.mean( X.response ),
-            ftol=kwargs.get('ftol', None),
-            cache_qr_decomp=kwargs.get('cache_qr_decomp', False)
+            n_obs       = X.shape[0],
+            n_features  = X.shape[1],
+            offset_y    = kwargs.get('offset_y', None),
+            mean_y      = np.mean( X.response ),
+            ftol        = kwargs.get('ftol', None),
+            cache_qr_decomp = kwargs.get('cache_qr_decomp', False)
         )
-        return func(self, X, *args, **kwargs)
+        return func( self, X, *args, **kwargs )
     return wrapper
 
 class LinearProductModelBCD(ABC):
@@ -158,8 +159,14 @@ class LinearProductModelBase(ABC):
             raise ValueError("feature_groups_ is not set.")
         return {group: dict(zip(self.feature_groups_[group], self.coef_[group])) for group in self.feature_groups_}
     
-    def coef_dict_to_blocks(self, coef_dict):
-        """Convert a dictionary of coefficients to a dictionary of blocks."""
+    def _coef_dict_to_blocks(self, coef_dict):
+        """Convert a dictionary of coefficients to a dictionary of blocks.
+        
+        Returns
+        -------
+        dict
+            { feature_group_name : <feature_block_array> }
+        """
         if not isinstance(coef_dict, dict):
             raise ValueError("coef_dict must be a dictionary.")
         
@@ -230,6 +237,7 @@ class LinearProductModelBase(ABC):
             
         return init_params, init_params_blocks
 
+    @deprecated("get_X_blocks is deprecated. Use X.get_containers_dict(feature_groups) instead.")
     def get_X_blocks(self, X, feature_groups=None):
         """Get the feature blocks {feature_group_name: feature_matrix} by feature_groups { feature_group_name: list of feature_names }."""
         if feature_groups is None:
@@ -240,13 +248,17 @@ class LinearProductModelBase(ABC):
         return { key: X[feature_groups[key]].values for key in feature_groups }
 
     def leave_out_feature_group_predict( self, group_to_exclude, X, params_dict = None, ignore_global_scale=False ):
-        """Predict all other feature groups except the one specified. Note that this includes the global scalar"""
+        """Predict the product of all other feature groups except the one specified."""
+        if not group_to_exclude in self.feature_groups_:
+            raise ValueError(f"Feature group '{group_to_exclude}' not found in feature_groups_. Predicting all feature groups instead.")
+
         if params_dict is None:
             params_dict = self.coef_dict
 
         keep_feature_groups = { key: self.feature_groups_[key] for key in self.feature_groups_ if key != group_to_exclude }
         keep_params_dict = { key: params_dict[key] for key in params_dict if key != group_to_exclude }
 
+        # Below is a fast path if the group to exclude is the only group
         if not keep_feature_groups or not keep_params_dict:
             if hasattr(self, 'global_scalar_'):
                 return np.full(X.shape[0], self.global_scalar_)
@@ -254,8 +266,9 @@ class LinearProductModelBase(ABC):
                 return np.ones(X.shape[0], dtype=float)
 
         X_blocks = X.get_containers_dict( list( keep_feature_groups.keys() ) )
-        params_blocks = self.coef_dict_to_blocks( keep_params_dict )
+        params_blocks = self._coef_dict_to_blocks( keep_params_dict )
 
+        # params blocks are only useful for the blocks with linear terms. the submodels will use their own parameters
         preds = self.forward( params_blocks, X_blocks, ignore_global_scale=ignore_global_scale )
         return preds
     
@@ -271,7 +284,7 @@ class LinearProductModelBase(ABC):
         include_params_dict = { group_to_include: params_dict[group_to_include] }
 
         X_blocks = X.get_containers_dict( list( include_feature_groups.keys() ) )
-        params_blocks = self.coef_dict_to_blocks( include_params_dict )
+        params_blocks = self._coef_dict_to_blocks( include_params_dict )
 
         preds = self.forward(params_blocks, X_blocks, ignore_global_scale=ignore_global_scale)
         return preds
@@ -339,6 +352,8 @@ class LinearProductRegressorBase(LinearProductModelBase):
     def predict( self, X ):
         if self.feature_groups_ is None or self.coef_ is None:
             raise ValueError("Model not fitted yet. Please call fit() first.")
+        
+        # Containers dict is { feature_group_name : container }
         data_blocks = X.get_containers_dict( list( self.feature_groups_.keys() ) )
 
         if self.offset_y is not None:
@@ -355,7 +370,7 @@ class LinearProductRegressorBase(LinearProductModelBase):
         params_blocks : dict
             A dictionary mapping feature block names to their parameter vectors.
         X_blocks : dict
-            A dictionary mapping feature block names to their input data matrices.
+            A dictionary mapping feature block names to the data containers.
 
         Returns
         -------

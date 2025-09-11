@@ -7,13 +7,15 @@ from datetime import datetime, date
 from inspect import signature
 from .cast import to_date
 
-def deprecated(new_func_name: str):
+def deprecated(msg: str, is_func_name: bool = False):
     """Decorator to mark a function as deprecated
     
     Parameters
     ----------
-    new_func_name : str
+    msg : str
         The name of the new function that should be used instead
+    is_func_name : bool, optional
+        If True, msg is treated as a function name. If False, it is treated as a message. Default is False.
 
     Returns
     -------
@@ -23,7 +25,10 @@ def deprecated(new_func_name: str):
     def decorator(old_func):
         @functools.wraps(old_func)
         def wrapper(*args, **kwargs):
-            warnings.warn(f"Function {old_func.__name__} is deprecated. Use {new_func_name} instead.", DeprecationWarning)
+            if is_func_name:
+                warnings.warn(f"Function {old_func.__name__} is deprecated. Use {msg}() instead.", DeprecationWarning)
+            else:
+                warnings.warn(f"{msg}", DeprecationWarning)
             return old_func(*args, **kwargs)
         return wrapper
     return decorator
