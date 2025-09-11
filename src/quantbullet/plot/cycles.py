@@ -5,10 +5,10 @@ import matplotlib.pyplot as plt
 
 # Colors and linestyles
 _ECONOMIST_COLORS = [
-    EconomistBrandColor.TOKYO_45,     # red
     EconomistBrandColor.CHICAGO_45,   # blue
-    EconomistBrandColor.HONG_KONG_45, # green
     EconomistBrandColor.SINGAPORE_55, # orange
+    EconomistBrandColor.HONG_KONG_45, # green
+    EconomistBrandColor.TOKYO_45,     # red
 ]
 
 _BASE_LINESTYLES = ['-', '--']

@@ -7,6 +7,8 @@ from quantbullet.plot import (
     EconomistBrandColor,
     get_grid_fig_axes
 )
+from quantbullet.plot.utils import close_unused_axes
+from quantbullet.plot.cycles import use_economist_cycle
 
 class WrapperGAM:
     def __init__( self, feature_spec ):
@@ -83,23 +85,24 @@ class WrapperGAM:
     
     def plot_partial_dependence( self, n_cols=3, suptitle=None, scale_y_axis=True ):
         fig, axes=  get_grid_fig_axes( n_charts= len( self.feature_term_map_ ), n_cols=n_cols )
+        fig.subplots_adjust(hspace=0.4, wspace=0.3)
         for i, (feature_name, term) in enumerate( self.feature_term_map_.items() ):
 
             ax = axes.flat[i]
 
             if term._name == 'spline_term':
                 x_grid = self.gam_.generate_X_grid( term=i )
-                x_pdep, confi = self.gam_.partial_dependence( term=i, X=x_grid, width=0.95)
+                x_pdep, confi = self.gam_.partial_dependence( term=i, X=x_grid, width=0.95 )
                 ax.plot( x_grid[ :, i ], x_pdep, color = EconomistBrandColor.CHICAGO_45 )
                 # ax.plot( x_grid[ :, i ], confi, linestyle='--', color='gray' )
-                ax.fill_between( x_grid[ :, i ], confi[:, 0], confi[:, 1], alpha=0.2, color = EconomistBrandColor.CHICAGO_45 )
+                ax.fill_between( x_grid[ :, i ], confi[ :, 0 ], confi[ :, 1 ], alpha=0.2, color = EconomistBrandColor.CHICAGO_45 )
                 ax.set_xlabel( f"{ feature_name }", fontdict={ 'fontsize': 12 } )
                 ax.set_ylabel( 'Partial Dependence', fontdict={ 'fontsize': 12 } )
 
             elif term._name == 'tensor_term':
                 m = self.feature_spec.all_inputs_order_map
-                by = self.feature_spec[ feature_name ].specs.get('by')
-                _ = self.gam_.generate_X_grid( term = i )[:, 0]
+                by = self.feature_spec[ feature_name ].specs.get( 'by' )
+                _ = self.gam_.generate_X_grid( term = i )[:, i]
                 x_min, x_max = _.min(), _.max()
                 x_grid = np.linspace( x_min, x_max, 100 )
 
@@ -107,14 +110,14 @@ class WrapperGAM:
                 codes = list( range( len( labels ) ) )
                 for code, label in zip( codes, labels ):
                     XX = np.zeros( (100, len( self.feature_spec.all_inputs )) )
-                    XX[:, i] = x_grid
-                    XX[:, m[ by ]] = code
-                    pdep, confi = self.gam_.partial_dependence( term=i, X=XX, width=0.95)
+                    XX[ :, i ] = x_grid
+                    XX[ :, m[ by ] ] = code
+                    pdep, confi = self.gam_.partial_dependence( term=i, X=XX, width=0.95 )
                     ax.plot( x_grid, pdep, label=label )
-                    ax.fill_between( x_grid, confi[:, 0], confi[:, 1], alpha=0.2 )
+                    ax.fill_between( x_grid, confi[ :, 0 ], confi[ :, 1 ], alpha=0.2 )
                 ax.set_xlabel( f"{ feature_name }, by = { by }", fontdict={ 'fontsize': 12 } )
                 ax.set_ylabel( 'Partial Dependence', fontdict={ 'fontsize': 12 } )
-                ax.legend()
+                ax.legend( title = by )
 
             else:
                 pass
@@ -122,16 +125,18 @@ class WrapperGAM:
         # all the y axes share the same scale
         # find the global y min/max first and then set the same ylim
         if scale_y_axis:
-            y_mins = [ ax.get_ylim()[0] for ax in axes.flat[:len(self.feature_term_map_)] ]
-            y_maxs = [ ax.get_ylim()[1] for ax in axes.flat[:len(self.feature_term_map_)] ]
+            y_mins = [ ax.get_ylim()[ 0 ] for ax in axes.flat[:len(self.feature_term_map_)] ]
+            y_maxs = [ ax.get_ylim()[ 1 ] for ax in axes.flat[:len(self.feature_term_map_)] ]
             global_y_min = min( y_mins )
             global_y_max = max( y_maxs )
-            for ax in axes.flat[:len(self.feature_term_map_)]:
+            for ax in axes.flat[ :len( self.feature_term_map_ ) ]:
                 ax.set_ylim( global_y_min, global_y_max )
 
         if suptitle:
             plt.suptitle( suptitle, fontsize=14 )
-        plt.tight_layout()
+
+        close_unused_axes( axes )
+        # plt.tight_layout()
         return fig, axes
 
     def __getattr__(self, name):

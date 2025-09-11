@@ -252,7 +252,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         min_scatter_size: int = 10,
         max_scatter_size: int = 500,
         hspace: float = 0.4,
-        vspace: float = 0.3,
+        wspace: float = 0.3,
     ) -> Tuple[object, List[object]]:
         """
         Generate discretized implied errors plots for the model.
@@ -273,7 +273,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         # Setup plotting infrastructure
         n_features = len(self.numerical_feature_groups)
         fig, axes = get_grid_fig_axes(n_charts=n_features, n_cols=3)
-        fig.subplots_adjust(hspace=hspace, wspace=0.3)
+        fig.subplots_adjust(hspace=hspace, wspace=wspace)
         
         # Sample data via container; preserve alignment across orig/expanded/response
         X_sample = X.sample(sample_frac) if sample_frac < 1 else X
