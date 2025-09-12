@@ -1,4 +1,5 @@
 from enum import Enum
+from quantbullet.utils.decorators import deprecated
 
 class ParallelizationMode(Enum):
     """Enum for parallelization modes."""
@@ -14,8 +15,8 @@ class DataType(Enum):
     INT             = "int"
     BOOL            = "bool"
     DATETIME        = "datetime"
-    CATEGORICAL     = "categorical"
-    
+    CATEGORY        = "category"
+
     @classmethod
     def numeric_types(cls):
         return {cls.FLOAT, cls.INT}
@@ -23,8 +24,12 @@ class DataType(Enum):
     def is_numeric(self):
         return self in self.numeric_types()
     
+    def is_category(self):
+        return self is self.CATEGORY
+    
+    @deprecated("is_categorical is deprecated, please use is_category instead.")
     def is_categorical(self):
-        return self == self.CATEGORICAL
+        return self.is_category()
     
 class StrEnum:
     @classmethod

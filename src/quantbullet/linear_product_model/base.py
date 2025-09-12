@@ -6,6 +6,7 @@ from .utils import (
     init_betas_by_response_mean, 
     estimate_ols_beta_se_with_scalar_vector
 )
+from .datacontainer import ProductModelDataContainer
 from quantbullet.log_config import setup_logger
 from dataclasses import dataclass
 from quantbullet.utils.decorators import deprecated
@@ -247,7 +248,7 @@ class LinearProductModelBase(ABC):
         
         return { key: X[feature_groups[key]].values for key in feature_groups }
 
-    def leave_out_feature_group_predict( self, group_to_exclude, X, params_dict = None, ignore_global_scale=False ):
+    def leave_out_feature_group_predict( self, group_to_exclude, X : ProductModelDataContainer | pd.DataFrame, params_dict = None, ignore_global_scale=False ):
         """Predict the product of all other feature groups except the one specified."""
         if not group_to_exclude in self.feature_groups_:
             raise ValueError(f"Feature group '{group_to_exclude}' not found in feature_groups_. Predicting all feature groups instead.")
@@ -265,7 +266,13 @@ class LinearProductModelBase(ABC):
             else:
                 return np.ones(X.shape[0], dtype=float)
 
-        X_blocks = X.get_containers_dict( list( keep_feature_groups.keys() ) )
+        if isinstance(X, ProductModelDataContainer):
+            X_blocks = X.get_containers_dict( list( keep_feature_groups.keys() ) )
+        elif isinstance(X, pd.DataFrame):
+            X_blocks = self.get_X_blocks(X, keep_feature_groups)
+        else:
+            raise ValueError("Invalid input type. Expected ProductModelDataContainer or pd.DataFrame.")
+
         params_blocks = self._coef_dict_to_blocks( keep_params_dict )
 
         # params blocks are only useful for the blocks with linear terms. the submodels will use their own parameters
@@ -349,12 +356,17 @@ class LinearProductRegressorBase(LinearProductModelBase):
         X_block = X[self.feature_groups_[feature_group]].values
         return estimate_ols_beta_se_with_scalar_vector( X_block, y, beta=X_block_coef, scalar_vector=fixed_blocks_preds )
     
-    def predict( self, X ):
+    def predict( self, X : ProductModelDataContainer | pd.DataFrame ):
         if self.feature_groups_ is None or self.coef_ is None:
             raise ValueError("Model not fitted yet. Please call fit() first.")
-        
-        # Containers dict is { feature_group_name : container }
-        data_blocks = X.get_containers_dict( list( self.feature_groups_.keys() ) )
+
+        if isinstance(X, ProductModelDataContainer):
+            # Containers dict is { feature_group_name : container }
+            data_blocks = X.get_containers_dict( list( self.feature_groups_.keys() ) )
+        elif isinstance(X, pd.DataFrame):
+            data_blocks = self.get_X_blocks(X, self.feature_groups_)
+        else:
+            raise ValueError("Invalid input type. Expected ProductModelDataContainer or pd.DataFrame.")
 
         if self.offset_y is not None:
             # if there is an offset, we need to subtract it from the prediction
@@ -390,10 +402,10 @@ class LinearProductRegressorBase(LinearProductModelBase):
                 raise ValueError(f"Feature block '{key}' not found in input blocks.")
 
             # if the feature group is a submodel, use the submodel to predict
-            if key in self.submodels_:
+            if hasattr( self, 'submodels_' ) and key in self.submodels_:
                 result *= self.submodels_[ key ].predict( X_blocks[ key ].orig )
             else:
-                result *= np.dot( X_blocks[ key ].expanded, params_blocks[ key ] )
+                result *= np.dot( X_blocks[ key ], params_blocks[ key ] )
 
         if not ignore_global_scale:
             result = result * self.global_scalar_

@@ -12,8 +12,8 @@ from reportlab.lib.pagesizes import landscape, letter
 from sklearn.preprocessing import OneHotEncoder
 from reportlab.platypus import Table, TableStyle
 from reportlab.lib import colors
-from typing import List, Optional, Tuple
 from dataclasses import dataclass
+from collections import defaultdict
 
 # Local application/library imports
 from quantbullet.linear_product_model.base import LinearProductModelBase
@@ -25,6 +25,7 @@ from quantbullet.reporting import AdobeSourceFontStyles, PdfChartReport
 from quantbullet.reporting.utils import register_fonts_from_package, merge_pdfs
 from quantbullet.reporting.formatters import numberarray2string
 from quantbullet.linear_product_model.datacontainer import ProductModelDataContainer
+from quantbullet.model.core import FeatureSpec
 
 class LinearProductModelReportMixin:
     @property
@@ -53,54 +54,93 @@ class LinearProductModelReportMixin:
         return style
 
 class LinearProductModelToolkit( LinearProductModelReportMixin ):
-    def __init__( self, feature_config = None ):
-        self.feature_config = feature_config
+    """A toolkit for building, fitting, evaluating, and reporting linear product models."""
+
+    __slots__ = [ 'feature_spec', 'preprocess_config', 'feature_groups_', 'additional_plots', 'subfeatures_' ]
+
+    """
+    feature_groups_ : Dict[str, List[str]]
+        A dictionary mapping each feature name to the list of expanded feature names after preprocessing.
+        For example, if the original feature is 'age' and it is transformed into 5 spline basis functions,
+        then feature_groups_['age'] = ['age_spline_1', 'age_spline_2', 'age_spline_3', 'age_spline_4', 'age_spline_5'].
+
+        For features that do not has any expansion, the list will be the feature name itself, e.g.
+        feature_groups_['age'] = ['age'].
+
+    subfeatures_ : List[str]
+        A flat list of all expanded feature names across all feature groups.
+        This is the concatenation of all lists in feature_groups_.
+    """
+
+    def __init__( self, feature_spec: FeatureSpec, preprocess_config: dict = None ):
+        self.feature_spec = feature_spec
+        self.preprocess_config = preprocess_config
+        self.feature_groups_ = defaultdict( list )
+        for feature in feature_spec.x:
+            self.feature_groups_[ feature ] = []
         self.additional_plots = []
 
     def fit( self, X ):
-        col_names = []
-        feature_groups = {}
-        for colname, transformer in self.feature_config.items():
-            transformer.fit( X[[colname]] )
-            col_names.extend(transformer.get_feature_names_out())
-            feature_groups[colname] = transformer.get_feature_names_out().tolist()
-        self.col_names_ = col_names
-        self.feature_groups_ = feature_groups
+        """Fit the preprocessing transformers to the data and prepare for feature expansion."""
+        subfeatures = []
+        for feature_name in self.feature_groups_.keys():
+            if feature_name not in X.columns:
+                raise ValueError(f"Feature {feature_name} not found in input DataFrame columns")
+
+            if feature_name in self.preprocess_config:
+                transformer = self.preprocess_config[ feature_name ]
+                transformer.fit( X[ [ feature_name ] ] )
+                subfeatures_for_this_feature = transformer.get_feature_names_out( [ feature_name ] ).tolist()
+                self.feature_groups_[ feature_name ] = subfeatures_for_this_feature
+                subfeatures.extend( subfeatures_for_this_feature )
+            else:
+                # if no transformer is given, indicating the feature do not need to be expanded.
+                self.feature_groups_[ feature_name ] = [ feature_name ]
+                subfeatures.append( feature_name )
+        self.subfeatures_ = subfeatures
         return self
 
-    def get_train_df( self, X ):
+    def get_expanded_df( self, X ):
+        """Transform the input DataFrame X into the expanded feature DataFrame for model training."""
         dfs = []
-        for colname, transformer in self.feature_config.items():
-            if isinstance(transformer, OneHotEncoder):
-                df_transformed = transformer.transform(X[[colname]]).toarray()
+        for feature_name in self.feature_groups_.keys():
+            if feature_name in self.preprocess_config:
+                transformer = self.preprocess_config[ feature_name ]
+                if isinstance(transformer, OneHotEncoder):
+                    df_transformed = transformer.transform(X[[feature_name]]).toarray()
+                else:
+                    df_transformed = transformer.transform(X[[feature_name]])
             else:
-                df_transformed = transformer.fit_transform(X[colname])
+                df_transformed = X[[feature_name]].to_numpy()
             dfs.append(df_transformed)
-        return pd.DataFrame(np.concatenate(dfs, axis=1), columns=self.col_names_)
-    
+        return pd.DataFrame(np.concatenate(dfs, axis=1), columns=self.subfeatures_)
+
     @property
-    def n_feature_groups(self):
-        return len(self.feature_groups_)
+    def n_feature_groups( self ):
+        return len( self.feature_groups_ )
     
     @property
     def categorical_feature_group_names(self):
-        return [ name for name, transformer in self.feature_config.items() if isinstance(transformer, OneHotEncoder) ]
+        return [ feature_name for feature_name in self.feature_groups_.keys() if self.feature_spec[ feature_name].dtype.is_category() ]
 
     @property
     def numerical_feature_groups_names(self):
-        return [ name for name, transformer in self.feature_config.items() if not isinstance(transformer, OneHotEncoder) ]
-    
+        return [ feature_name for feature_name in self.feature_groups_.keys() if self.feature_spec[ feature_name].dtype.is_numeric() ]
+
     @property
     def feature_groups(self):
         return self.feature_groups_
     
     @property
     def categorical_feature_groups(self):
-        return { name: transformer for name, transformer in self.feature_config.items() if isinstance(transformer, OneHotEncoder) }
+        return { feature_name: self.feature_groups_[ feature_name ] for feature_name in self.categorical_feature_group_names }
     
     @property
     def numerical_feature_groups(self):
-        return { name: transformer for name, transformer in self.feature_config.items() if not isinstance(transformer, OneHotEncoder) }
+        return { feature_name: self.feature_groups_[ feature_name ] for feature_name in self.numerical_feature_groups_names }
+    
+    def has_feature_group( self, feature_name ):
+        return feature_name in self.feature_groups_.keys()
 
     def plot_model_curves( self, model ):
         n_features = self.n_feature_groups
@@ -176,11 +216,11 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
     
     def get_single_feature_pred_given_values( self, feature_name, feature_values, model ):
         """Get model predictions for specific feature values."""
-        if feature_name not in self.feature_config:
-            raise ValueError(f"Feature {feature_name} not found in feature_config")
-        
+        if self.has_feature_group( feature_name ) is False:
+            raise ValueError(f"Feature {feature_name} not found in feature_groups_")
+
         feature_values = np.array( feature_values ).reshape( -1, 1 )
-        transformer = self.feature_config.get( feature_name, None )
+        transformer = self.preprocess_config.get( feature_name, None )
         if transformer is not None:
             transformed_values = transformer.transform( feature_values )
             # make a data container
@@ -193,8 +233,9 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         else:
             # if no transformer is given, indicating the feature do not need to be expanded.
             single_feature_container = ProductModelDataContainer(
-                orig_df = pd.DataFrame( { f"{feature_name}" : feature_values } ),
-                feature_groups={ feature_name: {} }
+                orig_df = pd.DataFrame( { feature_name : feature_values } ),
+                expanded_df=pd.DataFrame( feature_values, columns = model.feature_groups_.get( feature_name ) ),
+                feature_groups={ feature_name: model.feature_groups_.get( feature_name ) }
             )
 
         y_values = model.single_feature_group_predict( group_to_include = feature_name, X=single_feature_container, ignore_global_scale=True )
@@ -221,20 +262,19 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         fig, axes = get_grid_fig_axes( n_charts=n_features, n_cols=3 )
         X_sample, y_sample ,train_df_sample = self.sample_data( sample_frac, X, y, train_df )
 
-        for i, ( feature, transformer ) in enumerate( self.feature_config.items() ):
-            if isinstance(transformer, FlatRampTransformer):
-                # the data size may be too large to plot all points, so we sample a fraction of the data
-                other_blocks_preds = model.leave_out_feature_group_predict(feature, train_df_sample)
-                implied_actual = y_sample / other_blocks_preds
+        for i, feature in enumerate( self.numerical_feature_groups_names ):
+            # the data size may be too large to plot all points, so we sample a fraction of the data
+            other_blocks_preds = model.leave_out_feature_group_predict(feature, train_df_sample)
+            implied_actual = y_sample / other_blocks_preds
 
-                # codes for plotting
-                ax = axes[i]
-                ax.scatter(X_sample[feature], implied_actual, alpha=0.2, color=EconomistBrandColor.LONDON_70)
-                x_grid, this_feature_preds = self.get_feature_grid_and_predictions( X[feature], model )
-                ax.plot(x_grid, this_feature_preds, color=EconomistBrandColor.ECONOMIST_RED, label='Model Prediction', linewidth=2)
-                ax.set_title(f'{feature} Implied Error', fontdict={'fontsize': 14} )
-                ax.set_xlabel(f'{feature} Value', fontdict={'fontsize': 12} )
-                ax.set_ylabel('Implied Actual', fontdict={'fontsize': 12} )
+            # codes for plotting
+            ax = axes[i]
+            ax.scatter(X_sample[feature], implied_actual, alpha=0.2, color=EconomistBrandColor.LONDON_70)
+            x_grid, this_feature_preds = self.get_feature_grid_and_predictions( X[feature], model )
+            ax.plot(x_grid, this_feature_preds, color=EconomistBrandColor.ECONOMIST_RED, label='Model Prediction', linewidth=2)
+            ax.set_title(f'{feature} Implied Error', fontdict={'fontsize': 14} )
+            ax.set_xlabel(f'{feature} Value', fontdict={'fontsize': 12} )
+            ax.set_ylabel('Implied Actual', fontdict={'fontsize': 12} )
 
         close_unused_axes( axes )
         plt.tight_layout()
@@ -247,13 +287,13 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         X: ProductModelDataContainer,
         method: str = 'bin',
         sample_frac: float = 1,
-        n_quantile_groups: Optional[int] = 100,
+        n_quantile_groups: int | None = 100,
         n_bins: int = 20,
         min_scatter_size: int = 10,
         max_scatter_size: int = 500,
         hspace: float = 0.4,
         wspace: float = 0.3,
-    ) -> Tuple[object, List[object]]:
+    ) -> tuple[object, list[object]]:
         """
         Generate discretized implied errors plots for the model.
         
@@ -283,27 +323,26 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         ImpliedActualDataCache = namedtuple('ImpliedActualDataCache', ['feature', 'agg_df', 'x_grid', 'this_feature_preds'])
         data_caches = {}
         
-        for feature, transformer in self.numerical_feature_groups.items():
-            if isinstance(transformer, FlatRampTransformer):
-                # Create binned dataframe
-                binned_df, cutoff_values_right = self._create_bins(X_sample.orig[feature], n_quantile_groups, n_bins)
-                
-                # Get predictions from other blocks
-                other_blocks_preds = model.leave_out_feature_group_predict( feature, X_sample )
-                
-                # Calculate implied actual based on method
-                agg_df = self._calculate_implied_actual_agg(
-                    binned_df, y_sample, other_blocks_preds, cutoff_values_right, method
-                )
-                
-                # Get feature grid and predictions
-                x_grid, this_feature_preds = self.get_feature_grid_and_predictions(
-                    X_sample.orig[feature], model
-                )
+        for feature, subfeatures in self.numerical_feature_groups.items():
+            # Create binned dataframe
+            binned_df, cutoff_values_right = self._create_bins(X_sample.orig[feature], n_quantile_groups, n_bins)
+            
+            # Get predictions from other blocks
+            other_blocks_preds = model.leave_out_feature_group_predict( feature, X_sample )
+            
+            # Calculate implied actual based on method
+            agg_df = self._calculate_implied_actual_agg(
+                binned_df, y_sample, other_blocks_preds, cutoff_values_right, method
+            )
+            
+            # Get feature grid and predictions
+            x_grid, this_feature_preds = self.get_feature_grid_and_predictions(
+                X_sample.orig[feature], model
+            )
 
-                agg_df['model_pred'] = self.get_single_feature_pred_given_values( feature, agg_df['feature_bin_right'], model )
-                
-                data_caches[feature] = ImpliedActualDataCache(feature, agg_df, x_grid, this_feature_preds)
+            agg_df['model_pred'] = self.get_single_feature_pred_given_values( feature, agg_df['feature_bin_right'], model )
+            
+            data_caches[feature] = ImpliedActualDataCache(feature, agg_df, x_grid, this_feature_preds)
         
         # Plot all features with consistent sizing
         global_min_count = min(cache.agg_df['count'].min() for _, cache in data_caches.items())
@@ -346,7 +385,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         self.implied_actual_data_caches = data_caches
         return fig, axes, data_caches
 
-    def _create_bins(self, feature_series: pd.Series, n_quantile_groups: Optional[int], n_bins: int) -> Tuple[pd.DataFrame, List[float]]:
+    def _create_bins(self, feature_series: pd.Series, n_quantile_groups: int | None, n_bins: int) -> tuple[pd.DataFrame, list[float]]:
         """Create binned dataframe based on a feature series.
         
         Parameters
@@ -388,7 +427,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         binned_df: pd.DataFrame,
         y_sample: np.ndarray,
         other_blocks_preds: np.ndarray,
-        cutoff_values_right: List[float],
+        cutoff_values_right: list[float],
         method: str = 'bin'
     ) -> pd.DataFrame:
         """Calculate aggregated implied actual values based on the specified method."""
@@ -426,18 +465,18 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         agg_df['feature_bin_right'] = cutoff_values_right
         return agg_df
     
-    def plot_categorical_plots( self, model: LinearProductModelBase, dcontainer: ProductModelDataContainer, sample_frac=1, hspace=0.4, vspace=0.3, method:str='bin' ):
+    def plot_categorical_plots( self, model: LinearProductModelBase, dcontainer: ProductModelDataContainer, sample_frac=1, hspace=0.4, wspace=0.3, method:str='bin' ):
         if hasattr( model, 'offset_y') and getattr( model, 'offset_y') is not None:
             y = dcontainer.response + getattr( model, 'offset_y')
 
         n_features = len( self.categorical_feature_groups )
         fig, axes = get_grid_fig_axes( n_charts=n_features, n_cols=3 )
-        fig.subplots_adjust(hspace=hspace, wspace=0.3)
+        fig.subplots_adjust(hspace=hspace, wspace=wspace)
         dcontainer_sample = dcontainer.sample(sample_frac) if sample_frac < 1 else dcontainer
         X_sample = dcontainer_sample.orig
         y_sample = dcontainer_sample.response
 
-        for i, (feature, transformer) in enumerate(self.categorical_feature_groups.items()):
+        for i, (feature, subfeatures) in enumerate(self.categorical_feature_groups.items()):
             ax = axes[i]
             other_blocks_preds = model.leave_out_feature_group_predict( feature, dcontainer_sample )
             this_feature_preds = model.single_feature_group_predict( group_to_include=feature, X=dcontainer_sample, ignore_global_scale=True )
@@ -488,9 +527,9 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
 
             # replace categorical x-labels
             ax.set_xticks(x)
-            if len( transformer.get_feature_names_out() ) <= 8:
+            if len( subfeatures ) <= 8:
                 ax.set_xticklabels(agg_df.index)
-            elif len( transformer.get_feature_names_out() ) >= 16:
+            elif len( subfeatures ) >= 16:
                 ax.set_xticklabels(agg_df.index, rotation=90)
             else:
                 ax.set_xticklabels(agg_df.index, rotation=45)
@@ -597,17 +636,13 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         os.remove( pdf2 )
         return merged_pdf_path
     
-    def extract_single_feature_group_fit_data( self, X, y, train_df, model, feature_group_name ):
+    def extract_single_feature_group_fit_data( self, X: ProductModelDataContainer, model: LinearProductModelBase, feature_group_name: str ) -> pd.DataFrame:
         """Extract data related to a single feature group for detailed analysis.
         
         Parameters
         ----------
-        X : pd.DataFrame
-            The original feature matrix.
-        y : pd.Series
-            The target variable.
-        train_df : pd.DataFrame
-            The expanded training data from the original dataset X; after the feature engineering steps.
+        X : ProductModelDataContainer
+            The data container used for model training, containing both original and expanded feature DataFrames.
         model : BaseModel
             The trained model.
         feature_group_name : str
@@ -619,12 +654,11 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
             A DataFrame containing the extracted data for the specified feature group.
         """
         s = model.global_scalar_
-        m = model.leave_out_feature_group_predict( feature_group_name, train_df, ignore_global_scale=True )
-        train_features = train_df[ self.feature_groups_[ feature_group_name ] ]
-        X_pred = model.single_feature_group_predict( feature_group_name, train_df, ignore_global_scale=True )
-        # return a DataFrame with the relevant columns
-        result_df = train_features.copy()
-        result_df[ 'y' ] = y
+        m = model.leave_out_feature_group_predict( feature_group_name, X, ignore_global_scale=True )
+        subfeatures_df = X.get_container_for_feature_group( feature_group_name ).expanded_df
+        X_pred = model.single_feature_group_predict( feature_group_name, X, ignore_global_scale=True )
+        result_df = subfeatures_df.copy()
+        result_df[ 'y' ] = subfeatures_df.response
         result_df[ 'global_scalar' ] = s
         result_df[ 'other_blocks_pred' ] = m
         result_df[ 'other_blocks_pred_scaled' ] = m * s
