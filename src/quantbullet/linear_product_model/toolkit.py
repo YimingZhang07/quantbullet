@@ -12,7 +12,7 @@ from reportlab.lib.pagesizes import landscape, letter
 from sklearn.preprocessing import OneHotEncoder
 from reportlab.platypus import Table, TableStyle
 from reportlab.lib import colors
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from collections import defaultdict
 
 # Local application/library imports
@@ -52,11 +52,31 @@ class LinearProductModelReportMixin:
             ("GRID",          (0,0), (-1,-1), 0.25, colors.lightgrey),
         ])
         return style
+    
+@dataclass
+class ImpliedActualDataCache:
+    feature            : str
+    agg_df             : pd.DataFrame
+    x_grid             : np.ndarray
+    x_grid_preds       : np.ndarray
+
+    # derived fields
+    bin_right               : np.ndarray = field(init=False)
+    bin_implied_actuals     : np.ndarray = field(init=False)
+    bin_model_preds         : np.ndarray = field(init=False)
+    bin_count               : np.ndarray = field(init=False)
+
+    def __post_init__(self):
+        self.bin_right = self.agg_df['feature_bin_right'].values
+        self.bin_implied_actuals = self.agg_df['implied_actual_mean'].values
+        self.bin_model_preds = self.agg_df['model_pred'].values
+        self.bin_count = self.agg_df['count'].values
 
 class LinearProductModelToolkit( LinearProductModelReportMixin ):
     """A toolkit for building, fitting, evaluating, and reporting linear product models."""
 
-    __slots__ = [ 'feature_spec', 'preprocess_config', 'feature_groups_', 'additional_plots', 'subfeatures_' ]
+    __slots__ = ( 'feature_spec', 'preprocess_config', 'feature_groups_', 'additional_plots', 'subfeatures_',
+                  'implied_actual_plot_axes', 'implied_actual_data_caches' )
 
     """
     feature_groups_ : Dict[str, List[str]]
@@ -280,6 +300,9 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         plt.tight_layout()
         self.implied_actual_plot_axes = axes
         return fig, axes
+    
+    def get_implied_actual_caches( self, feature_name ):
+        return self.implied_actual_data_caches.get( feature_name, None )
 
     def plot_discretized_implied_errors(
         self, 
@@ -320,9 +343,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         y_sample = X_sample.response
         
         # Process each feature and create plotting caches
-        ImpliedActualDataCache = namedtuple('ImpliedActualDataCache', ['feature', 'agg_df', 'x_grid', 'this_feature_preds'])
         data_caches = {}
-        
         for feature, subfeatures in self.numerical_feature_groups.items():
             # Create binned dataframe
             binned_df, cutoff_values_right = self._create_bins(X_sample.orig[feature], n_quantile_groups, n_bins)
@@ -336,13 +357,13 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
             )
             
             # Get feature grid and predictions
-            x_grid, this_feature_preds = self.get_feature_grid_and_predictions(
+            x_grid, x_grid_preds = self.get_feature_grid_and_predictions(
                 X_sample.orig[feature], model
             )
 
             agg_df['model_pred'] = self.get_single_feature_pred_given_values( feature, agg_df['feature_bin_right'], model )
             
-            data_caches[feature] = ImpliedActualDataCache(feature, agg_df, x_grid, this_feature_preds)
+            data_caches[feature] = ImpliedActualDataCache(feature, agg_df, x_grid, x_grid_preds)
         
         # Plot all features with consistent sizing
         global_min_count = min(cache.agg_df['count'].min() for _, cache in data_caches.items())
@@ -351,17 +372,17 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         for i, (_, cache) in enumerate(data_caches.items()):
             ax = axes[i]
             sizes = scale_scatter_sizes(
-                cache.agg_df['count'], 
-                min_size=min_scatter_size, 
+                cache.bin_count,
+                min_size=min_scatter_size,
                 max_size=max_scatter_size,
-                global_min=global_min_count, 
+                global_min=global_min_count,
                 global_max=global_max_count
             )
             
             # Create scatter plot
             ax.scatter(
-                cache.agg_df['feature_bin_right'],
-                cache.agg_df['implied_actual_mean'],
+                cache.bin_right,
+                cache.bin_implied_actuals,
                 alpha=0.7,
                 color=EconomistBrandColor.LONDON_70,
                 label='Implied Actual',
@@ -371,7 +392,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
             # Plot model prediction line
             ax.plot(
                 cache.x_grid, 
-                cache.this_feature_preds,
+                cache.x_grid_preds,
                 color=EconomistBrandColor.ECONOMIST_RED,
                 label='Model Prediction',
                 linewidth=2
@@ -383,7 +404,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         close_unused_axes(axes)
         self.implied_actual_plot_axes = axes
         self.implied_actual_data_caches = data_caches
-        return fig, axes, data_caches
+        return fig, axes
 
     def _create_bins(self, feature_series: pd.Series, n_quantile_groups: int | None, n_bins: int) -> tuple[pd.DataFrame, list[float]]:
         """Create binned dataframe based on a feature series.
