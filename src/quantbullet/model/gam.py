@@ -54,7 +54,7 @@ class WrapperGAM:
         X_selected = X[ self.feature_spec.all_inputs ].copy()
 
         # lock in category levels
-        for col in self.feature_spec.sec_x_cat:
+        for col in self.feature_spec.sec_x_cat + self.feature_spec.x_cat:
             X_selected[col] = X_selected[col].astype('category')
             self.category_levels_[col] = X_selected[col].cat.categories
             X_selected[col] = X_selected[col].cat.codes
@@ -68,7 +68,7 @@ class WrapperGAM:
     def predict( self, X ):
         X_selected = X[self.feature_spec.all_inputs].copy()
 
-        for col in self.feature_spec.sec_x_cat:
+        for col in self.feature_spec.sec_x_cat + self.feature_spec.x_cat:
             # enforce the same categories as training
             X_selected[col] = (
                 pd.Categorical(
@@ -124,18 +124,39 @@ class WrapperGAM:
                 ax.set_ylabel( 'Partial Dependence', fontdict={ 'fontsize': 12 } )
                 ax.legend( title = by )
 
+            elif term._name == 'factor_term':
+                # plot a bar chart for categorical features
+                labels = self.category_levels_.get( feature_name )
+                codes = list( range( len( labels ) ) )
+                XX = np.zeros( (len( codes ), len( self.feature_spec.all_inputs )) )
+                XX[ :, i ] = codes
+                pdep, confi = self.gam_.partial_dependence( term=i, X=XX, width=0.95 )
+                # ax.bar( labels, pdep, yerr=[ pdep - confi[:,0], confi[:,1] - pdep ], capsize=5, color = EconomistBrandColor.CHICAGO_45, alpha=0.7 )
+                ax.errorbar(labels, pdep,
+                            yerr=[pdep - confi[:,0], confi[:,1] - pdep],
+                            fmt='o', capsize=5,
+                            color=EconomistBrandColor.CHICAGO_45)
+                ax.axhline(0, color='gray', linestyle='--', linewidth=1)  # optional baseline
+                ax.set_xlabel( f"{ feature_name }", fontdict={ 'fontsize': 12 } )
+                ax.set_ylabel( 'Partial Dependence', fontdict={ 'fontsize': 12 } )
             else:
                 pass
 
-        # all the y axes share the same scale
-        # find the global y min/max first and then set the same ylim
         if scale_y_axis:
-            y_mins = [ ax.get_ylim()[ 0 ] for ax in axes.flat[:len(self.feature_term_map_)] ]
-            y_maxs = [ ax.get_ylim()[ 1 ] for ax in axes.flat[:len(self.feature_term_map_)] ]
-            global_y_min = min( y_mins )
-            global_y_max = max( y_maxs )
-            for ax in axes.flat[ :len( self.feature_term_map_ ) ]:
-                ax.set_ylim( global_y_min, global_y_max )
+        # Only adjust y-axis for continuous features (spline_term and tensor_term)
+            continuous_axes = []
+            for i, (feature_name, term) in enumerate(self.feature_term_map_.items()):
+                if term._name in ['spline_term', 'tensor_term']:
+                    continuous_axes.append(axes.flat[i])
+            
+            if continuous_axes:
+                y_mins = [ax.get_ylim()[0] for ax in continuous_axes]
+                y_maxs = [ax.get_ylim()[1] for ax in continuous_axes]
+                global_y_min = min(y_mins)
+                global_y_max = max(y_maxs)
+                
+                for ax in continuous_axes:
+                    ax.set_ylim(global_y_min, global_y_max)
 
         if suptitle:
             plt.suptitle( suptitle, fontsize=14 )

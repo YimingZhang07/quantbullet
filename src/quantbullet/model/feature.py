@@ -24,19 +24,38 @@ class Feature:
 class FeatureSpec:
     def __init__(self, features: list[Feature]):
         self._features = features
+        self._check_duplicate_names()
         self._classify_features()
         self._build_typed_feature_namespace()
         self._build_lookup_maps()
 
+    def _check_duplicate_names(self):
+        """Check for duplicate feature names."""
+        names = [f.name for f in self._features]
+        duplicates = set([name for name in names if names.count(name) > 1])
+        if duplicates:
+            raise ValueError(f"Duplicate feature names found: {duplicates}")
+
     def _build_lookup_maps(self):
-        """Build direct lookup dictionaries for O(1) access."""
+        """Build direct lookup dictionaries for O(1) access.
+        
+        _name_to_feature : Dict[str, Feature] - map feature name to Feature object
+        _name_to_index   : Dict[str, int]     - map feature name to its index in the original list
+        """
         self._name_to_feature = {f.name: f for f in self._features}
         self._name_to_index = {f.name: i for i, f in enumerate(self._features)}
 
     @property
     def all_inputs( self ) -> list[str]:
         """Get all model input feature names."""
-        return self.x + self.sec_x
+        # there may be duplicates between x and sec_x, use the order in self.x first and then add in order of sec_x
+        seen = set()
+        all_inputs = []
+        for name in self.x + self.sec_x:
+            if name not in seen:
+                seen.add(name)
+                all_inputs.append(name)
+        return all_inputs
     
     @property
     def all_inputs_order_map( self ) -> Dict[str, int]:
