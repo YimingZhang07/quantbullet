@@ -31,7 +31,7 @@ class WrapperGAM:
                 t = te( i, m[ kwargs['by'] ], **{ k:v for k,v in kwargs.items() if k != 'by' } )
             elif feature.dtype == DataType.FLOAT:
                 t = s(i, **kwargs)
-            elif feature.dtype == DataType.CATEGORICAL:
+            elif feature.dtype == DataType.CATEGORY:
                 t = f(i, **kwargs)
             else:
                 raise ValueError(f"Unsupported data type: {feature.dtype}")
