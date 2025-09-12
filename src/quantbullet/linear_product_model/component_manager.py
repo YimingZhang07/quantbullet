@@ -9,7 +9,7 @@ Threfore we need a flexible structure to manage each model component, with savin
 import json
 from dataclasses import dataclass, field, asdict
 from typing import Dict, Any, Optional, List
-from quantbullet.parametic_model import (
+from quantbullet.parametric_model import (
     DoubleLogisticModel,
     AsymQuadModel,
     InterpolatedModel,

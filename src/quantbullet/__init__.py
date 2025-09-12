@@ -8,6 +8,8 @@ _lazy_submodules = [
     "utils",
     "research",
     "tsa",
+    "linear_product_model",
+    "parametric_model",
 ]
 
 def __getattr__(name):

@@ -87,6 +87,14 @@ class ProductModelDataContainer:
             A dictionary of containers for the feature group names.
         """
         return { name: self.get_container_for_feature_group(name) for name in feature_group_names }
+    
+    def get_expanded_array_for_feature_group( self, feature_group_name: str ):
+        """Get the expanded array for a feature group name."""
+        return self.expanded_df[ self.feature_groups[feature_group_name] ].values
+    
+    def get_expanded_array_dict( self, feature_group_names: list[str] ):
+        """Get the expanded array for a list of feature group names."""
+        return { name: self.get_expanded_array_for_feature_group(name) for name in feature_group_names }
 
     def sample( self, frac: float ):
         """Return a new container sampled by fraction, preserving row alignment.

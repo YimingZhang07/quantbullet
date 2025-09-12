@@ -12,7 +12,7 @@ from quantbullet.linear_product_model.component_manager import (
     dataclass_to_dict,
     dict_to_dataclass,
 )
-from quantbullet.parametic_model import AsymQuadModel, DoubleLogisticModel
+from quantbullet.parametric_model import AsymQuadModel, DoubleLogisticModel
 
 
 class TestComponentConfig(unittest.TestCase):

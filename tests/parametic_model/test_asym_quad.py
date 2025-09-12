@@ -1,6 +1,6 @@
 import numpy as np
 import unittest
-from quantbullet.parametic_model import AsymQuadModel
+from quantbullet.parametric_model import AsymQuadModel
 
 
 class TestBathtubModel(unittest.TestCase):

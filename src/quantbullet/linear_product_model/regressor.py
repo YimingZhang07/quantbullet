@@ -19,7 +19,7 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
         self._reset_history( cache_qr_decomp=cache_qr_decomp )
         self.feature_groups_ = feature_groups
         self.submodels_ = submodels or {}
-        data_blocks = X.get_containers_dict( list( feature_groups.keys() ) )
+        data_blocks = X.get_expanded_array_dict( list( feature_groups.keys() ) )
         
         if X.response is None:
             raise ValueError("Response variable is not provided in the data container.")
@@ -44,7 +44,7 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
                     fixed_feature_groups = feature_groups.copy()
                     fixed_feature_groups.pop( feature_group )
                     fixed_params_blocks = { key: params_blocks[key] for key in fixed_feature_groups }
-                    fixed_data_blocks = X.get_containers_dict( list( fixed_feature_groups.keys() ) )
+                    fixed_data_blocks = X.get_expanded_array_dict( list( fixed_feature_groups.keys() ) )
                     # We hope to maintain the average output of each feature group is 1
                     # so the global scaler is not used to scale the floating data util the actual regression step
                     fixed_predictions = self.forward(fixed_params_blocks, fixed_data_blocks, ignore_global_scale=True)
