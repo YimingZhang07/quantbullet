@@ -11,50 +11,64 @@ from quantbullet.linear_product_model import (
 )
 from quantbullet.preprocessing import FlatRampTransformer
 from quantbullet.linear_product_model.datacontainer import ProductModelDataContainer
+from quantbullet.model.feature import DataType, Feature, FeatureRole, FeatureSpec
+
+def _setup_data():
+    np.random.seed(42)
+    n_samples = int( 10e4 )
+    df = pd.DataFrame({
+        'x1': 10 + 3 * np.random.randn(n_samples),
+        'x2': 20 + 3 * np.random.randn(n_samples),
+        'x3': np.random.choice([0, 1, 2], size=n_samples, p=[0.25, 0.25, 0.5])
+    })
+
+    df['x3'] = df['x3'].astype('category')
+
+    df['y'] = np.cos(df['x1']) + np.sin(df['x2']) + \
+        np.random.randn(n_samples) * 0.5 + \
+        np.random.normal(loc = df['x3'].cat.codes, scale=0.5) + 10
+
+    preprocess_config = {
+        'x1': FlatRampTransformer(
+            knots = list( np.arange( 4, 16, 1 ) ),
+            include_bias=True
+        ),
+        'x2': FlatRampTransformer(
+            knots = list( np.arange( 14, 26, 1 ) ),
+            include_bias=True
+        ),
+        'x3': OneHotEncoder( drop=None )
+    }
+
+    feature_spec = FeatureSpec(
+        features = [
+            Feature( name='x1', dtype=DataType.FLOAT, role=FeatureRole.MODEL_INPUT ),
+            Feature( name='x2', dtype=DataType.FLOAT, role=FeatureRole.MODEL_INPUT ),
+            Feature( name='x3', dtype=DataType.CATEGORY, role=FeatureRole.MODEL_INPUT ),
+            Feature( name='y', dtype=DataType.FLOAT, role=FeatureRole.TARGET )
+        ]
+    )
+
+    tk = LinearProductModelToolkit( feature_spec=feature_spec, preprocess_config=preprocess_config ).fit( df )
+    expanded_df = tk.get_expanded_df( df )
+
+    return df, expanded_df, tk.feature_groups
 
 class TestLinearProductModel(unittest.TestCase):
     def setUp(self):
-        np.random.seed(42)
-        n_samples = int( 10e4 )
-        df = pd.DataFrame({
-            'x1': 10 + 3 * np.random.randn(n_samples),
-            'x2': 20 + 3 * np.random.randn(n_samples),
-            'x3': np.random.choice([0, 1, 2], size=n_samples, p=[0.25, 0.25, 0.5])
-        })
-
-        df['x3'] = df['x3'].astype('category')
-
-        df['y'] = np.cos(df['x1']) + np.sin(df['x2']) + \
-            np.random.randn(n_samples) * 0.5 + \
-            np.random.normal(loc = df['x3'].cat.codes, scale=0.5) + 10
-
-        feature_config = {
-            'x1': FlatRampTransformer(
-                knots = list( np.arange( 4, 16, 1 ) ),
-                include_bias=True
-            ),
-            'x2': FlatRampTransformer(
-                knots = list( np.arange( 14, 26, 1 ) ),
-                include_bias=True
-            ),
-            'x3': OneHotEncoder( drop=None )
-        }
-
-        tk = LinearProductModelToolkit( feature_config ).fit( df )
-        train_df = tk.get_train_df( df )
-        
+        df, expanded_df, feature_groups = _setup_data()
         self.df = df
-        self.train_df = train_df
-        self.feature_groups = tk.feature_groups
+        self.train_df = expanded_df
+        self.feature_groups = feature_groups
 
     def test_LinearProductRegressorBCD(self):
         df = self.df
         train_df = self.train_df
         feature_groups = self.feature_groups
-        dcontainer = ProductModelDataContainer( df, train_df, feature_groups )
 
+        dcontainer = ProductModelDataContainer( df, train_df, response= df['y'], feature_groups=feature_groups )
         lprm_ols = LinearProductRegressorBCD()
-        lprm_ols.fit( dcontainer, df['y'], feature_groups=feature_groups, n_iterations=100, early_stopping_rounds=20, cache_qr_decomp=True )
+        lprm_ols.fit( dcontainer, feature_groups=feature_groups, n_iterations=100, early_stopping_rounds=20, cache_qr_decomp=True )
         df['model_pred_BCD'] = lprm_ols.predict( dcontainer )
 
         # check the mean squared error; whether the model converges
@@ -63,6 +77,13 @@ class TestLinearProductModel(unittest.TestCase):
         
         # check whether the global scale converges to the mean of y
         self.assertTrue( abs( lprm_ols.global_scalar_ / df['y'].mean() -1 ) < 0.05 )
+
+class TestLinearProductRegressorScipy(unittest.TestCase):
+    def setUp(self):
+        df, expanded_df, feature_groups = _setup_data()
+        self.df = df
+        self.train_df = expanded_df
+        self.feature_groups = feature_groups
 
     def test_LinearProductRegressorScipy(self):
         df = self.df

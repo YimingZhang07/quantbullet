@@ -64,7 +64,7 @@ class TestWrapperGAM(unittest.TestCase):
                 ),
                 Feature(
                     name='level', 
-                    dtype=DataType.CATEGORICAL, 
+                    dtype=DataType.CATEGORY, 
                     role=FeatureRole.SECONDARY_INPUT
                 ),
                 Feature(
