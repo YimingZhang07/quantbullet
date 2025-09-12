@@ -8,9 +8,10 @@ def compare_models(models, x, y = None):
         for model in models:
             ax.plot(x, model.predict(x), 
                 label=model.model_name,
+                linewidth=3
             )
         if y is not None:
-            ax.scatter(x, y, label="Data", color="gray", alpha=0.5)
+            ax.scatter(x, y, label="Data", color="gray", alpha=0.4)
         ax.legend()
         ax.set_xlabel("x")
         ax.set_ylabel("y")

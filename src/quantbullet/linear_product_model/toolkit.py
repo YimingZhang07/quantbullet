@@ -100,6 +100,15 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
             self.feature_groups_[ feature ] = []
         self.additional_plots = []
 
+    def clone( self, exclude_preprocess_features: list=None ):
+        # remove the excluded features the preprocess_config
+        new_preprocess_config = self.preprocess_config.copy()
+        if exclude_preprocess_features is not None:
+            for feature in exclude_preprocess_features:
+                if feature in new_preprocess_config:
+                    new_preprocess_config.pop( feature )
+        return LinearProductModelToolkit( feature_spec=self.feature_spec, preprocess_config=new_preprocess_config )
+
     def fit( self, X ):
         """Fit the preprocessing transformers to the data and prepare for feature expansion."""
         subfeatures = []
@@ -253,7 +262,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         else:
             # if no transformer is given, indicating the feature do not need to be expanded.
             single_feature_container = ProductModelDataContainer(
-                orig_df = pd.DataFrame( { feature_name : feature_values } ),
+                orig_df = pd.DataFrame( { feature_name : feature_values.ravel() } ),
                 expanded_df=pd.DataFrame( feature_values, columns = model.feature_groups_.get( feature_name ) ),
                 feature_groups={ feature_name: model.feature_groups_.get( feature_name ) }
             )
@@ -597,14 +606,19 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
 
         # ========== Table of Feature Configurations ==========
         feature_config_data = []
-        for feature_group_name, transformer in self.feature_config.items():
-            if isinstance(transformer, OneHotEncoder):
+        for feature_group_name in self.feature_groups_.keys():
+            transformer = self.preprocess_config.get( feature_group_name, None )
+            if transformer is None:
+                feature_config_data.append( [ feature_group_name, model.submodels_[ feature_group_name ].model_name, "" ] )
+            elif isinstance(transformer, OneHotEncoder):
                 feature_config_data.append( [ feature_group_name, "OneHotEncoder", "" ] )
-            else:
+            elif isinstance(transformer, FlatRampTransformer):
                 text = f"knots={ numberarray2string( transformer.knots ) }"
                 feature_config_data.append( [ feature_group_name, 
                                               "FlatRampTransformer", 
                                               Paragraph(text,AdobeSourceFontStyles.MonoCode ) ] )
+            else:
+                raise ValueError(f"Unknown transformer type: {type(transformer)}")
 
         feature_config_table = Table( feature_config_data, colWidths=[150, 200, 300] )
         feature_config_table.setStyle( self.feature_config_table_style )
@@ -614,7 +628,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         return pdf_full_path
 
     def generate_plots_pdf( self, report_name='Model-Report' ):
-        if not hasattr( self, 'implied_actual_axes' ):
+        if not hasattr( self, 'implied_actual_plot_axes' ):
             raise ValueError("No error plots found. Please run implied_errors functions first.")
 
         pdf_full_path = f"{report_name}-Errors.pdf"
@@ -622,7 +636,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         # step 1: add numerical implied errors plots
         chart_pdf = PdfChartReport( pdf_full_path, corner_text=report_name )
         chart_pdf.new_page( layout=( 3,3 ), suptitle = 'Numerical - Implied Errors' )
-        chart_pdf.add_external_axes( self.implied_actual_axes )
+        chart_pdf.add_external_axes( self.implied_actual_plot_axes )
 
         # step 2: add categorical error plots
         chart_pdf.new_page( layout=( 2,2 ), suptitle = 'Categorical - Implied Errors' )
@@ -642,7 +656,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
 
     def generate_full_report_pdf( self, model, report_name='Model-Report' ):
         """Generate a full report PDF including fitting summary and error plots."""
-        if not hasattr( self, 'implied_actual_axes' ):
+        if not hasattr( self, 'implied_actual_plot_axes' ):
             raise ValueError("No error plots found. Please run implied_errors functions first.")
 
         pdf_full_path = f"{report_name}-Full.pdf"

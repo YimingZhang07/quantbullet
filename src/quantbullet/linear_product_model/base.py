@@ -403,7 +403,7 @@ class LinearProductRegressorBase(LinearProductModelBase):
 
             # if the feature group is a submodel, use the submodel to predict
             if hasattr( self, 'submodels_' ) and key in self.submodels_:
-                result *= self.submodels_[ key ].predict( X_blocks[ key ].orig )
+                result *= self.submodels_[ key ].predict( X_blocks[ key ] )
             else:
                 result *= np.dot( X_blocks[ key ], params_blocks[ key ] )
 

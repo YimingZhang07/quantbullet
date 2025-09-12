@@ -1,25 +1,24 @@
 import importlib
 from importlib.metadata import version
+import lazy_loader as lazy
 
-_lazy_submodules = [
-    "log_config",
-    "global_utils",
-    "model",
-    "utils",
-    "research",
-    "tsa",
-    "linear_product_model",
-    "parametric_model",
-]
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from . import log_config, global_utils, model, utils, research, tsa, linear_product_model, parametric_model
 
-def __getattr__(name):
-    if name in _lazy_submodules:
-        # Lazy load the submodule
-        return importlib.import_module(f".{name}", __package__)
-    raise AttributeError(f"Module '{__name__}' has no attribute '{name}'")
-
-def __dir__():
-    return list(globals().keys()) + _lazy_submodules
+__getattr__, __dir__, __all__ = lazy.attach(
+    __name__,
+    submodules=[
+        "log_config",
+        "global_utils",
+        "model",
+        "utils",
+        "research",
+        "tsa",
+        "linear_product_model",
+        "parametric_model",
+    ],
+)
 
 
 # __version__ = version("quantbullet")
