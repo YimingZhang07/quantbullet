@@ -33,3 +33,6 @@ class DoubleLogisticModel( ParametricModel ):
 
     def get_param_names(self):
         return ['L1', 'L2', 'k1', 'x1', 'k2', 'x2', 'c']
+    
+    def math_repr( self ):
+        return "f(x) = L1/(1 + exp(-k1*(x - x1))) + L2/(1 + exp(-k2*(x - x2))) + c"

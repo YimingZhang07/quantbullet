@@ -68,3 +68,6 @@ class InterpolatedModel:
         extrapolation = d.get("extrapolation", "linear")
         return cls(np.array(d["x_grid"]), np.array(d["y_grid"]), 
                   extrapolation=extrapolation, **kwargs)
+    
+    def math_repr(self):
+        return " - Interpolated Model - "

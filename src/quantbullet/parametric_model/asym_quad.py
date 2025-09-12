@@ -20,3 +20,6 @@ class AsymQuadModel( ParametricModel ):
 
     def get_param_names(self):
         return ['a', 'b', 'x0', 'c']
+    
+    def math_repr(self):
+        return "f(x) = a*(x - x0)^2 + b*(x - x0) + c"

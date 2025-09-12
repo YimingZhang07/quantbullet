@@ -29,3 +29,6 @@ class BathtubModel( ParametricModel ):
         Return parameter names in the order expected by func_with_args.
         """
         return ['lam', 'theta1', 'k1', 'theta2', 'k2']
+    
+    def math_repr( self ):
+        return "f(x) = λ * ( (x/θ₁)^k₁ + (θ₂/x)^k₂ )"

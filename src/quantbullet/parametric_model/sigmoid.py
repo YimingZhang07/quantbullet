@@ -31,3 +31,6 @@ class SigmoidModel( ParametricModel ):
 
     def get_param_names(self):
         return ['L', 'k', 'x0']
+    
+    def math_repr( self ):
+        return "f(x) = L / (1 + exp(-k * (x - x0)))"

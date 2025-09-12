@@ -106,3 +106,7 @@ class ParametricModel(ABC):
         ax.plot(x, y, **kwargs)
         ax.plot(x, self.predict(x), **kwargs)
         return fig, ax
+    
+    @abstractmethod
+    def math_repr(self):
+        pass

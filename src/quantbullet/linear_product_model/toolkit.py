@@ -101,6 +101,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         self.additional_plots = []
 
     def clone( self, exclude_preprocess_features: list=None ):
+        """Create a copy of the toolkit, optionally excluding certain features from the preprocessing config."""
         # remove the excluded features the preprocess_config
         new_preprocess_config = self.preprocess_config.copy()
         if exclude_preprocess_features is not None:
@@ -130,7 +131,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         return self
 
     def get_expanded_df( self, X ):
-        """Transform the input DataFrame X into the expanded feature DataFrame for model training."""
+        """Transform the original DataFrame X into the expanded feature DataFrame for model training."""
         dfs = []
         for feature_name in self.feature_groups_.keys():
             if feature_name in self.preprocess_config:
@@ -572,7 +573,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         self.categorical_plot_axes = axes
         return fig, axes
 
-    def generate_fitting_summary_pdf( self, model, report_name='Model-Report' ):
+    def generate_fitting_summary_pdf( self, model: LinearProductModelBase, report_name='Model-Report' ):
         pdf_full_path = f"{report_name}-Summary.pdf"
 
         # register fonts from local package directory
@@ -609,14 +610,21 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         for feature_group_name in self.feature_groups_.keys():
             transformer = self.preprocess_config.get( feature_group_name, None )
             if transformer is None:
-                feature_config_data.append( [ feature_group_name, model.submodels_[ feature_group_name ].model_name, "" ] )
+                submodel = model.submodels_.get( feature_group_name, None )
+                model_name = submodel.model_name
+                model_repr = submodel.math_repr()
+                feature_config_data.append( [ feature_group_name, 
+                                              Paragraph(model_name, AdobeSourceFontStyles.MonoCode),
+                                              Paragraph(model_repr, AdobeSourceFontStyles.MonoCode) ] )
             elif isinstance(transformer, OneHotEncoder):
-                feature_config_data.append( [ feature_group_name, "OneHotEncoder", "" ] )
+                feature_config_data.append( [ feature_group_name, 
+                                              Paragraph("OneHotEncoder", AdobeSourceFontStyles.MonoCode),
+                                              Paragraph("", AdobeSourceFontStyles.MonoCode) ] )
             elif isinstance(transformer, FlatRampTransformer):
                 text = f"knots={ numberarray2string( transformer.knots ) }"
                 feature_config_data.append( [ feature_group_name, 
-                                              "FlatRampTransformer", 
-                                              Paragraph(text,AdobeSourceFontStyles.MonoCode ) ] )
+                                              Paragraph("FlatRampTransformer", AdobeSourceFontStyles.MonoCode),
+                                              Paragraph(text, AdobeSourceFontStyles.MonoCode ) ] )
             else:
                 raise ValueError(f"Unknown transformer type: {type(transformer)}")
 

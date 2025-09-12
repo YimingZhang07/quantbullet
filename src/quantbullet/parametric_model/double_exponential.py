@@ -19,3 +19,6 @@ class DoubleExponentialModel( ParametricModel ):
 
     def get_param_names(self):
         return [ 'alpha', 'beta', 'gamma' ]
+    
+    def math_repr(self):
+        return "f(x) = α * (1 - exp(-β * x)) * exp(-γ * x)"
