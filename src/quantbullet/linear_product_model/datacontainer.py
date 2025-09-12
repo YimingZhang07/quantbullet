@@ -62,11 +62,11 @@ class ProductModelDataContainer:
 
     def get_container_for_feature_group( self, feature_group_name: str ):
         """Get the container for a feature group name."""
-        orig_subset = self.orig_df[[feature_group_name]]
+        orig_subset = self.orig_df[ [ feature_group_name ] ]
 
         # expanded is only returned if they are not None
         expanded_subset = (
-            self.expanded_df[self.feature_groups[feature_group_name]]
+            self.expanded_df[ self.feature_groups[ feature_group_name ] ]
             if self.expanded_df is not None and self.feature_groups is not None
             else None
         )
@@ -75,7 +75,7 @@ class ProductModelDataContainer:
             orig_df         = orig_subset,
             expanded_df     = expanded_subset,
             response        = self.response,
-            feature_groups  = {feature_group_name: self.feature_groups[feature_group_name]} if self.feature_groups else None
+            feature_groups  = { feature_group_name: self.feature_groups[ feature_group_name ] } if self.feature_groups else None
         )
 
     def get_containers_dict( self, feature_group_names: list[str] ):

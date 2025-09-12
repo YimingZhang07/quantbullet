@@ -3,7 +3,7 @@ import pandas as pd
 from ..utils.validation import is_index_mono_inc
 from ..utils.decorators import deprecated
 
-@deprecated(new_func_name='ExAnteVolatilityEstimator.FromSeries')
+@deprecated('ExAnteVolatilityEstimator.FromSeries', is_func_name=True)
 def compute_ex_ante_volatility(daily_returns, com=60, annualization_factor=261):
     """
     Compute the ex ante annualized volatility for a series of daily returns.
@@ -146,7 +146,7 @@ class TimeSeriesMomentumSignal:
         return self.signals.tolist()
     
 
-@deprecated(new_func_name='TimeSeriesMomentumSignal.FromSeries')
+@deprecated('TimeSeriesMomentumSignal.FromSeries', is_func_name=True)
 def generate_ts_momentum_signal(returns, k = 5):
     """generate a time series momentum signal
     
