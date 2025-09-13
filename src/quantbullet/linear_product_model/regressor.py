@@ -5,6 +5,44 @@ from scipy.optimize import least_squares
 from typing import Dict, List, Optional
 from .base import LinearProductModelBCD, LinearProductRegressorBase, memorize_fit_args
 from .datacontainer import ProductModelDataContainer
+import numexpr as ne
+from typing import Dict, List, Optional, Union
+
+def product_numexpr(data: Dict[str, np.ndarray], 
+                    exclude: Optional[Union[str, List[str]]] = None) -> np.ndarray:
+    """
+    Compute element-wise product of vectors in a dictionary, 
+    with optional exclusion of some keys. Uses numexpr for speed.
+
+    Parameters
+    ----------
+    data : dict[str, np.ndarray]
+        Mapping from keys to 1D numpy arrays (same length).
+    exclude : str | list[str] | None, default=None
+        Keys to exclude from the product.
+
+    Returns
+    -------
+    np.ndarray
+        Element-wise product of all included arrays.
+    """
+    if exclude is None:
+        exclude = []
+    elif isinstance(exclude, str):
+        exclude = [exclude]
+
+    # 过滤掉要排除的 keys
+    filtered = {k: v for k, v in data.items() if k not in exclude}
+    if not filtered:
+        raise ValueError("No arrays left after exclusion!")
+
+    # 构造表达式
+    expr = "*".join([f"x{i}" for i in range(len(filtered))])
+    local_dict = {f"x{i}": arr for i, arr in enumerate(filtered.values())}
+
+    # numexpr 逐元素并行计算
+    return ne.evaluate(expr, local_dict=local_dict)
+
 
 class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelBCD ):
     def __init__(self):
@@ -37,21 +75,29 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
         else:
             _, params_blocks = self.infer_init_params(init_params, data_blocks, y)
 
+        block_preds = { key: self.forward( params_blocks={ key: params_blocks[ key ] }, 
+                                           X_blocks={ key: data_blocks[ key ] },
+                                           ignore_global_scale=True ) for key in feature_groups }
+
         for i in range(n_iterations):
             for feature_group in feature_groups:
                 if feature_group not in self.submodels_:
                     floating_data = data_blocks[ feature_group ]
-                    fixed_feature_groups = feature_groups.copy()
-                    fixed_feature_groups.pop( feature_group )
-                    fixed_params_blocks = { key: params_blocks[key] for key in fixed_feature_groups }
-                    fixed_data_blocks = X.get_expanded_array_dict( list( fixed_feature_groups.keys() ) )
+                    # fixed_feature_groups = feature_groups.copy()
+                    # fixed_feature_groups.pop( feature_group )
+                    # fixed_params_blocks = { key: params_blocks[key] for key in fixed_feature_groups }
+                    # fixed_data_blocks = X.get_expanded_array_dict( list( fixed_feature_groups.keys() ) )
                     # We hope to maintain the average output of each feature group is 1
                     # so the global scaler is not used to scale the floating data util the actual regression step
-                    fixed_predictions = self.forward(fixed_params_blocks, fixed_data_blocks, ignore_global_scale=True)
+                    # fixed_predictions = np.ones_like(next(iter(block_preds.values())))
+                    # for key, pred in block_preds.items():
+                    #     if key != feature_group:
+                    #         fixed_predictions *= pred
+                    fixed_predictions = product_numexpr( block_preds, exclude=feature_group )
 
                     if not cache_qr_decomp:
-                        floating_data = floating_data * fixed_predictions[:, None]
-                        floating_params = np.linalg.lstsq( self.global_scalar_ * floating_data, y, rcond=None)[0]
+                        mX = floating_data * fixed_predictions[:, None]
+                        floating_params = np.linalg.lstsq( self.global_scalar_ * mX, y, rcond=None)[0]
                     else:
                         # use the cached QR decomposition to solve the least squares problem so that we do not need to recompute the inverse of X'X every time
                         # the downside is we need to put the global scaler and fixed predictions into the y cause they will change every iteration
@@ -63,10 +109,10 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
                         scaled_y = y / self.global_scalar_ / fixed_predictions
                         floating_params = np.linalg.solve( R, Q.T @ scaled_y )
                         # even we reuse the QR decomposition, we still need to scale the floating data here to make sure the global scaler is correctly updated
-                        floating_data = floating_data * fixed_predictions[:, None]
+                        mX = floating_data * fixed_predictions[:, None]
 
                     # normalize the floating parameters by its mean so that each block's prediction has a mean of 1
-                    floating_predictions = floating_data @ floating_params
+                    floating_predictions = mX @ floating_params
                     floating_mean = np.mean(floating_predictions)
                     
                     if not np.isclose(floating_mean, 0):
@@ -76,12 +122,18 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
                         print(f"Warning: floating mean is close to zero for feature group {feature_group} at iteration {i}. Skipping normalization.")
                     
                     params_blocks[feature_group] = floating_params
+
+                    # update the block predictions
+                    block_preds[ feature_group ] = self.forward( params_blocks={ feature_group: params_blocks[ feature_group ] }, 
+                                            X_blocks={ feature_group: data_blocks[ feature_group ] },
+                                            ignore_global_scale=True )
+
                 else:
                     # submodels are fitted already, and we don't need any actions
                     pass
               
             # track the training progress  
-            predictions = self.forward( params_blocks, data_blocks )
+            predictions = product_numexpr( block_preds ) * self.global_scalar_
             loss = self.loss_function( predictions, y )
             self.loss_history_.append( loss )
             self.coef_history_.append( copy.deepcopy(params_blocks) )

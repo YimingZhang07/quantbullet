@@ -290,7 +290,7 @@ class LinearProductModelBase(ABC):
         include_feature_groups = { group_to_include: self.feature_groups_[group_to_include] }
         include_params_dict = { group_to_include: params_dict[group_to_include] }
 
-        X_blocks = X.get_containers_dict( list( include_feature_groups.keys() ) )
+        X_blocks = X.get_expanded_array_dict( list( include_feature_groups.keys() ) )
         params_blocks = self._coef_dict_to_blocks( include_params_dict )
 
         preds = self.forward(params_blocks, X_blocks, ignore_global_scale=ignore_global_scale)
