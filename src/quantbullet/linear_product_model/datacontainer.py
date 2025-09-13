@@ -8,17 +8,19 @@ This deals with the problem at run time, different submodels may need different 
 """
 
 import pandas as pd
+import numpy as np
 
 class ProductModelDataContainer:
     """
     Guidelines:
     To adapt the existing framework, we need this container to by default operates the same way as the expanded dataframe.
     """
-    def __init__( self, orig_df: pd.DataFrame, expanded_df: pd.DataFrame=None, response=None, feature_groups: dict=None ):
+    def __init__( self, orig_df: pd.DataFrame, expanded_df: pd.DataFrame=None, response=None, feature_groups: dict=None, as_float32:bool = False ):
         self.orig_df        = orig_df
         self.expanded_df    = expanded_df
         self.response       = response
         self.feature_groups = feature_groups
+        self.as_float32     = as_float32
         # all the keys in the feature_groups dict must be in orig_df
         if self.feature_groups is not None:
             if not self._cols_in_df(self.orig_df, list(self.feature_groups.keys())):
@@ -31,6 +33,15 @@ class ProductModelDataContainer:
             # if no feature groups is given, we assume that there is no groups
             # each col in the orig_df should be a standalone group
             self.feature_groups = { col: {} for col in orig_df.columns }
+
+        if self.as_float32:
+            num_cols = self.expanded_df.select_dtypes(include=['float64', 'int64']).columns
+            self.expanded_df[num_cols] = self.expanded_df[num_cols].astype(np.float32)
+
+        self._expanded_arrays = {
+            name: self.expanded_df[self.feature_groups[name]].to_numpy(dtype=np.float32 if as_float32 else None)
+            for name in self.feature_groups
+        }
 
     def __getattr__( self, attr: str ):
         return getattr(self.expanded_df, attr)
@@ -88,13 +99,11 @@ class ProductModelDataContainer:
         """
         return { name: self.get_container_for_feature_group(name) for name in feature_group_names }
     
-    def get_expanded_array_for_feature_group( self, feature_group_name: str ):
-        """Get the expanded array for a feature group name."""
-        return self.expanded_df[ self.feature_groups[feature_group_name] ].values
+    def get_expanded_array_for_feature_group(self, feature_group_name: str):
+        return self._expanded_arrays[feature_group_name]
     
-    def get_expanded_array_dict( self, feature_group_names: list[str] ):
-        """Get the expanded array for a list of feature group names."""
-        return { name: self.get_expanded_array_for_feature_group(name) for name in feature_group_names }
+    def get_expanded_array_dict(self, feature_group_names: list[str]):
+        return {name: self._expanded_arrays[name] for name in feature_group_names}
 
     def sample( self, frac: float ):
         """Return a new container sampled by fraction, preserving row alignment.

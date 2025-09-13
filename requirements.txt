@@ -16,9 +16,17 @@ pygam
 # Testing
 pytest
 
+# Development
+lazy_loader
+
 # Others
 tqdm
 openpyxl
 ipykernel
 pyarrow
 polars
+cryptography
+
+# Reporting
+reportlab
+PyPDF2

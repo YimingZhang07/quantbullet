@@ -390,11 +390,7 @@ class LinearProductRegressorBase(LinearProductModelBase):
             The model's predictions for the input data.
         """
         # Find any block to get n_obs
-        for key in X_blocks:
-            n_obs = X_blocks[key].shape[0]
-            break
-        else:
-            raise ValueError("X_blocks is empty.")
+        n_obs = next(iter(X_blocks.values())).shape[0]
 
         result = np.ones(n_obs, dtype=float)
         for key in params_blocks:
