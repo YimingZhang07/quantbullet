@@ -475,27 +475,26 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
             
         elif method == 'bin':
             # Binned method: sum(y)/sum(m) per bin
-            records = []
-            for bin_category in binned_df['feature_bin'].cat.categories:
-                bin_mask = binned_df['feature_bin'] == bin_category
-                sum_y = np.sum(y_sample[bin_mask])
-                sum_m = np.sum(other_blocks_preds[bin_mask])
-                
-                implied_actual = 0 if np.isclose(sum_m, 0) else sum_y / sum_m
-                count = np.sum(bin_mask)
-                
-                records.append((bin_category, implied_actual, count))
-            
-            agg_df = pd.DataFrame.from_records(
-                records, 
-                columns=['feature_bin', 'implied_actual_mean', 'count']
+            binned_df['y'] = y_sample
+            binned_df['m'] = other_blocks_preds
+
+            agg_df = binned_df.groupby('feature_bin', observed=False).agg(
+                sum_y=('y', 'sum'),
+                sum_m=('m', 'sum'),
+                count=('y', 'count')
+            ).reset_index()
+
+            agg_df['implied_actual_mean'] = np.where(
+                np.isclose(agg_df['sum_m'], 0), 
+                0, 
+                agg_df['sum_y'] / agg_df['sum_m']
             )
         else:
             raise ValueError(f"Unknown method: {method}")
         
         agg_df['feature_bin_right'] = cutoff_values_right
         return agg_df
-    
+
     def plot_categorical_plots( self, model: LinearProductModelBase, dcontainer: ProductModelDataContainer, sample_frac=1, hspace=0.4, wspace=0.3, method:str='bin' ):
         if hasattr( model, 'offset_y') and getattr( model, 'offset_y') is not None:
             y = dcontainer.response + getattr( model, 'offset_y')
@@ -504,17 +503,20 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         fig, axes = get_grid_fig_axes( n_charts=n_features, n_cols=3 )
         fig.subplots_adjust(hspace=hspace, wspace=wspace)
         dcontainer_sample = dcontainer.sample(sample_frac) if sample_frac < 1 else dcontainer
-        X_sample = dcontainer_sample.orig
+        X_sample = dcontainer_sample
         y_sample = dcontainer_sample.response
 
+        block_preds = { feature: model.single_feature_group_predict( feature, X_sample, ignore_global_scale=True ) for feature in self.categorical_feature_groups.keys() }
         for i, (feature, subfeatures) in enumerate(self.categorical_feature_groups.items()):
             ax = axes[i]
-            other_blocks_preds = model.leave_out_feature_group_predict( feature, dcontainer_sample )
+            other_blocks_preds = model.global_scalar_ * vector_product_numexpr_dict_values( data=block_preds, exclude=feature )
             this_feature_preds = model.single_feature_group_predict( group_to_include=feature, X=dcontainer_sample, ignore_global_scale=True )
 
             binned_df = pd.DataFrame({
-                'feature_bin': X_sample[feature],
-                'feature_pred': this_feature_preds
+                "feature_bin": X_sample.orig[feature],
+                "feature_pred": this_feature_preds,
+                "y": y_sample,
+                "m": other_blocks_preds,
             })
 
             if method == 'avg':
@@ -526,24 +528,21 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
                     count                       = ('implied_actual', 'count')
                 )
             elif method == 'bin':
-                records = []
-                for bin_category in binned_df['feature_bin'].cat.categories:
-                    bin_mask = binned_df['feature_bin'] == bin_category
-                    sum_y = np.sum(y_sample[bin_mask])
-                    sum_m = np.sum(other_blocks_preds[bin_mask])
-
-                    implied_actual = 0 if np.isclose(sum_m, 0) else sum_y / sum_m
-                    count = np.sum(bin_mask)
-
-                    this_feature_preds_mean = binned_df.loc[ bin_mask, 'feature_pred' ].mean()
-
-                    records.append((bin_category, implied_actual, count, this_feature_preds_mean))
-
-                agg_df = pd.DataFrame.from_records(
-                    records,
-                    columns=['feature_bin', 'implied_actual_mean', 'count', 'this_feature_preds_mean']
+                agg_df = (
+                    binned_df.groupby("feature_bin", observed=False)
+                    .agg(
+                        sum_y=("y", "sum"),
+                        sum_m=("m", "sum"),
+                        count=("y", "count"),
+                        this_feature_preds_mean=("feature_pred", "mean"),
+                    )
+                    .reset_index()
+                    .set_index("feature_bin")
                 )
-                agg_df.set_index('feature_bin', inplace=True)
+                agg_df["implied_actual_mean"] = np.where(
+                    np.isclose(agg_df["sum_m"], 0), 0, agg_df["sum_y"] / agg_df["sum_m"]
+                )
+                agg_df.drop(columns=["sum_y", "sum_m"], inplace=True)
             else:
                 raise ValueError(f"Unknown method: {method}")
 

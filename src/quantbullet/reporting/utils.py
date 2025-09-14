@@ -1,9 +1,8 @@
 import matplotlib.pyplot as plt
 import importlib.resources
-import os
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from PyPDF2 import PdfMerger
+from pypdf import PdfWriter
 
 def copy_axis(src_ax: plt.Axes, dst_ax: plt.Axes,
               with_legend: bool = True, 
@@ -200,15 +199,12 @@ def register_fonts_from_package():
 
 def merge_pdfs(pdf_paths, output_path):
     """Merge multiple PDFs into a single PDF."""
-    merger = PdfMerger()
+    merger = PdfWriter()
     for pdf in pdf_paths:
         merger.append(pdf)
-
-    # if the write is failed, need to close the pdfs
     try:
-        merger.write(output_path)
-    except:
+        with open(output_path, "wb") as f_out:
+            merger.write(f_out)
+    finally:
         merger.close()
-        raise
-    merger.close()
     return output_path

@@ -66,10 +66,10 @@ class FeatureSpec:
         """Classify features into model inputs, target, references, etc."""
         self.x = [f.name for f in self._features if f.role == FeatureRole.MODEL_INPUT]
         self.x_num = [f.name for f in self._features if f.role == FeatureRole.MODEL_INPUT and f.dtype.is_numeric()]
-        self.x_cat = [f.name for f in self._features if f.role == FeatureRole.MODEL_INPUT and f.dtype.is_categorical()]
+        self.x_cat = [f.name for f in self._features if f.role == FeatureRole.MODEL_INPUT and f.dtype.is_category()]
         self.sec_x = [f.name for f in self._features if f.role == FeatureRole.SECONDARY_INPUT]
         self.sec_x_num = [f.name for f in self._features if f.role == FeatureRole.SECONDARY_INPUT and f.dtype.is_numeric()]
-        self.sec_x_cat = [f.name for f in self._features if f.role == FeatureRole.SECONDARY_INPUT and f.dtype.is_categorical()]
+        self.sec_x_cat = [f.name for f in self._features if f.role == FeatureRole.SECONDARY_INPUT and f.dtype.is_category()]
         self.refs = [f.name for f in self._features if f.role == FeatureRole.REFERENCE]
 
         # Expect exactly one target

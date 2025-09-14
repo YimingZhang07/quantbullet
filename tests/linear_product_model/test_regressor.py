@@ -54,7 +54,7 @@ def _setup_data():
 
     return df, expanded_df, tk.feature_groups
 
-class TestLinearProductModel(unittest.TestCase):
+class TestLinearProductRegressorBCD(unittest.TestCase):
     def setUp(self):
         df, expanded_df, feature_groups = _setup_data()
         self.df = df
