@@ -1,22 +1,23 @@
-# Standard library imports
-from collections import namedtuple
-
-# Third-party imports
+# ===== Standard Library Imports =====
 import os
+from collections import namedtuple, defaultdict
+from dataclasses import dataclass, field
+
+# ===== Third-Party Imports =====
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib import ticker as mticker
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
-from reportlab.lib.pagesizes import landscape, letter
 from sklearn.preprocessing import OneHotEncoder
-from reportlab.platypus import Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Table, TableStyle
+from reportlab.lib.pagesizes import landscape, letter
 from reportlab.lib import colors
-from dataclasses import dataclass, field
-from collections import defaultdict
 
-# Local application/library imports
+# ===== Local Application/Library Imports =====
 from quantbullet.linear_product_model.base import LinearProductModelBase
+from quantbullet.linear_product_model.datacontainer import ProductModelDataContainer
+from quantbullet.linear_product_model.acceleration import vector_product_numexpr_dict_values
+from quantbullet.model.core import FeatureSpec
 from quantbullet.plot.utils import get_grid_fig_axes, close_unused_axes, scale_scatter_sizes
 from quantbullet.plot.colors import EconomistBrandColor
 from quantbullet.preprocessing.transformers import FlatRampTransformer
@@ -24,8 +25,6 @@ from quantbullet.dfutils import get_bins_and_labels
 from quantbullet.reporting import AdobeSourceFontStyles, PdfChartReport
 from quantbullet.reporting.utils import register_fonts_from_package, merge_pdfs
 from quantbullet.reporting.formatters import numberarray2string
-from quantbullet.linear_product_model.datacontainer import ProductModelDataContainer
-from quantbullet.model.core import FeatureSpec
 
 class LinearProductModelReportMixin:
     @property
@@ -352,14 +351,15 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         X_sample = X.sample(sample_frac) if sample_frac < 1 else X
         y_sample = X_sample.response
         
-        # Process each feature and create plotting caches
         data_caches = {}
+        # cache the predictions from all blocks just once
+        block_preds = { feature: model.single_feature_group_predict( feature, X_sample, ignore_global_scale=True ) for feature in self.numerical_feature_groups.keys() }
         for feature, subfeatures in self.numerical_feature_groups.items():
             # Create binned dataframe
             binned_df, cutoff_values_right = self._create_bins(X_sample.orig[feature], n_quantile_groups, n_bins)
             
             # Get predictions from other blocks
-            other_blocks_preds = model.leave_out_feature_group_predict( feature, X_sample )
+            other_blocks_preds = model.global_scalar_ * vector_product_numexpr_dict_values( data=block_preds, exclude=feature )
             
             # Calculate implied actual based on method
             agg_df = self._calculate_implied_actual_agg(
