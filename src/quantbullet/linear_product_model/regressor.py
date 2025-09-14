@@ -8,7 +8,7 @@ from scipy.optimize import least_squares
 
 from .base import LinearProductModelBCD, LinearProductRegressorBase, memorize_fit_args
 from .datacontainer import ProductModelDataContainer
-from .acceleration import ols_normal_equation, vector_product_numexpr_dict_values
+from ._acceleration import ols_normal_equation, vector_product_numexpr_dict_values
 
 class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelBCD ):
     def __init__(self):

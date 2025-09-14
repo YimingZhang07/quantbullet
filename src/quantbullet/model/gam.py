@@ -11,6 +11,18 @@ from quantbullet.plot.utils import close_unused_axes
 from quantbullet.plot.cycles import use_economist_cycle
 
 class WrapperGAM:
+    """A wrapper around pygam's LinearGAM to integrate with FeatureSpec and provide additional functionality.
+    
+    Attributes
+    ----------
+    feature_term_map_ : dict
+        A mapping from feature names to their corresponding pygam terms.
+
+    category_levels_ : dict
+        A mapping from categorical feature names to their levels (categories) observed during training.
+    """
+    __slots__ = [ 'feature_spec', 'gam_', 'formula_', 'feature_term_map_', 'category_levels_' ]
+
     def __init__( self, feature_spec ):
         self.feature_spec = feature_spec
         self.gam_ = self._build_gam_formula()
@@ -23,7 +35,6 @@ class WrapperGAM:
         for i, feature_name in enumerate(self.feature_spec.x):
             feature = self.feature_spec[feature_name]
             
-            # One-liner to filter None values from specs
             kwargs = {k: v for k, v in (feature.specs or {}).items() 
                     if v is not None and k in ['spline_order', 'n_splines', 'lam', 'constraints', 'by']}
             

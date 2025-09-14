@@ -16,7 +16,7 @@ from reportlab.lib import colors
 # ===== Local Application/Library Imports =====
 from quantbullet.linear_product_model.base import LinearProductModelBase
 from quantbullet.linear_product_model.datacontainer import ProductModelDataContainer
-from quantbullet.linear_product_model.acceleration import vector_product_numexpr_dict_values
+from quantbullet.linear_product_model._acceleration import vector_product_numexpr_dict_values
 from quantbullet.model.core import FeatureSpec
 from quantbullet.plot.utils import get_grid_fig_axes, close_unused_axes, scale_scatter_sizes
 from quantbullet.plot.colors import EconomistBrandColor
@@ -25,6 +25,7 @@ from quantbullet.dfutils import get_bins_and_labels
 from quantbullet.reporting import AdobeSourceFontStyles, PdfChartReport
 from quantbullet.reporting.utils import register_fonts_from_package, merge_pdfs
 from quantbullet.reporting.formatters import numberarray2string
+from quantbullet.utils.decorators import deprecated
 
 class LinearProductModelReportMixin:
     @property
@@ -217,6 +218,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         plt.tight_layout()
         plt.show()
 
+    @deprecated( msg = "Use ProductModelDataContainer.sample() instead." )
     def sample_data( self, sample_frac, *args, seed=42 ):
         """Randomly subsample multiple arrays/dataframes with the same mask."""
         if not 0 <= sample_frac <= 1:
@@ -271,7 +273,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         return y_values
 
     def plot_model_implied_errors( self, model, X, y, train_df, sample_frac=0.1 ):
-        """For each feature, plot the implied actual vs model prediction
+        """For each continuous feature, plot the implied actual vs model prediction
 
         Implied actual is defined as the ratio of the true target value to the predicted value from the other feature groups.
 
@@ -416,7 +418,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         self.implied_actual_data_caches = data_caches
         return fig, axes
 
-    def _create_bins(self, feature_series: pd.Series, n_quantile_groups: int | None, n_bins: int) -> tuple[pd.DataFrame, list[float]]:
+    def _create_bins(self, feature_series: pd.Series, n_quantile_groups: int | None, n_bins: int | None) -> tuple[pd.DataFrame, list[float]]:
         """Create binned dataframe based on a feature series.
         
         Parameters
@@ -510,9 +512,10 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         for i, (feature, subfeatures) in enumerate(self.categorical_feature_groups.items()):
             ax = axes[i]
             other_blocks_preds = model.global_scalar_ * vector_product_numexpr_dict_values( data=block_preds, exclude=feature )
-            this_feature_preds = model.single_feature_group_predict( group_to_include=feature, X=dcontainer_sample, ignore_global_scale=True )
+            this_feature_preds = block_preds[ feature ]
 
             binned_df = pd.DataFrame({
+                # note that feature itself is a categorical series, so we don't need to bin it
                 "feature_bin": X_sample.orig[feature],
                 "feature_pred": this_feature_preds,
                 "y": y_sample,

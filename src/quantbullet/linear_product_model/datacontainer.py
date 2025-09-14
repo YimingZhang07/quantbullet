@@ -43,9 +43,18 @@ class ProductModelDataContainer:
             for name in self.feature_groups
         }
 
-    def __getattr__( self, attr: str ):
-        return getattr(self.expanded_df, attr)
+    def __getattr__(self, attr: str):
+        if attr in ("expanded_df", "orig_df", "response", "feature_groups", "_expanded_arrays"):
+            raise AttributeError(attr)
 
+        if self.expanded_df is None:
+            raise AttributeError(f"{self.__class__.__name__} has no attribute {attr}")
+
+        if isinstance(self.expanded_df, pd.DataFrame):
+            return getattr(self.expanded_df, attr)
+
+        raise AttributeError(f"{self.__class__.__name__} has no attribute {attr}")
+    
     def __getitem__( self, key: str ):
         return self.expanded_df[key]
 
