@@ -1,9 +1,15 @@
 import os
+import sys
 import pickle
 import hashlib
 import logging
+import inspect
+import types
+from functools import wraps
+from line_profiler import LineProfiler
 from datetime import datetime
 from quantbullet.log_config import setup_logger
+from .decorators import external_viewer
 
 logger = setup_logger("debug_cache")
 
@@ -114,3 +120,58 @@ def pickle_to_object(filepath):
     with open(filepath, 'rb') as f:
         obj = pickle.load(f)
     return obj
+
+
+# -------------------------
+# Profiling
+# -------------------------
+
+def unwrap_func(func):
+    """Unwrap decorated functions to get to the original function."""
+    while hasattr(func, "__wrapped__"):
+        func = func.__wrapped__
+    return func
+
+@external_viewer(open_with_arg="open_with", flag_arg="open_profile")
+def profile_function(func, *args, instance=None, open_profile=False, open_with="notepad", **kwargs):
+    """
+    Profiles the execution of a given function using line-by-line analysis.
+
+    Parameters
+    ----------
+        func (Callable): The function object to be profiled. Can be a class method, regular function, or decorated function.
+        *args: Positional arguments to pass to the function.
+        instance (object, optional): The instance to bind if profiling an instance method. Defaults to None.
+        **kwargs: Keyword arguments to pass to the function.
+    
+    Returns
+    -------
+        Any: The result returned by the profiled function.
+
+    Side Effects
+    ------------
+        Prints line-by-line profiling statistics to the console.
+    """
+    lp = LineProfiler()
+    raw_func = unwrap_func(func)
+    profiled_func = lp(raw_func)
+
+    if instance is not None and not inspect.ismethod(raw_func):
+        profiled_func = types.MethodType(profiled_func, instance)
+
+    result = profiled_func(*args, **kwargs)
+    lp.print_stats()
+    return result
+
+def profile_instance_method(instance, method_name, *args, open_profile=False, open_with="notepad", **kwargs):
+    """
+    Profiles an instance method of a given object.
+    Parameters
+    ----------
+        instance (object): The object instance containing the method to be profiled.
+        method_name (str): The name of the method to be profiled.
+        *args: Positional arguments to pass to the method.
+        **kwargs: Keyword arguments to pass to the method.
+    """
+    func = getattr(instance, method_name)
+    return profile_function(func, *args, instance=instance, open_profile=open_profile, open_with=open_with, **kwargs)

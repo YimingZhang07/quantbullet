@@ -25,6 +25,7 @@ def _derive_key(passphrase: str, salt: bytes) -> bytes:
 # File Encryption
 # -------------------------
 def encrypt_file(infile: str, outfile: str, passphrase: str):
+    """Encrypt a file with AES-GCM."""
     salt = os.urandom(16)
     key = _derive_key(passphrase, salt)
     aesgcm = AESGCM(key)
@@ -39,6 +40,7 @@ def encrypt_file(infile: str, outfile: str, passphrase: str):
         f.write(salt + nonce + encrypted)
 
 def decrypt_file(infile: str, outfile: str, passphrase: str):
+    """Decrypt an encrypted file back to original."""
     with open(infile, "rb") as f:
         raw = f.read()
 
@@ -75,6 +77,7 @@ def decrypt_variable(data: bytes, passphrase: str):
     return pickle.loads(decrypted)
 
 def split_and_shrink(input_file, out_dir="chunks", chunk_size=1024*1024):
+    """Split a large file into compressed chunks with random names."""
     os.makedirs(out_dir, exist_ok=True)
 
     # Read + compress
@@ -92,6 +95,7 @@ def split_and_shrink(input_file, out_dir="chunks", chunk_size=1024*1024):
     print(f"Done! Split into {len(os.listdir(out_dir))} chunks under {out_dir}/")
 
 def reassemble_and_expand(out_dir, output_file):
+    """Reassemble and decompress chunks back into original file."""
     # Sort by numeric prefix
     files = sorted(os.listdir(out_dir))
     combined = b"".join(open(os.path.join(out_dir, f), "rb").read() for f in files)
