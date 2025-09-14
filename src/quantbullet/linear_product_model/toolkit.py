@@ -26,6 +26,7 @@ from quantbullet.reporting import AdobeSourceFontStyles, PdfChartReport
 from quantbullet.reporting.utils import register_fonts_from_package, merge_pdfs
 from quantbullet.reporting.formatters import numberarray2string
 from quantbullet.utils.decorators import deprecated
+from quantbullet.linear_product_model.mtg_perf_eval import MtgPerfColnames, MtgModelPerformanceEvaluator
 
 class LinearProductModelReportMixin:
     @property
@@ -76,7 +77,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
     """A toolkit for building, fitting, evaluating, and reporting linear product models."""
 
     __slots__ = ( 'feature_spec', 'preprocess_config', 'feature_groups_', 'additional_plots', 'subfeatures_',
-                  'implied_actual_plot_axes', 'implied_actual_data_caches' )
+                  'implied_actual_plot_axes', 'implied_actual_data_caches', 'perf_plots_incentive_axes' )
 
     """
     feature_groups_ : Dict[str, List[str]]
@@ -644,13 +645,20 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         pdf_full_path = f"{report_name}-Errors.pdf"
 
         # step 1: add numerical implied errors plots
-        chart_pdf = PdfChartReport( pdf_full_path, corner_text=report_name )
-        chart_pdf.new_page( layout=( 3,3 ), suptitle = 'Numerical - Implied Errors' )
-        chart_pdf.add_external_axes( self.implied_actual_plot_axes )
+        if hasattr( self, 'implied_actual_plot_axes' ):
+            chart_pdf = PdfChartReport( pdf_full_path, corner_text=report_name )
+            chart_pdf.new_page( layout=( 3, 3 ), suptitle = 'Numerical - Implied Errors' )
+            chart_pdf.add_external_axes( self.implied_actual_plot_axes )
 
         # step 2: add categorical error plots
-        chart_pdf.new_page( layout=( 2,2 ), suptitle = 'Categorical - Implied Errors' )
-        chart_pdf.add_external_axes( self.categorical_plot_axes )
+        if hasattr( self, 'categorical_plot_axes' ):
+            chart_pdf.new_page( layout=( 2, 2 ), suptitle = 'Categorical - Implied Errors' )
+            chart_pdf.add_external_axes( self.categorical_plot_axes )
+
+        # step 3: add performance diagnostic plots if available
+        if hasattr( self, 'perf_plots_incentive_axes' ):
+            chart_pdf.new_page( layout=( 3, 3 ), suptitle = 'Performance Diagnostics - Incentive by Vintage Year' )
+            chart_pdf.add_external_axes( self.perf_plots_incentive_axes )
 
         # Add additional plots
         for additional_axes, layout, suptitle in self.additional_plots:
@@ -680,6 +688,14 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         os.remove( pdf1 )
         os.remove( pdf2 )
         return merged_pdf_path
+    
+    def plot_performance_diagnostics( self, model: LinearProductModelBase, X: ProductModelDataContainer, colnames: MtgPerfColnames ):
+        X_orig = X.orig.copy()
+        X_orig['model_pred'] = model.predict( X )
+        evaluator = MtgModelPerformanceEvaluator( df = X_orig, colname_mapping=colnames )
+        incentive_fig, incentive_axes = evaluator.incentive_by_vintage_year_plots( n_cols=3, n_quantile_bins=50 )
+        self.perf_plots_incentive_axes = incentive_axes
+        return incentive_fig, incentive_axes
     
     def extract_single_feature_group_fit_data( self, X: ProductModelDataContainer, model: LinearProductModelBase, feature_group_name: str ) -> pd.DataFrame:
         """Extract data related to a single feature group for detailed analysis.
