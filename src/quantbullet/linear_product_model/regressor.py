@@ -1,59 +1,28 @@
-import numpy as np
 import copy
+import numpy as np
 import pandas as pd
+import numexpr as ne
+
+from typing import Dict, List, Optional, Union
 from scipy.optimize import least_squares
-from typing import Dict, List, Optional
+
 from .base import LinearProductModelBCD, LinearProductRegressorBase, memorize_fit_args
 from .datacontainer import ProductModelDataContainer
-import numexpr as ne
-from typing import Dict, List, Optional, Union
-
-def product_numexpr(data: Dict[str, np.ndarray], 
-                    exclude: Optional[Union[str, List[str]]] = None) -> np.ndarray:
-    """
-    Compute element-wise product of vectors in a dictionary, 
-    with optional exclusion of some keys. Uses numexpr for speed.
-
-    Parameters
-    ----------
-    data : dict[str, np.ndarray]
-        Mapping from keys to 1D numpy arrays (same length).
-    exclude : str | list[str] | None, default=None
-        Keys to exclude from the product.
-
-    Returns
-    -------
-    np.ndarray
-        Element-wise product of all included arrays.
-    """
-    if exclude is None:
-        exclude = []
-    elif isinstance(exclude, str):
-        exclude = [exclude]
-
-    # 过滤掉要排除的 keys
-    filtered = {k: v for k, v in data.items() if k not in exclude}
-    if not filtered:
-        raise ValueError("No arrays left after exclusion!")
-
-    # 构造表达式
-    expr = "*".join([f"x{i}" for i in range(len(filtered))])
-    local_dict = {f"x{i}": arr for i, arr in enumerate(filtered.values())}
-
-    # numexpr 逐元素并行计算
-    return ne.evaluate(expr, local_dict=local_dict)
-
+from .acceleration import ols_normal_equation, vector_product_numexpr_dict_values
 
 class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelBCD ):
     def __init__(self):
         LinearProductRegressorBase.__init__(self)
         LinearProductModelBCD.__init__(self)
+        self._mX_buffer = None
 
     def loss_function(self, y_hat, y):
         return np.mean((y - y_hat) ** 2)
 
     @memorize_fit_args
-    def fit( self, X: ProductModelDataContainer, feature_groups:Dict, submodels: Dict=None, init_params=None, early_stopping_rounds=5, n_iterations=20, force_rounds=5, verbose=1, cache_qr_decomp=False, ftol=1e-5, offset_y = None ):
+    def fit( self, X: ProductModelDataContainer, feature_groups:Dict, submodels: Dict=None,
+             init_params=None, early_stopping_rounds=5, n_iterations=20, force_rounds=5, verbose=1, ftol=1e-5,
+             cache_qr_decomp=False, offset_y = None, use_svd=False ):
         self._reset_history( cache_qr_decomp=cache_qr_decomp )
         self.feature_groups_ = feature_groups
         self.submodels_ = submodels or {}
@@ -83,21 +52,16 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
             for feature_group in feature_groups:
                 if feature_group not in self.submodels_:
                     floating_data = data_blocks[ feature_group ]
-                    # fixed_feature_groups = feature_groups.copy()
-                    # fixed_feature_groups.pop( feature_group )
-                    # fixed_params_blocks = { key: params_blocks[key] for key in fixed_feature_groups }
-                    # fixed_data_blocks = X.get_expanded_array_dict( list( fixed_feature_groups.keys() ) )
                     # We hope to maintain the average output of each feature group is 1
                     # so the global scaler is not used to scale the floating data util the actual regression step
-                    # fixed_predictions = np.ones_like(next(iter(block_preds.values())))
-                    # for key, pred in block_preds.items():
-                    #     if key != feature_group:
-                    #         fixed_predictions *= pred
-                    fixed_predictions = product_numexpr( block_preds, exclude=feature_group )
+                    fixed_predictions = vector_product_numexpr_dict_values( block_preds, exclude=feature_group )
 
                     if not cache_qr_decomp:
                         mX = floating_data * fixed_predictions[:, None]
-                        floating_params = np.linalg.lstsq( self.global_scalar_ * mX, y, rcond=None)[0]
+                        if use_svd:
+                            floating_params = np.linalg.lstsq( self.global_scalar_ * mX, y, rcond=None)[0]
+                        else:
+                            floating_params = ols_normal_equation( self.global_scalar_ * mX, y )
                     else:
                         # use the cached QR decomposition to solve the least squares problem so that we do not need to recompute the inverse of X'X every time
                         # the downside is we need to put the global scaler and fixed predictions into the y cause they will change every iteration
@@ -133,7 +97,7 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
                     pass
               
             # track the training progress  
-            predictions = product_numexpr( block_preds ) * self.global_scalar_
+            predictions = vector_product_numexpr_dict_values( block_preds ) * self.global_scalar_
             loss = self.loss_function( predictions, y )
             self.loss_history_.append( loss )
             self.coef_history_.append( copy.deepcopy(params_blocks) )
