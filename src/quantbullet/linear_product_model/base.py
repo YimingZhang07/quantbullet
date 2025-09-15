@@ -362,7 +362,7 @@ class LinearProductRegressorBase(LinearProductModelBase):
 
         if isinstance(X, ProductModelDataContainer):
             # Containers dict is { feature_group_name : container }
-            data_blocks = X.get_containers_dict( list( self.feature_groups_.keys() ) )
+            data_blocks = X.get_expanded_array_dict( list( self.feature_groups_.keys() ) )
         elif isinstance(X, pd.DataFrame):
             data_blocks = self.get_X_blocks(X, self.feature_groups_)
         else:
