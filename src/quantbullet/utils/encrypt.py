@@ -52,11 +52,8 @@ def decrypt_file(infile: str, outfile: str, passphrase: str):
     with open(outfile, "wb") as f:
         f.write(decrypted)
 
-# -------------------------
-# Variable Encryption
-# -------------------------
-def encrypt_variable(obj, passphrase: str) -> bytes:
-    """Encrypt a Python variable (pickled) into bytes."""
+def encrypt_variable_to_file(obj, outfile: str, passphrase: str):
+    """Encrypt a Python variable (pickled) and save to a file."""
     salt = os.urandom(16)
     key = _derive_key(passphrase, salt)
     aesgcm = AESGCM(key)
@@ -65,11 +62,15 @@ def encrypt_variable(obj, passphrase: str) -> bytes:
     serialized = pickle.dumps(obj)  # serialize Python object
     encrypted = aesgcm.encrypt(nonce, serialized, None)
 
-    return salt + nonce + encrypted  # return as bytes
+    with open(outfile, "wb") as f:
+        f.write(salt + nonce + encrypted)
 
-def decrypt_variable(data: bytes, passphrase: str):
-    """Decrypt bytes back into original Python variable."""
-    salt, nonce, ciphertext = data[:16], data[16:28], data[28:]
+def decrypt_variable_from_file(infile: str, passphrase: str):
+    """Decrypt a file back into original Python variable."""
+    with open(infile, "rb") as f:
+        raw = f.read()
+
+    salt, nonce, ciphertext = raw[:16], raw[16:28], raw[28:]
     key = _derive_key(passphrase, salt)
     aesgcm = AESGCM(key)
     decrypted = aesgcm.decrypt(nonce, ciphertext, None)
