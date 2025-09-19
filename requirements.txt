@@ -9,6 +9,10 @@ scikit-learn
 scipy
 sqlalchemy
 
+# Computing
+numexpr
+numba
+
 # Modeling
 xgboost
 pygam
@@ -18,10 +22,10 @@ pytest
 
 # Development
 lazy_loader
+line_profiler
+tqdm
 
 # Others
-tqdm
-openpyxl
 ipykernel
 pyarrow
 polars
@@ -30,3 +34,4 @@ cryptography
 # Reporting
 reportlab
 pypdf
+openpyxl

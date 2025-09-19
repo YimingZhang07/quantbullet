@@ -169,12 +169,6 @@ class TestLstsqSpeed(unittest.TestCase):
         for name, (_, _, coef) in results.items():
             np.testing.assert_allclose(coef, ref, rtol=1e-4, atol=1e-4,
                                        err_msg=f"{name} 与 SVD 结果不一致")
-            
-
-import unittest
-import time
-import numpy as np
-import cupy as cp
 
 def cpu_step(X, y, f, ridge=1e-6):
     """CPU 正规方程求解"""
