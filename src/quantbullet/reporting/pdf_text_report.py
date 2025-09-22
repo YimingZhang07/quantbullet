@@ -14,16 +14,19 @@ ReportLab native support fonts are:
 - Times-BoldItalic
 """
 import io
+
 import matplotlib.pyplot as plt
 import numpy as np
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import landscape, letter
-from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
 from reportlab.platypus import (
+    Frame,
     Image,
     PageBreak,
+    PageTemplate,
     Paragraph,
     SimpleDocTemplate,
     Spacer,
@@ -35,7 +38,7 @@ from .formatters import number2string
 from .reportlab_utils import PdfColumnFormat, PdfColumnMeta, build_table_from_df
 
 class PdfTextReport:
-    def __init__( self, file_path:str, page_size:tuple=None, report_title:str=None, margins:tuple=(36,36,36,36) ):
+    def __init__( self, file_path:str, page_size:tuple=None, report_title:str=None, margins:tuple=(36,36,36,36), page_numbering:bool=True ):
 
         if page_size is None:
             page_size = landscape(letter)
@@ -51,9 +54,17 @@ class PdfTextReport:
             topMargin=margins[2],
             bottomMargin=margins[3]
         )
-        self.story = []
+
         self.report_title = report_title
-        self.add_centered_text( report_title, font_size=14, space_after=12 )
+        if report_title is not None:
+            self.add_centered_text( report_title, font_size=14, space_after=12 )
+
+        self.page_numbering = page_numbering
+
+        self.story = []
+
+    def add_page_break(self):
+        self.story.append( PageBreak() )
         
     @staticmethod
     def _normalize_table_data( data:list ):
@@ -95,8 +106,45 @@ class PdfTextReport:
         self.story.append(t)
         self.story.append( Spacer(1, 12) )
 
-    def add_df_table( self, df, schema:list[PdfColumnMeta], col_widths:list=None ):
-        pass
+    def add_df_table( self, df, schema:list[PdfColumnMeta] ):
+        """Add a DataFrame as a table to the PDF.
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            The DataFrame to render as a table.
+        schema : list of PdfColumnMeta
+            Metadata for each column, including formatting and colormap info.
+        """
+        tbl = build_table_from_df( df, schema )
+        self.story.append( tbl )
+        self.story.append( Spacer( 1, 12 ) )
+
+    def add_text( self, text:str, font_size:int=10, space_after:int=12 ):
+        """Add a left-aligned text paragraph."""
+        style = ParagraphStyle(
+            name="NormalStyle",
+            fontName="Helvetica",
+            fontSize=font_size,
+            alignment=0  # left
+        )
+        p = Paragraph(text, style=style)
+        self.story.append(p)
+        self.story.append(Spacer(1, space_after))
+
+    def add_table_footnote(self, text:str, font_size:int=8, space_after:int=0, alignment:int=0):
+        """Add a footnote text paragraph, typically after a table."""
+        style = ParagraphStyle(
+            name="FootnoteStyle",
+            fontName="Helvetica-Oblique",
+            fontSize=font_size,
+            textColor=colors.grey,
+            leftIndent=25,
+            alignment=alignment  # 0=left, 1=center, 2=right
+        )
+        p = Paragraph(text, style=style)
+        self.story.append(p)
+        self.story.append(Spacer(1, space_after))
         
     def add_centered_text(self, text:str, font_size:int=12, space_after:int=12):
         """Add a centered text paragraph."""
@@ -143,4 +191,15 @@ class PdfTextReport:
         return usable_w, usable_h
         
     def save( self ):
-        self.doc.build( self.story )
+        if self.page_numbering:
+            self.doc.build( self.story, onFirstPage=self._add_page_number, onLaterPages=self._add_page_number )
+        else:
+            self.doc.build( self.story )
+            
+    def _add_page_number(self, canvas, doc):
+        """Add page number at bottom center."""
+        page_num = canvas.getPageNumber()
+        text = f"{page_num}"
+        width, height = self.doc.pagesize
+        canvas.setFont("Helvetica", 9)
+        canvas.drawCentredString(width / 2.0, 15, text)  # y=15 points from bottom

@@ -6,7 +6,7 @@ import pandas as pd
 
 from reportlab.lib import colors
 from reportlab.platypus import Table, TableStyle
-from .utils import default_number_formatter
+from .formatters import default_number_formatter
 
 def hex_to_rgb01(hex_str: str):
     """Convert a hex color string to an RGB tuple with values between 0 and 1."""
@@ -62,6 +62,7 @@ class PdfColumnFormat:
     comma: bool = False
     formatter: Optional[Callable[[Any], str]] = None  # e.g., lambda x: f"${x:,.2f}"
     colormap: Optional[Callable[[float, float, float], colors.Color]] = None
+    transformer: Optional[Callable[[Any], float]] = None
     # colormap takes (val, vmin, vmax) and returns a ReportLab Color
 
 
@@ -104,7 +105,8 @@ def build_table_from_df(df: pd.DataFrame, schema: list[PdfColumnMeta]) -> Table:
         for col in schema:
             val = row[col.name]
 
-            # custom formatter > generic number formatter > str
+            if col.fmt.transformer:
+                val = col.fmt.transformer(val)
             if col.fmt.formatter:
                 display_val = col.fmt.formatter(val)
             elif isinstance(val, (int, float, np.number)):
