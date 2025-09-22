@@ -1,4 +1,12 @@
+from dataclasses import dataclass, field
+from typing import Any, Callable, Optional
+
+import numpy as np
+import pandas as pd
+
 from reportlab.lib import colors
+from reportlab.platypus import Table, TableStyle
+from .utils import default_number_formatter
 
 def hex_to_rgb01(hex_str: str):
     """Convert a hex color string to an RGB tuple with values between 0 and 1."""
@@ -47,3 +55,84 @@ def make_diverging_colormap(low_color=(0, 1, 0), mid_color=(1, 1, 1), high_color
         return colors.Color(r, g, b)
 
     return _map
+
+@dataclass
+class PdfColumnFormat:
+    digits: int = 2
+    comma: bool = False
+    formatter: Optional[Callable[[Any], str]] = None  # e.g., lambda x: f"${x:,.2f}"
+    colormap: Optional[Callable[[float, float, float], colors.Color]] = None
+    # colormap takes (val, vmin, vmax) and returns a ReportLab Color
+
+
+@dataclass
+class PdfColumnMeta:
+    name: str
+    label: Optional[str] = None
+    fmt: PdfColumnFormat = field(default_factory=PdfColumnFormat)
+
+def build_table_from_df(df: pd.DataFrame, schema: list[PdfColumnMeta]) -> Table:
+    """Turn DataFrame + schema into a styled ReportLab Table.
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The data to display.
+    schema : list of PdfColumnMeta
+        Metadata for each column, including formatting and colormap info.
+
+    Returns
+    -------
+    Table
+        A ReportLab Table object ready for inclusion in a PDF.
+    """
+    # --- Build data matrix (header + rows)
+    # Take the label if exists, else name as the header of the column
+    headers = [col.label or col.name for col in schema]
+    table_data = [headers]
+
+    # Precompute vmin/vmax for each col needing a colormap
+    vmin_vmax = {}
+    for col in schema:
+        if col.fmt.colormap:
+            series = pd.to_numeric(df[col.name], errors="coerce")
+            vmin_vmax[col.name] = (series.min(), series.max())
+
+    # Process each row and each cell with appropriate formatting
+    for _, row in df.iterrows():
+        row_data = []
+        for col in schema:
+            val = row[col.name]
+
+            # custom formatter > generic number formatter > str
+            if col.fmt.formatter:
+                display_val = col.fmt.formatter(val)
+            elif isinstance(val, (int, float, np.number)):
+                display_val = default_number_formatter(
+                    val, digits=col.fmt.digits, comma=col.fmt.comma
+                )
+            else:
+                display_val = str(val)
+            row_data.append(display_val)
+        table_data.append(row_data)
+
+    # --- Build ReportLab table
+    tbl = Table(table_data, repeatRows=1)
+    style = TableStyle([
+        ("GRID", (0,0), (-1,-1), 0.5, colors.black),
+        ("BACKGROUND", (0,0), (-1,0), colors.lightgrey),  # header
+        ("ALIGN", (0,0), (-1,-1), "CENTER"),
+    ])
+
+    # --- Apply colormap cell backgrounds
+    for row_idx, (_, row) in enumerate(df.iterrows(), start=1):
+        for col_idx, col in enumerate(schema):
+            if col.fmt.colormap:
+                vmin, vmax = vmin_vmax[col.name]
+                val = row[col.name]
+                if pd.notna(val):
+                    bgcolor = col.fmt.colormap(val, vmin, vmax)
+                    style.add("BACKGROUND", (col_idx, row_idx), (col_idx, row_idx), bgcolor)
+
+    tbl.setStyle(style)
+    return tbl

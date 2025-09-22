@@ -1,8 +1,16 @@
 import numpy as np
+import pandas as pd
 
 def round_errors( x, decimals=2 ):
     rounded = round(x, decimals)
     return abs( rounded - x ) / abs( x ) if x != 0 else 0
+
+def default_number_formatter(val, digits=2, comma=False):
+    """Format a number with specified digits and optional comma as thousand separator."""
+    if pd.isna(val):
+        return ""
+    fmt = f"{{:,.{digits}f}}" if comma else f"{{:.{digits}f}}"
+    return fmt.format(val)
 
 def number2string(x, tol=1e-9, sigfigs=2):
     """
@@ -42,5 +50,9 @@ def number2string(x, tol=1e-9, sigfigs=2):
     return str(x)
 
 def numberarray2string(values, **kwargs):
+    """
+    Format a list/array of numbers into a string representation.
+    Example: [1.23, 4.56, 7.89] → "[1.23, 4.56, 7.89]"
+    """
     formatted = [number2string(v, **kwargs) for v in values]
     return "[" + ", ".join(formatted) + "]"

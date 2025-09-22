@@ -14,15 +14,25 @@ ReportLab native support fonts are:
 - Times-BoldItalic
 """
 import io
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 from reportlab.lib import colors
-from reportlab.lib.units import inch
-from reportlab.lib.pagesizes import landscape, letter
-from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle, Image
-from .formatters import number2string
-from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.pagesizes import landscape, letter
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.platypus import (
+    Image,
+    PageBreak,
+    Paragraph,
+    SimpleDocTemplate,
+    Spacer,
+    Table,
+    TableStyle,
+)
+
+from .formatters import number2string
+from .reportlab_utils import PdfColumnFormat, PdfColumnMeta, build_table_from_df
 
 class PdfTextReport:
     def __init__( self, file_path:str, page_size:tuple=None, report_title:str=None, margins:tuple=(36,36,36,36) ):
@@ -84,6 +94,9 @@ class PdfTextReport:
         t.setStyle( TableStyle(style) )
         self.story.append(t)
         self.story.append( Spacer(1, 12) )
+
+    def add_df_table( self, df, schema:list[PdfColumnMeta], col_widths:list=None ):
+        pass
         
     def add_centered_text(self, text:str, font_size:int=12, space_after:int=12):
         """Add a centered text paragraph."""
