@@ -107,7 +107,7 @@ def build_table_from_df(df: pd.DataFrame, schema: list[PdfColumnMeta]) -> Table:
                 display_val = col.format.formatter(val)
             elif isinstance(val, (int, float, np.number)):
                 display_val = default_number_formatter(
-                    val, decimals=col.format.decimals, comma=col.format.comma
+                    val, digits=col.fmt.digits, comma=col.fmt.comma
                 )
             else:
                 display_val = str(val)

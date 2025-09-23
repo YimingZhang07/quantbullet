@@ -5,11 +5,23 @@ def round_errors( x, decimals=2 ):
     rounded = round(x, decimals)
     return abs( rounded - x ) / abs( x ) if x != 0 else 0
 
-def default_number_formatter(val, decimals=2, comma=False):
-    """Format a number with specified digits and optional comma as thousand separator."""
+def flex_number_formatter(val, digits=2, comma=False, transformer=None):
+    """Format a number with specified digits and optional comma as thousand separator.
+    
+    Parameters
+    ----------
+    val : float or int
+        The number to format.
+    digits : int
+        Number of decimal places.
+    comma : bool
+        Whether to include commas as thousand separators.
+    transformer : callable, optional
+        A function to transform the value before formatting (e.g., scaling).
+    """
     if pd.isna(val):
         return ""
-    fmt = f"{{:,.{decimals}f}}" if comma else f"{{:.{decimals}f}}"
+    fmt = f"{{:,.{digits}f}}" if comma else f"{{:.{digits}f}}"
     return fmt.format(val)
 
 def number2string(x, tol=1e-9, sigfigs=2):
