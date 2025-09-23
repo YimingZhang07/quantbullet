@@ -35,16 +35,19 @@ from reportlab.platypus import (
 )
 
 from .formatters import number2string
-from .reportlab_utils import PdfColumnFormat, PdfColumnMeta, build_table_from_df
+from ._reportlab_utils import PdfColumnFormat, PdfColumnMeta, build_table_from_df
 
 class PdfTextReport:
     def __init__( self, file_path:str, page_size:tuple=None, report_title:str=None, margins:tuple=(36,36,36,36), page_numbering:bool=True ):
 
         if page_size is None:
             page_size = landscape(letter)
-
         else:
             page_size = (page_size[0] * inch, page_size[1] * inch)
+
+        # sometimes file_path is a Path object
+        if not isinstance(file_path, str):
+            file_path = str(file_path)
 
         self.doc = SimpleDocTemplate(
             file_path,
@@ -55,13 +58,12 @@ class PdfTextReport:
             bottomMargin=margins[3]
         )
 
+        self.story = []
         self.report_title = report_title
         if report_title is not None:
             self.add_centered_text( report_title, font_size=14, space_after=12 )
 
         self.page_numbering = page_numbering
-
-        self.story = []
 
     def add_page_break(self):
         self.story.append( PageBreak() )

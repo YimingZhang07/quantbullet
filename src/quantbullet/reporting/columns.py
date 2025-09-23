@@ -3,8 +3,9 @@ from openpyxl.formatting.rule import ColorScaleRule
 from typing import Optional
 from dataclasses import dataclass, field
 from typing import List, Dict, Callable
+from .base import BaseColumnFormat, BaseColumnMeta
 
-class ColumnFormat:
+class ColumnFormat( BaseColumnFormat ):
     def __init__(
         self,
         decimals=2,
@@ -12,18 +13,20 @@ class ColumnFormat:
         percent=False,
         comma=False,
         parens_for_negative=False,
-        transform=None,
+        transformer=None,
         color_scale=None,
         higher_is_better=True,
         date_format: Optional[str]=None,
         formula_template: Optional[str] = None
     ):
-        self.decimals = decimals
+        super().__init__(
+            decimals=decimals,
+            percent=percent,
+            comma=comma,
+            transformer=transformer
+        )
         self.width = width
-        self.percent = percent
-        self.comma = comma
         self.parens_for_negative = parens_for_negative
-        self.transform = transform  # e.g., lambda x: x * 100
         self.color_scale = color_scale
         self.higher_is_better = higher_is_better
         self.date_format = date_format or self._default_date_format
@@ -41,8 +44,8 @@ class ColumnFormat:
         return "yyyy-mm-dd"
 
     def apply_transform(self, series):
-        if self.transform:
-            return series.apply(self.transform)
+        if self.transformer:
+            return series.apply(self.transformer)
         return series
     
     def build_conditional_formatting_rule(self):
@@ -87,14 +90,8 @@ class ColumnFormat:
         return max(max_data_len, len(header))
     
 @dataclass
-class ColumnMeta:
-    raw_name: str
-    display_name: Optional[str] = None
-    format: ColumnFormat = field(default_factory=ColumnFormat)
-
-    def __post_init__(self):
-        if self.display_name is None:
-            self.display_name = self.raw_name
+class ColumnMeta( BaseColumnMeta ):
+    pass
 
 # A utility to manage the whole config
 class ColumnSchema:

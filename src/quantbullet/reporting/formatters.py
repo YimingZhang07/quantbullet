@@ -5,11 +5,11 @@ def round_errors( x, decimals=2 ):
     rounded = round(x, decimals)
     return abs( rounded - x ) / abs( x ) if x != 0 else 0
 
-def default_number_formatter(val, digits=2, comma=False):
+def default_number_formatter(val, decimals=2, comma=False):
     """Format a number with specified digits and optional comma as thousand separator."""
     if pd.isna(val):
         return ""
-    fmt = f"{{:,.{digits}f}}" if comma else f"{{:.{digits}f}}"
+    fmt = f"{{:,.{decimals}f}}" if comma else f"{{:.{decimals}f}}"
     return fmt.format(val)
 
 def number2string(x, tol=1e-9, sigfigs=2):

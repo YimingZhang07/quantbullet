@@ -7,6 +7,7 @@ import pandas as pd
 from reportlab.lib import colors
 from reportlab.platypus import Table, TableStyle
 from .formatters import default_number_formatter
+from .base import BaseColumnFormat, BaseColumnMeta
 
 def hex_to_rgb01(hex_str: str):
     """Convert a hex color string to an RGB tuple with values between 0 and 1."""
@@ -57,20 +58,15 @@ def make_diverging_colormap(low_color=(0, 1, 0), mid_color=(1, 1, 1), high_color
     return _map
 
 @dataclass
-class PdfColumnFormat:
-    digits: int = 2
-    comma: bool = False
+class PdfColumnFormat( BaseColumnFormat ):
     formatter: Optional[Callable[[Any], str]] = None  # e.g., lambda x: f"${x:,.2f}"
     colormap: Optional[Callable[[float, float, float], colors.Color]] = None
-    transformer: Optional[Callable[[Any], float]] = None
     # colormap takes (val, vmin, vmax) and returns a ReportLab Color
 
 
 @dataclass
-class PdfColumnMeta:
-    name: str
-    label: Optional[str] = None
-    fmt: PdfColumnFormat = field(default_factory=PdfColumnFormat)
+class PdfColumnMeta(  BaseColumnMeta ):
+    pass
 
 def build_table_from_df(df: pd.DataFrame, schema: list[PdfColumnMeta]) -> Table:
     """Turn DataFrame + schema into a styled ReportLab Table.
@@ -89,13 +85,13 @@ def build_table_from_df(df: pd.DataFrame, schema: list[PdfColumnMeta]) -> Table:
     """
     # --- Build data matrix (header + rows)
     # Take the label if exists, else name as the header of the column
-    headers = [col.label or col.name for col in schema]
+    headers = [col.display_name or col.name for col in schema]
     table_data = [headers]
 
     # Precompute vmin/vmax for each col needing a colormap
     vmin_vmax = {}
     for col in schema:
-        if col.fmt.colormap:
+        if col.format.colormap:
             series = pd.to_numeric(df[col.name], errors="coerce")
             vmin_vmax[col.name] = (series.min(), series.max())
 
@@ -105,13 +101,13 @@ def build_table_from_df(df: pd.DataFrame, schema: list[PdfColumnMeta]) -> Table:
         for col in schema:
             val = row[col.name]
 
-            if col.fmt.transformer:
-                val = col.fmt.transformer(val)
-            if col.fmt.formatter:
-                display_val = col.fmt.formatter(val)
+            if col.format.transformer:
+                val = col.format.transformer(val)
+            if col.format.formatter:
+                display_val = col.format.formatter(val)
             elif isinstance(val, (int, float, np.number)):
                 display_val = default_number_formatter(
-                    val, digits=col.fmt.digits, comma=col.fmt.comma
+                    val, decimals=col.format.decimals, comma=col.format.comma
                 )
             else:
                 display_val = str(val)
@@ -129,11 +125,11 @@ def build_table_from_df(df: pd.DataFrame, schema: list[PdfColumnMeta]) -> Table:
     # --- Apply colormap cell backgrounds
     for row_idx, (_, row) in enumerate(df.iterrows(), start=1):
         for col_idx, col in enumerate(schema):
-            if col.fmt.colormap:
+            if col.format.colormap:
                 vmin, vmax = vmin_vmax[col.name]
                 val = row[col.name]
                 if pd.notna(val):
-                    bgcolor = col.fmt.colormap(val, vmin, vmax)
+                    bgcolor = col.format.colormap(val, vmin, vmax)
                     style.add("BACKGROUND", (col_idx, row_idx), (col_idx, row_idx), bgcolor)
 
     tbl.setStyle(style)
