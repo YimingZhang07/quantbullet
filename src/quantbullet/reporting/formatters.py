@@ -21,6 +21,10 @@ def flex_number_formatter(val, decimals=2, comma=False, transformer=None):
     """
     if pd.isna(val):
         return ""
+    
+    if transformer:
+        val = transformer(val)
+
     fmt = f"{{:,.{decimals}f}}" if comma else f"{{:.{decimals}f}}"
     return fmt.format(val)
 

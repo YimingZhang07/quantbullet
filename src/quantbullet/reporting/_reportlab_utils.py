@@ -14,7 +14,7 @@ def hex_to_rgb01(hex_str: str):
     hex_str = hex_str.lstrip("#")
     return tuple(int(hex_str[i:i+2], 16) / 255.0 for i in (0, 2, 4))
 
-def make_diverging_colormap(low_color=(0, 1, 0), mid_color=(1, 1, 1), high_color=(1, 0, 0)):
+def make_diverging_colormap(low_color=(0.8, 0, 0), mid_color=(1, 1, 1), high_color=(0, 0.8, 0)):
     """Create a diverging colormap function that maps values to colors.
     
     Parameters
