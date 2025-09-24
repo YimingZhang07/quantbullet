@@ -68,6 +68,57 @@ class PdfColumnFormat( BaseColumnFormat ):
 class PdfColumnMeta(  BaseColumnMeta ):
     pass
 
+def apply_heatmap(table_data, row_range, col_range, cmap, vmid=None):
+    """
+    Apply heatmap coloring to a region of table_data.
+
+    Parameters
+    ----------
+    table_data : list of list
+        The full table including headers.
+    row_range : tuple
+        (row_start, row_end) inclusive, in table_data coordinates.
+    col_range : tuple
+        (col_start, col_end) inclusive.
+    cmap : function
+        A colormap function from make_diverging_colormap.
+    vmid : float, optional
+        Mid value for diverging colormap.
+
+    Returns
+    -------
+    styles : list of tuple
+        ReportLab TableStyle commands.
+    """
+    r0, r1 = row_range
+    c0, c1 = col_range
+
+    values = []
+    for r in range(r0, r1+1):
+        for c in range(c0, c1+1):
+            try:
+                values.append(float(table_data[r][c]))
+            except:
+                pass
+
+    if not values:
+        return []
+
+    vmin, vmax = min(values), max(values)
+    if vmid is None:
+        vmid = (vmax + vmin) / 2.0
+
+    styles = []
+    for r in range(r0, r1+1):
+        for c in range(c0, c1+1):
+            try:
+                val = float(table_data[r][c])
+            except:
+                continue
+            color = cmap(val, vmin, vmax, vmid)
+            styles.append(("BACKGROUND", (c, r), (c, r), color))
+    return styles
+
 def build_table_from_df(df: pd.DataFrame, schema: list[PdfColumnMeta]) -> Table:
     """Turn DataFrame + schema into a styled ReportLab Table.
     
@@ -135,7 +186,7 @@ def build_table_from_df(df: pd.DataFrame, schema: list[PdfColumnMeta]) -> Table:
     tbl.setStyle(style)
     return tbl
 
-def build_multi_index_table_from_df(df: pd.DataFrame):
+def multi_index_df_to_table_data(df: pd.DataFrame):
     """
     Convert a MultiIndex DataFrame into ReportLab table data + span styles.
 

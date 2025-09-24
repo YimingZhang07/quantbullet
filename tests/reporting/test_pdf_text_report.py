@@ -4,6 +4,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from quantbullet.reporting.pdf_text_report import PdfTextReport, PdfColumnFormat, PdfColumnMeta
 from pathlib import Path
+from quantbullet.dfutils import sort_multiindex_by_hierarchy
 
 class TestPDFTextReport(unittest.TestCase):
     def setUp(self):
@@ -15,6 +16,7 @@ class TestPDFTextReport(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.cache_dir, ignore_errors=True)
         Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
+        pass
 
     def test_pdf_text_report_main( self ):
         report = PdfTextReport( file_path=str( Path(self.cache_dir) / "test_report.pdf" ), report_title="Test Report", page_numbering=True )
@@ -38,4 +40,43 @@ class TestPDFTextReport(unittest.TestCase):
         ax.set_title("Test Plot")
 
         report.add_matplotlib_figure(test_fig)
+        report.save()
+
+    def test_pdf_text_report_multiindex_table( self ):
+        # make a multiindex df
+        # the columns are a multiindex with 2 levels
+        arrays = [
+            ['Group1', 'Group1', 'Group2', 'Group2'],
+            ['Metric1', 'Metric2', 'Metric1', 'Metric2']
+        ]
+
+        # the row index is also a multiindex with 2 levels
+        row_arrays = [
+            ['A', 'A', 'B', 'B'],
+            ['X', 'Y', 'X', 'Y']
+        ]
+        index = pd.MultiIndex.from_arrays(row_arrays, names=('Category', 'Subcategory'))
+        columns = pd.MultiIndex.from_arrays(arrays, names=('Group', 'Metric'))
+        data = [
+            [13, 2, 3, 4],
+            [2, 6, 7, 8],
+            [7, 10, 11, 12],
+            [1, 14, 15, 16]
+        ]
+        multiindex_df = pd.DataFrame(data, index=index, columns=columns)
+
+        # sort the multiindex df by hierarchy
+        row_order = {
+            0: ['B', 'A'],  # Category level
+            1: ['X', 'Y']   # Subcategory level
+        }
+        col_order = {
+            'Group': ['Group2', 'Group1'],  # Group level
+            'Metric': ['Metric2', 'Metric1'] # Metric level
+        }
+        multiindex_df = sort_multiindex_by_hierarchy(multiindex_df, row_orders=row_order, col_orders=col_order)
+
+        report = PdfTextReport( file_path=str( Path(self.cache_dir) / "test_report_multiindex.pdf" ),
+                                report_title="Test Report MultiIndex", page_numbering=True )
+        report.add_multiindex_df_table( multiindex_df, font_size=10, heatmap_all=True )
         report.save()

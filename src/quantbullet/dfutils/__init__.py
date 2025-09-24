@@ -22,3 +22,7 @@ from .label import (
 from .stack import (
     stack_dataframes
 )
+
+from .sort import (
+    sort_multiindex_by_hierarchy
+)

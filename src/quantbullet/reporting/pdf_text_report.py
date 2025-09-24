@@ -35,7 +35,7 @@ from reportlab.platypus import (
 )
 
 from .formatters import number2string
-from ._reportlab_utils import PdfColumnFormat, PdfColumnMeta, build_table_from_df
+from ._reportlab_utils import PdfColumnFormat, PdfColumnMeta, build_table_from_df, multi_index_df_to_table_data, apply_heatmap, make_diverging_colormap
 
 class PdfTextReport:
     def __init__( self, file_path:str, page_size:tuple=None, report_title:str=None, margins:tuple=(36,36,36,36), page_numbering:bool=True ):
@@ -108,7 +108,7 @@ class PdfTextReport:
         self.story.append(t)
         self.story.append( Spacer(1, 12) )
 
-    def add_df_table( self, df, schema:list[PdfColumnMeta] ):
+    def add_df_table( self, df, schema:list[PdfColumnMeta], space_after:int=12 ):
         """Add a DataFrame as a table to the PDF.
 
         Parameters
@@ -120,7 +120,47 @@ class PdfTextReport:
         """
         tbl = build_table_from_df( df, schema )
         self.story.append( tbl )
-        self.story.append( Spacer( 1, 12 ) )
+        self.story.append( Spacer( 1, space_after ) )
+
+    def add_multiindex_df_table( self, df, font_size:int=6, space_after:int=12, heatmap_all:bool=False ):
+        """Add a MultiIndex DataFrame as a table to the PDF.
+        
+        This is a less configurable function than the regular add_df_table, due to the complexity of MultiIndex tables.
+        This table has focused on displaying the MultiIndex structure clearly. So it is better you have,
+            1) your number format ready, can be in strings
+        """
+        table_data, spans = multi_index_df_to_table_data( df )
+        nrow_levels = df.index.nlevels
+        ncol_levels = df.columns.nlevels
+
+        if heatmap_all:
+            heatmap_styles = []
+            n_rows = len(table_data)
+            n_cols = len(table_data[0])
+            for col in range(nrow_levels, n_cols):
+                _styles = apply_heatmap( table_data=table_data, 
+                                         row_range=(nrow_levels, n_rows-1), 
+                                         col_range=(col, col),
+                                         cmap=make_diverging_colormap(),
+                                         vmid=0 )
+                heatmap_styles.extend(_styles)
+
+        main_styles = [
+            ("GRID", (0, 0), (-1, -1), 0.5, "black"),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN", (0, 0), (0, -1), "MIDDLE"),
+            ("ALIGN", (nrow_levels, ncol_levels), (-1, -1), "RIGHT"),
+            ("BACKGROUND", (0, 0), (-1, ncol_levels - 1), "#d9d9d9"),
+            ("FONTSIZE", (0, 0), (-1, -1), font_size),
+        ]
+        extended_styles = main_styles + spans + (heatmap_styles if heatmap_all else [])
+
+        table_style = TableStyle( extended_styles )
+
+        tbl = Table(table_data, style=table_style)
+
+        self.story.append( tbl )
+        self.story.append( Spacer( 1, space_after ) )
 
     def add_text( self, text:str, font_size:int=10, space_after:int=12 ):
         """Add a left-aligned text paragraph."""
