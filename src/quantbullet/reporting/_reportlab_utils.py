@@ -6,7 +6,7 @@ import pandas as pd
 
 from reportlab.lib import colors
 from reportlab.platypus import Table, TableStyle
-from .formatters import default_number_formatter
+from .formatters import flex_number_formatter
 from .base import BaseColumnFormat, BaseColumnMeta
 
 def hex_to_rgb01(hex_str: str):
@@ -106,8 +106,8 @@ def build_table_from_df(df: pd.DataFrame, schema: list[PdfColumnMeta]) -> Table:
             if col.format.formatter:
                 display_val = col.format.formatter(val)
             elif isinstance(val, (int, float, np.number)):
-                display_val = default_number_formatter(
-                    val, digits=col.fmt.digits, comma=col.fmt.comma
+                display_val = flex_number_formatter(
+                    val, decimals=col.format.decimals, comma=col.format.comma
                 )
             else:
                 display_val = str(val)
@@ -134,3 +134,64 @@ def build_table_from_df(df: pd.DataFrame, schema: list[PdfColumnMeta]) -> Table:
 
     tbl.setStyle(style)
     return tbl
+
+def build_multi_index_table_from_df(df: pd.DataFrame):
+    """
+    Convert a MultiIndex DataFrame into ReportLab table data + span styles.
+
+    Returns
+    -------
+    table_data : list of list
+        Table data including headers and data rows.
+    spans : list of tuple
+        [( "SPAN", (col0,row0), (col1,row1) ), ...]
+    """
+    table_data = []
+    spans = []
+
+    nrow_levels = df.index.nlevels
+    ncol_levels = df.columns.nlevels
+
+    # Step 1: Build table header (column MultiIndex)
+    col_headers = []
+    for level in range(ncol_levels):
+        row = [""] * nrow_levels  # Leave space for row index levels
+        row += list(df.columns.get_level_values(level))
+        col_headers.append(row)
+    table_data.extend(col_headers)
+
+    # Step 2: Build data rows
+    for idx, row_values in zip(df.index, df.values):
+        row = []
+        if nrow_levels == 1:
+            row.append(idx)
+        else:
+            row.extend(idx)
+        row.extend(row_values.tolist())
+        table_data.append(row)
+
+    # Step 3: Handle column-wise span (column MultiIndex)
+    for level in range(ncol_levels):
+        values = df.columns.get_level_values(level)
+        start = 0
+        for i in range(1, len(values) + 1):
+            if i == len(values) or values[i] != values[start]:
+                if i - start > 1:
+                    spans.append(
+                        ("SPAN", (nrow_levels + start, level), (nrow_levels + i - 1, level))
+                    )
+                start = i
+
+    # Step 4: Handle row-wise span (row MultiIndex)
+    for level in range(nrow_levels):
+        values = df.index.get_level_values(level)
+        start = 0
+        for i in range(1, len(values) + 1):
+            if i == len(values) or values[i] != values[start]:
+                if i - start > 1:
+                    spans.append(
+                        ("SPAN", (level, ncol_levels + start), (level, ncol_levels + i - 1))
+                    )
+                start = i
+
+    return table_data, spans
