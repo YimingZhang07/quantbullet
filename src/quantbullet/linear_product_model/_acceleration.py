@@ -2,7 +2,7 @@ import numpy as np
 import numexpr as ne
 from typing import Dict, Optional, Union, List, Sequence
 
-def ols_normal_equation(X, y, ridge=1e-8):
+def ols_normal_equation(X, y, ridge=1e-8, weights=None):
     """Solve the least squares problem using the normal equations with optional ridge regularization.
     
     Parameters
@@ -19,6 +19,12 @@ def ols_normal_equation(X, y, ridge=1e-8):
     np.ndarray
         Estimated coefficients.
     """
+
+    if weights is not None:
+        sqrt_w = np.sqrt(weights)
+        X = X * sqrt_w[:, None]
+        y = y * sqrt_w
+
     XtX = X.T @ X
     if ridge > 0:
         XtX = XtX + ridge * np.eye(XtX.shape[0], dtype=XtX.dtype)

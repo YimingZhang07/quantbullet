@@ -22,11 +22,16 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
     @memorize_fit_args
     def fit( self, X: ProductModelDataContainer, feature_groups:Dict, submodels: Dict=None,
              init_params=None, early_stopping_rounds=5, n_iterations=20, force_rounds=5, verbose=1, ftol=1e-5,
-             cache_qr_decomp=False, offset_y = None, use_svd=False ):
+             cache_qr_decomp=False, offset_y = None, use_svd=False, weights=None ):
         self._reset_history( cache_qr_decomp=cache_qr_decomp )
         self.feature_groups_ = feature_groups
         self.submodels_ = submodels or {}
         data_blocks = X.get_expanded_array_dict( list( feature_groups.keys() ) )
+        # make sure weights is a 1d and numpy array
+        if weights is not None:
+            weights = np.asarray(weights).ravel()
+            if weights.ndim != 1 or weights.shape[0] != X.shape[0]:
+                raise ValueError("Weights must be a 1D array with the same length as the number of observations.")
         
         if X.response is None:
             raise ValueError("Response variable is not provided in the data container.")
@@ -59,10 +64,14 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
                     if not cache_qr_decomp:
                         mX = floating_data * fixed_predictions[:, None]
                         if use_svd:
+                            if weights is not None:
+                                raise NotImplementedError("Weighted least squares with SVD is not implemented yet.")
                             floating_params = np.linalg.lstsq( self.global_scalar_ * mX, y, rcond=None)[0]
                         else:
-                            floating_params = ols_normal_equation( self.global_scalar_ * mX, y )
+                            floating_params = ols_normal_equation( self.global_scalar_ * mX, y, weights=weights )
                     else:
+                        if weights is not None:
+                            raise NotImplementedError("Weighted least squares with cached QR decomposition is not implemented yet.")
                         # use the cached QR decomposition to solve the least squares problem so that we do not need to recompute the inverse of X'X every time
                         # the downside is we need to put the global scaler and fixed predictions into the y cause they will change every iteration
                         if feature_group not in self.qr_decomp_cache_:

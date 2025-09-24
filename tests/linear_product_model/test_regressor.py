@@ -68,7 +68,24 @@ class TestLinearProductRegressorBCD(unittest.TestCase):
 
         dcontainer = ProductModelDataContainer( df, train_df, response= df['y'], feature_groups=feature_groups )
         lprm_ols = LinearProductRegressorBCD()
-        lprm_ols.fit( dcontainer, feature_groups=feature_groups, n_iterations=100, early_stopping_rounds=20, cache_qr_decomp=True )
+        lprm_ols.fit( dcontainer, feature_groups=feature_groups, n_iterations=100, early_stopping_rounds=20, cache_qr_decomp=False )
+        df['model_pred_BCD'] = lprm_ols.predict( dcontainer )
+
+        # check the mean squared error; whether the model converges
+        mse = mean_squared_error(df['y'], df['model_pred_BCD'])
+        self.assertTrue( np.isclose(mse, 0.52, atol=0.01), f"MSE is {mse}, expected around 0.52" )
+        
+        # check whether the global scale converges to the mean of y
+        self.assertTrue( abs( lprm_ols.global_scalar_ / df['y'].mean() -1 ) < 0.05 )
+
+    def test_LinearProductRegressorBCD_weights( self ):
+        df = self.df
+        train_df = self.train_df
+        feature_groups = self.feature_groups
+
+        dcontainer = ProductModelDataContainer( df, train_df, response= df['y'], feature_groups=feature_groups )
+        lprm_ols = LinearProductRegressorBCD()
+        lprm_ols.fit( dcontainer, feature_groups=feature_groups, n_iterations=100, early_stopping_rounds=20, cache_qr_decomp=False, weights=np.array([1.0] * df.shape[0]) )
         df['model_pred_BCD'] = lprm_ols.predict( dcontainer )
 
         # check the mean squared error; whether the model converges
