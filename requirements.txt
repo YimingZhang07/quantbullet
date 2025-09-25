@@ -24,6 +24,7 @@ pytest
 lazy_loader
 line_profiler
 tqdm
+pyyaml
 
 # Others
 ipykernel

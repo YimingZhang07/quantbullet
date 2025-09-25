@@ -12,3 +12,5 @@ __pycache__/
 temp/
 
 private/
+
+credentials.yml
