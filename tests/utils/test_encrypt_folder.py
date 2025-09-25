@@ -29,8 +29,8 @@ def fuzz_filename(relative_path: str, passphrase: str) -> str:
 
 class TestEncryptFolder(unittest.TestCase):
     def setUp(self):
-        self.original_folder = "./docs/A"
-        self.encrypted_folder = "./docs/B"
+        self.original_folder = "./docs/_treasure"
+        self.encrypted_folder = "./docs/_safe"
 
     def test_encrypt_folder(self):
         passphrase = read_passphrase()

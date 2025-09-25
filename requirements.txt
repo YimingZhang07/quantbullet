@@ -25,6 +25,7 @@ lazy_loader
 line_profiler
 tqdm
 pyyaml
+seaborn
 
 # Others
 ipykernel
