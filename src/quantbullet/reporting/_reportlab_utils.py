@@ -9,6 +9,10 @@ from reportlab.platypus import Table, TableStyle
 from .formatters import flex_number_formatter
 from .base import BaseColumnFormat, BaseColumnMeta
 
+from reportlab.lib import colors
+from colorsys import rgb_to_hls, hls_to_rgb
+import math
+
 def hex_to_rgb01(hex_str: str):
     """Convert a hex color string to an RGB tuple with values between 0 and 1."""
     hex_str = hex_str.lstrip("#")
@@ -31,6 +35,13 @@ def make_diverging_colormap(low_color=(0.8, 0, 0), mid_color=(1, 1, 1), high_col
     function
         A function that takes a value, min, max, and optional mid, and returns a reportlab color.
     """
+
+    if "#" in low_color:
+        low_color = hex_to_rgb01(low_color)
+    if "#" in mid_color:
+        mid_color = hex_to_rgb01(mid_color)
+    if "#" in high_color:
+        high_color = hex_to_rgb01(high_color)
 
     def _map(val, vmin, vmax, vmid=None):
         if vmax == vmin:  # avoid division by zero

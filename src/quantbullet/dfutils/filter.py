@@ -15,8 +15,20 @@ class Criteria:
     def describe(self):
         return f"{self.column} {self.operator} {self.value}"
 
-def apply_condition(df: DataFrame, col: str, op: str, val: Any):
-    series = df[col]
+def apply_condition( df: DataFrame, col: str, op: str, val: Any ):
+
+    if col not in df.columns:
+        raise ValueError( f"Column '{col}' not found in DataFrame." )
+
+    series = df[ col ]
+
+    # Handle datetime conversion if necessary
+    if pd.api.types.is_datetime64_any_dtype( series ):
+        if isinstance( val, str ):
+            val = pd.to_datetime( val )
+        elif isinstance( val, list ) and len( val ) == 2:
+            val = [ pd.to_datetime( v ) for v in val ]
+
     if op == "==":
         return series == val
     elif op == "!=":

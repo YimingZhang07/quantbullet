@@ -122,7 +122,7 @@ class PdfTextReport:
         self.story.append( tbl )
         self.story.append( Spacer( 1, space_after ) )
 
-    def add_multiindex_df_table( self, df, font_size:int=6, space_after:int=12, heatmap_all:bool=False ):
+    def add_multiindex_df_table( self, df, font_size:int=6, space_after:int=12, heatmap_cols:bool=False, heatmap_all:bool=False ):
         """Add a MultiIndex DataFrame as a table to the PDF.
         
         This is a less configurable function than the regular add_df_table, due to the complexity of MultiIndex tables.
@@ -133,8 +133,9 @@ class PdfTextReport:
         nrow_levels = df.index.nlevels
         ncol_levels = df.columns.nlevels
 
-        if heatmap_all:
-            heatmap_styles = []
+
+        heatmap_styles = []
+        if heatmap_cols:
             n_rows = len(table_data)
             n_cols = len(table_data[0])
             for col in range(nrow_levels, n_cols):
@@ -145,6 +146,17 @@ class PdfTextReport:
                                          vmid=0 )
                 heatmap_styles.extend(_styles)
 
+        if heatmap_all:
+            # all the cells color as a whole
+            n_rows = len(table_data)
+            n_cols = len(table_data[0])
+            _styles = apply_heatmap( table_data=table_data, 
+                                            row_range=(nrow_levels, n_rows-1),
+                                            col_range=(nrow_levels, n_cols-1),
+                                            cmap=make_diverging_colormap( high_color="#63be7b", mid_color=(1,1,1), low_color="#f8696b" ),
+                                            vmid=10 )
+            heatmap_styles.extend(_styles)
+
         main_styles = [
             ("GRID", (0, 0), (-1, -1), 0.5, "black"),
             ("ALIGN", (0, 0), (-1, -1), "CENTER"),
@@ -153,7 +165,7 @@ class PdfTextReport:
             ("BACKGROUND", (0, 0), (-1, ncol_levels - 1), "#d9d9d9"),
             ("FONTSIZE", (0, 0), (-1, -1), font_size),
         ]
-        extended_styles = main_styles + spans + (heatmap_styles if heatmap_all else [])
+        extended_styles = main_styles + spans + heatmap_styles
 
         table_style = TableStyle( extended_styles )
 

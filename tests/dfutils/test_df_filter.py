@@ -10,7 +10,10 @@ class TestDFUtils(unittest.TestCase):
             'Age'   : [26, 27, 28, 29, 30],
             'Region': ['US', 'EU', 'US', 'EU', 'US'],
             'Score' : [85, 90, 95, 100, 100],
-            'Status': ['active', 'inactive', 'active', 'active', 'inactive']
+            'Status': ['active', 'inactive', 'active', 'active', 'inactive'],
+            'AsOfDate': pd.to_datetime([
+                '2023-01-01', '2023-02-01', '2023-03-01', '2023-04-01', '2023-05-01'
+            ])
         })
 
     def test_filter_df(self):
@@ -27,3 +30,11 @@ class TestDFUtils(unittest.TestCase):
         self.assertEqual(len(filtered), 1)
         self.assertEqual(filtered.iloc[0]['Name'], 'Alice')
         self.assertEqual(filtered.iloc[0]['Age'], 26)
+
+    def test_filter_df_with_date(self):
+        filters = [
+            ("AsOfDate", "==", "2023-01-01"),
+        ]
+        filtered = filter_df(self.df, filters)
+        self.assertEqual(len(filtered), 1)
+        self.assertEqual(filtered.iloc[0]['Name'], 'Alice')
