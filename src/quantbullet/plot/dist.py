@@ -37,7 +37,7 @@ def plot_distributions(
                        frac=sample if isinstance(sample, float) else None,
                        random_state=42)
 
-    fig, axes = get_grid_fig_axes( n_charts=len(columns)
+    fig, axes = get_grid_fig_axes( n_charts=len(columns), n_cols=3 )
 
     for i, col in enumerate(columns):
         ax = axes[i]
