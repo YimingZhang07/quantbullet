@@ -77,7 +77,8 @@ class PdfColumnFormat( BaseColumnFormat ):
 
 @dataclass
 class PdfColumnMeta(  BaseColumnMeta ):
-    pass
+    # override the format type
+    format: PdfColumnFormat = field( default_factory=PdfColumnFormat )
 
 def apply_heatmap(table_data, row_range, col_range, cmap, vmid=None):
     """
@@ -130,7 +131,7 @@ def apply_heatmap(table_data, row_range, col_range, cmap, vmid=None):
             styles.append(("BACKGROUND", (c, r), (c, r), color))
     return styles
 
-def build_table_from_df(df: pd.DataFrame, schema: list[PdfColumnMeta]) -> Table:
+def build_table_from_df( df: pd.DataFrame, schema: list[PdfColumnMeta] ) -> Table:
     """Turn DataFrame + schema into a styled ReportLab Table.
     
     Parameters

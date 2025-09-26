@@ -21,6 +21,20 @@ def _derive_key(passphrase: str, salt: bytes) -> bytes:
     )
     return kdf.derive(passphrase.encode())
 
+# from argon2.low_level import hash_secret_raw, Type
+
+# def _derive_key(passphrase: str, salt: bytes) -> bytes:
+#     """Derive a 256-bit key from passphrase + salt using Argon2id."""
+#     return hash_secret_raw(
+#         secret=passphrase.encode(),
+#         salt=salt,
+#         time_cost=3,        # iterations (higher = slower = more secure)
+#         memory_cost=65536,  # memory in KiB (here 64 MB)
+#         parallelism=4,      # number of threads
+#         hash_len=32,        # length of derived key in bytes (32 = 256-bit AES)
+#         type=Type.ID        # Argon2id variant
+#     )
+
 # -------------------------
 # File Encryption
 # -------------------------

@@ -26,3 +26,7 @@ from .stack import (
 from .sort import (
     sort_multiindex_by_hierarchy
 )
+
+from .dtypes import (
+    refresh_categories
+)

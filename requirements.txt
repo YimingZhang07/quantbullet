@@ -32,6 +32,7 @@ ipykernel
 pyarrow
 polars
 cryptography
+argon2-cffi
 
 # Reporting
 reportlab

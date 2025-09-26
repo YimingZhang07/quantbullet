@@ -108,7 +108,7 @@ class PdfTextReport:
         self.story.append(t)
         self.story.append( Spacer(1, 12) )
 
-    def add_df_table( self, df, schema:list[PdfColumnMeta], space_after:int=12 ):
+    def add_df_table( self, df, schema:list[PdfColumnMeta], space_after:int=12, font_size:int=8 ):
         """Add a DataFrame as a table to the PDF.
 
         Parameters
@@ -119,6 +119,8 @@ class PdfTextReport:
             Metadata for each column, including formatting and colormap info.
         """
         tbl = build_table_from_df( df, schema )
+        # tbl has the style already applied lets append the font size style
+        tbl.setStyle( TableStyle([ ("FONTSIZE", (0,0), (-1,-1), font_size) ]) )
         self.story.append( tbl )
         self.story.append( Spacer( 1, space_after ) )
 
