@@ -10,8 +10,6 @@ from .formatters import flex_number_formatter
 from .base import BaseColumnFormat, BaseColumnMeta
 
 from reportlab.lib import colors
-from colorsys import rgb_to_hls, hls_to_rgb
-import math
 
 def hex_to_rgb01(hex_str: str):
     """Convert a hex color string to an RGB tuple with values between 0 and 1."""
@@ -109,7 +107,9 @@ def apply_heatmap(table_data, row_range, col_range, cmap, vmid=None):
     for r in range(r0, r1+1):
         for c in range(c0, c1+1):
             try:
-                values.append(float(table_data[r][c]))
+                x = table_data[r][c]
+                x = x.replace(",", "").replace("$", "").replace("%", "")
+                values.append(float(x))
             except:
                 pass
 
@@ -124,7 +124,9 @@ def apply_heatmap(table_data, row_range, col_range, cmap, vmid=None):
     for r in range(r0, r1+1):
         for c in range(c0, c1+1):
             try:
-                val = float(table_data[r][c])
+                x = table_data[r][c]
+                x = x.replace(",", "").replace("$", "").replace("%", "")
+                val = float(x)
             except:
                 continue
             color = cmap(val, vmin, vmax, vmid)

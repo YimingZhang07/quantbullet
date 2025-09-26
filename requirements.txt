@@ -8,6 +8,8 @@ statsmodels
 scikit-learn
 scipy
 sqlalchemy
+seaborn
+polars
 
 # Computing
 numexpr
@@ -25,12 +27,10 @@ lazy_loader
 line_profiler
 tqdm
 pyyaml
-seaborn
 
 # Others
 ipykernel
 pyarrow
-polars
 cryptography
 argon2-cffi
 
