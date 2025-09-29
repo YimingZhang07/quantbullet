@@ -174,6 +174,8 @@ def build_table_from_df( df: pd.DataFrame, schema: list[PdfColumnMeta] ) -> Tabl
                 display_val = flex_number_formatter(
                     val, decimals=col.format.decimals, comma=col.format.comma
                 )
+            elif pd.isna(val):
+                display_val = ""
             else:
                 display_val = str(val)
             row_data.append(display_val)
