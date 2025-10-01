@@ -108,7 +108,19 @@ class PdfTextReport:
         self.story.append(t)
         self.story.append( Spacer(1, 12) )
 
-    def add_df_table( self, df, schema:list[PdfColumnMeta], space_after:int=12, font_size:int=8 ):
+    def _bold_rows_cols_styles( self, nrows:int, ncols:int, bold_rows:list[int]=None, bold_cols:list[int]=None ):
+        styles = []
+        if bold_rows:
+            rows = [(r if r >= 0 else nrows + r) for r in bold_rows]
+            for r in rows:
+                styles.append(("FONTNAME", (0, r), (-1, r), "Helvetica-Bold"))
+        if bold_cols:
+            cols = [(c if c >= 0 else ncols + c) for c in bold_cols]
+            for c in cols:
+                styles.append(("FONTNAME", (c, 0), (c, -1), "Helvetica-Bold"))
+        return styles
+
+    def add_df_table( self, df, schema:list[PdfColumnMeta], space_after:int=12, font_size:int=8, bold_rows=None, bold_cols=None ):
         """Add a DataFrame as a table to the PDF.
 
         Parameters
@@ -119,8 +131,12 @@ class PdfTextReport:
             Metadata for each column, including formatting and colormap info.
         """
         tbl = build_table_from_df( df, schema )
+        nrows, ncols = len(df) + 1, len(schema)
         # tbl has the style already applied lets append the font size style
-        tbl.setStyle( TableStyle([ ("FONTSIZE", (0,0), (-1,-1), font_size) ]) )
+        styles = [ ( "FONTSIZE", ( 0, 0 ), ( -1, -1 ), font_size) ]
+        styles += self._bold_rows_cols_styles( nrows, ncols, bold_rows, bold_cols )
+
+        tbl.setStyle(TableStyle(styles))
         self.story.append( tbl )
         self.story.append( Spacer( 1, space_after ) )
 
@@ -168,6 +184,10 @@ class PdfTextReport:
             ("FONTSIZE", (0, 0), (-1, -1), font_size),
         ]
         extended_styles = main_styles + spans + heatmap_styles
+
+        nrows = len(table_data)
+        ncols = len(table_data[0])
+        extended_styles += self._bold_rows_cols_styles( nrows, ncols, bold_rows, bold_cols )
 
         table_style = TableStyle( extended_styles )
 
