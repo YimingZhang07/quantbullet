@@ -230,3 +230,54 @@ def disk_cache(cache_dir: str):
 
         return wrapper
     return decorator
+
+def memory_cache(maxsize: int = 128):
+    """
+    Decorator to cache function outputs in memory with LRU eviction.
+    Keys are built in the same canonical way as disk_cache (kwargs only).
+    """
+    def decorator(func):
+        sig = inspect.signature(func)
+        cache = OrderedDict()
+        lock = RLock()
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            nonlocal cache
+
+            # Canonicalize args+kwargs to kwargs-only
+            bound = sig.bind_partial(*args, **kwargs)
+            bound.apply_defaults()
+            ba = bound.arguments.copy()
+            ba.pop("self", None)
+            ba.pop("cls", None)
+
+            # Build stable key
+            key_raw = (func.__qualname__, tuple(sorted(ba.items())))
+            key_hash = hashlib.sha256(
+                json.dumps(key_raw, sort_keys=True, default=str).encode()
+            ).hexdigest()
+
+            # Lookup
+            with lock:
+                if key_hash in cache:
+                    # Move to end (recently used)
+                    cache.move_to_end(key_hash)
+                    return cache[key_hash]
+
+            # Miss → compute
+            result = func(*args, **kwargs)
+
+            with lock:
+                cache[key_hash] = result
+                cache.move_to_end(key_hash)
+                if len(cache) > maxsize:
+                    cache.popitem(last=False)  # remove least recently used
+
+            return result
+
+        # Optional: expose cache dict for inspection/clearing
+        wrapper._memory_cache = cache
+        return wrapper
+
+    return decorator
