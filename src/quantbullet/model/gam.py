@@ -177,14 +177,40 @@ class WrapperGAM:
         return fig, axes
 
     def __getattr__(self, name):
-        """Delegate attribute/method access to the underlying GAM model"""
-        if hasattr(self.gam_, name):
-            attr = getattr(self.gam_, name)
-            # If it's a method, we might want to return it directly
-            # or wrap it if needed
-            return attr
-        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
-    
+        """
+        Delegate attribute/method access to the underlying GAM model, but avoid
+        recursion if `gam_` is not yet set (e.g., during unpickling).
+        """
+        # Try to fetch gam_ without invoking __getattr__ again
+        try:
+            gam = object.__getattribute__(self, "gam_")
+        except AttributeError:
+            # `gam_` isn't available yet; behave like a normal missing attribute
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'") from None
+
+        # Delegate to the underlying model
+        try:
+            return getattr(gam, name)
+        except AttributeError:
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'") from None
+
     def __getitem__(self, key):
-        """Delegate indexing to the underlying GAM model if needed"""
-        return self.gam_[key]
+        """Delegate indexing to the underlying GAM model safely."""
+        gam = object.__getattribute__(self, "gam_")
+        return gam[key]
+    
+    def __getstate__(self):
+        return {
+            "feature_spec"      : self.feature_spec,
+            "gam_"              : self.gam_,
+            "formula_"          : self.formula_,
+            "feature_term_map_" : self.feature_term_map_,
+            "category_levels_"  : self.category_levels_,
+        }
+
+    def __setstate__(self, state):
+        self.feature_spec       = state["feature_spec"]
+        self.gam_               = state["gam_"]
+        self.formula_           = state["formula_"]
+        self.feature_term_map_  = state["feature_term_map_"]
+        self.category_levels_   = state["category_levels_"]
