@@ -8,6 +8,7 @@ import pickle
 import subprocess
 import tempfile
 import time
+import inspect
 import warnings
 from contextlib import redirect_stdout
 from datetime import date, datetime, timedelta
@@ -161,50 +162,50 @@ def external_viewer(open_with_arg="open_with", flag_arg="external_view"):
         return wrapper
     return decorator
 
-def disk_cache( cache_dir: str ):
-    """Decorator to cache function outputs to disk using pickle serialization.
+def disk_cache(cache_dir: str):
+    """Cache function outputs to disk using pickle, keying only on kwargs."""
 
-    The decorated function can accept two special keyword arguments:
-        - force_recache (bool): If True, forces recomputation and overwriting of the cache.
-        - expire_days (int or None): If set, cached results older than this number of days will be recomputed.
-    
-    Parameters
-    ----------
-    cache_dir : str
-        Directory to store cache files
+    os.makedirs(cache_dir, exist_ok=True)
 
-    Returns
-    -------
-    function
-        The decorated function with caching capabilities
-    """
-    make_dir_if_not_exists(cache_dir)
     def decorator(func):
+        sig = inspect.signature(func)
+
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            # Extract control flags
+            # Extract control flags (not part of cache key)
             force_recache = kwargs.pop("force_recache", False)
             expire_days   = kwargs.pop("expire_days", None)
 
-            # Build cache key
-            key_raw = (func.__name__, args, frozenset(kwargs.items()))
-            key_hash = hashlib.sha256(pickle.dumps(key_raw)).hexdigest()[:16]
+            # Canonicalize: bind args + kwargs → always kwargs
+            bound = sig.bind_partial(*args, **kwargs)
+            bound.apply_defaults()
 
-            base_name = f"{func.__name__}_{key_hash}"
+            # Drop self/cls and keep only kwargs
+            ba = bound.arguments.copy()
+            ba.pop("self", None)
+            ba.pop("cls", None)
+
+            # Now everything is in kwargs form
+            key_kwargs = dict(sorted(ba.items()))
+            key_raw = (func.__qualname__, key_kwargs)
+
+            key_hash = hashlib.sha256(
+                json.dumps(key_raw, sort_keys=True, default=str).encode()
+            ).hexdigest()[:16]
+
+            base_name = f"{func.__qualname__.replace('.', '_')}_{key_hash}"
             cache_path = os.path.join(cache_dir, base_name + ".pkl")
             meta_path  = os.path.join(cache_dir, base_name + ".json")
 
-            # Check if cache exists and is still valid
+            # Load from cache if valid
             if not force_recache and os.path.exists(cache_path):
                 if os.path.exists(meta_path):
                     with open(meta_path, "r") as f:
                         meta = json.load(f)
                         cache_time = datetime.fromisoformat(meta["timestamp"])
-                        # Apply expiry check
                         if expire_days is not None:
-                            if datetime.now( ZoneInfo("America/New_York") ) - cache_time > timedelta(days=expire_days):
+                            if datetime.now(ZoneInfo("America/New_York")) - cache_time > timedelta(days=expire_days):
                                 force_recache = True
-
                 if not force_recache:
                     with open(cache_path, "rb") as f:
                         return pickle.load(f)
@@ -216,16 +217,16 @@ def disk_cache( cache_dir: str ):
             with open(cache_path, "wb") as f:
                 pickle.dump(result, f)
 
-            # Save metadata
+            # Save metadata (nice readable kwargs only)
             meta = {
                 "function": func.__name__,
-                "args": repr(args),
-                "kwargs": repr(kwargs),
-                "timestamp": datetime.now( ZoneInfo("America/New_York") ).isoformat()
+                "kwargs": {k: repr(v) for k, v in key_kwargs.items()},
+                "timestamp": datetime.now(ZoneInfo("America/New_York")).isoformat()
             }
             with open(meta_path, "w") as f:
                 json.dump(meta, f, indent=2)
 
             return result
+
         return wrapper
     return decorator
