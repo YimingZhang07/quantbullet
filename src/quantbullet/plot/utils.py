@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-def get_grid_fig_axes( n_charts, n_cols=3, width=5, height=4 ):
+def get_grid_fig_axes( n_charts, n_cols=3, width=5, height=4, flatten=True ):
     """Get the fig and flattened axes from a grid"""
     n_rows = int( np.ceil( n_charts / n_cols ) )
 
@@ -9,8 +9,9 @@ def get_grid_fig_axes( n_charts, n_cols=3, width=5, height=4 ):
 
     if n_rows * n_cols == 1:
         axes = np.array([axes])
-    axes = axes.flatten()
 
+    if flatten:
+        axes = axes.flatten()
     return fig, axes
 
 def close_unused_axes( axes ):

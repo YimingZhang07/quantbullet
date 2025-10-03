@@ -154,17 +154,23 @@ def copy_axis(src_ax: plt.Axes, dst_ax: plt.Axes,
 
     # --- Grid ---
     if with_grid:
-        # Major gridlines = just check if any visible gridline exists
-        major_on = any(gl.get_visible() for gl in src_ax.get_xgridlines() + src_ax.get_ygridlines())
+        # Major on/off detection from existing grid lines
+        major_on = any(gl.get_visible() and not getattr(gl, "_is_minor", False)
+                       for gl in src_ax.get_xgridlines() + src_ax.get_ygridlines())
         dst_ax.grid(major_on, which="major")
 
-        # Minor gridlines = filter by line properties (if available)
-        all_x = src_ax.get_xgridlines()
-        all_y = src_ax.get_ygridlines()
-        # Matplotlib marks minor gridlines with `_is_minor` internally
-        minor_lines = [gl for gl in all_x + all_y if getattr(gl, "_is_minor", False)]
-        minor_on = any(gl.get_visible() for gl in minor_lines)
+        # Minor on/off detection
+        minor_on = any(gl.get_visible() and getattr(gl, "_is_minor", False)
+                       for gl in src_ax.get_xgridlines() + src_ax.get_ygridlines())
         dst_ax.grid(minor_on, which="minor")
+
+        # Copy all gridline styles
+        for src_gl, dst_gl in zip(src_ax.get_xgridlines() + src_ax.get_ygridlines(),
+                                 dst_ax.get_xgridlines() + dst_ax.get_ygridlines()):
+            dst_gl.set_linestyle(src_gl.get_linestyle())
+            dst_gl.set_linewidth(src_gl.get_linewidth())
+            dst_gl.set_color(src_gl.get_color())
+            dst_gl.set_alpha(src_gl.get_alpha())
 
 def copy_figure(src_fig: plt.Figure, dst_fig: plt.Figure, include_margins: bool = False, include_spacing: bool = True):
     """
