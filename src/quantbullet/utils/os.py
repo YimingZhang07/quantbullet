@@ -1,5 +1,6 @@
 import os
 import shutil
+import pandas as pd
 
 def list_files_in_directory(directory: str, full_path: bool = False) -> list[str]:
     """List files in a directory."""
@@ -26,3 +27,8 @@ def clean_dir(directory: str):
             os.remove(path)
         elif os.path.isdir(path):
             shutil.rmtree(path)
+
+def dict_to_clipboard(data: dict):
+    """Copy a dictionary to clipboard in tabular form for Excel."""
+    df = pd.DataFrame(list(data.items()), columns=["Key", "Value"])
+    df.to_clipboard(index=False, header=True, excel=True)
