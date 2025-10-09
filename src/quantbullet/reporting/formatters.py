@@ -5,7 +5,7 @@ def round_errors( x, decimals=2 ):
     rounded = round(x, decimals)
     return abs( rounded - x ) / abs( x ) if x != 0 else 0
 
-def flex_number_formatter(val, decimals=2, comma=False, transformer=None):
+def flex_number_formatter(val, decimals=2, comma=False, transformer=None, percent=False):
     """Format a number with specified digits and optional comma as thousand separator.
     
     Parameters
@@ -24,6 +24,10 @@ def flex_number_formatter(val, decimals=2, comma=False, transformer=None):
     
     if transformer:
         val = transformer(val)
+
+    if percent:
+        val *= 100
+        return flex_number_formatter(val, decimals=decimals, comma=comma) + '%'
 
     fmt = f"{{:,.{decimals}f}}" if comma else f"{{:.{decimals}f}}"
     return fmt.format(val)
