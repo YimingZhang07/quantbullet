@@ -154,6 +154,7 @@ class PdfTextReport:
 
         heatmap_styles = []
         if heatmap_cols:
+            # heatmap the whole table but column by column
             n_rows = len(table_data)
             n_cols = len(table_data[0])
             for col in range(nrow_levels, n_cols):
@@ -165,7 +166,7 @@ class PdfTextReport:
                 heatmap_styles.extend(_styles)
 
         if heatmap_all:
-            # all the cells color as a whole
+            # heatmap the whole table
             n_rows = len(table_data)
             n_cols = len(table_data[0])
             _styles = apply_heatmap( table_data=table_data, 
