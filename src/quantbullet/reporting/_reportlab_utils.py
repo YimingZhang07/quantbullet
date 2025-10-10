@@ -69,9 +69,14 @@ def make_diverging_colormap(low_color=(0.8, 0, 0), mid_color=(1, 1, 1), high_col
 @dataclass
 class PdfColumnFormat( BaseColumnFormat ):
     formatter: Optional[Callable[[Any], str]] = None  # e.g., lambda x: f"${x:,.2f}"
-    colormap: Optional[Callable[[float, float, float], colors.Color]] = None
-    # colormap takes (val, vmin, vmax) and returns a ReportLab Color
+    colormap: Optional[Callable[[float, float, float], colors.Color]] = None  # colormap takes (val, vmin, vmax) and returns a ReportLab Color
+    named_colormap: Optional[str] = None # we use a few predefined colormaps by name
 
+    def __post_init__(self):
+        if self.named_colormap == "red_white_green":
+            self.colormap = make_diverging_colormap( high_color="#63be7b", mid_color=(1,1,1), low_color="#f8696b" )
+        elif self.named_colormap == "white_green":
+            self.colormap = make_diverging_colormap( high_color="#63be7b", mid_color=(1,1,1), low_color=(1,1,1) )
 
 @dataclass
 class PdfColumnMeta(  BaseColumnMeta ):

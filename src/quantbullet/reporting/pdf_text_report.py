@@ -23,10 +23,8 @@ from reportlab.lib.pagesizes import landscape, letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
 from reportlab.platypus import (
-    Frame,
     Image,
     PageBreak,
-    PageTemplate,
     Paragraph,
     SimpleDocTemplate,
     Spacer,
@@ -140,17 +138,19 @@ class PdfTextReport:
         self.story.append( tbl )
         self.story.append( Spacer( 1, space_after ) )
 
-    def add_multiindex_df_table( self, df, font_size:int=6, space_after:int=12, heatmap_cols:bool=False, heatmap_all:bool=False ):
+    def add_multiindex_df_table( self, df, font_size:int=6, space_after:int=12, 
+                                 heatmap_cols:bool=False, heatmap_all:bool=False, 
+                                 bold_rows=None, bold_cols=None ):
         """Add a MultiIndex DataFrame as a table to the PDF.
         
         This is a less configurable function than the regular add_df_table, due to the complexity of MultiIndex tables.
-        This table has focused on displaying the MultiIndex structure clearly. So it is better you have,
-            1) your number format ready, can be in strings
+        This table has focused on displaying the MultiIndex structure clearly. So you need to have
+            1) the dataframe formatted as strings in the way they are to be displayed
+            2) the None values filled in as empty strings "" so that the table looks clean
         """
         table_data, spans = multi_index_df_to_table_data( df )
         nrow_levels = df.index.nlevels
         ncol_levels = df.columns.nlevels
-
 
         heatmap_styles = []
         if heatmap_cols:
@@ -176,12 +176,12 @@ class PdfTextReport:
             heatmap_styles.extend(_styles)
 
         main_styles = [
-            ("GRID", (0, 0), (-1, -1), 0.5, "black"),
-            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-            ("VALIGN", (0, 0), (0, -1), "MIDDLE"),
-            ("ALIGN", (nrow_levels, ncol_levels), (-1, -1), "RIGHT"),
-            ("BACKGROUND", (0, 0), (-1, ncol_levels - 1), "#d9d9d9"),
-            ("FONTSIZE", (0, 0), (-1, -1), font_size),
+            ("GRID",       (0, 0),                   (-1, -1),                0.5,      "black"),
+            ("ALIGN",      (0, 0),                   (-1, -1),                "CENTER"),
+            ("VALIGN",     (0, 0),                   (0, -1),                 "MIDDLE"),
+            ("ALIGN",      (nrow_levels, ncol_levels), (-1, -1),              "RIGHT"),
+            ("BACKGROUND", (0, 0),                   (-1, ncol_levels - 1),   "#d9d9d9"),
+            ("FONTSIZE",   (0, 0),                   (-1, -1),                font_size),
         ]
         extended_styles = main_styles + spans + heatmap_styles
 

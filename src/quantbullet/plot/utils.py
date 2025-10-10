@@ -2,7 +2,28 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 def get_grid_fig_axes( n_charts, n_cols=3, width=5, height=4, flatten=True ):
-    """Get the fig and flattened axes from a grid"""
+    """Get the fig and axes from a grid
+    
+    Parameters
+    ----------
+    n_charts : int
+        Number of charts to plot
+    n_cols : int, optional
+        Number of columns in the grid, by default 3
+    width : int, optional
+        Width of each subplot, by default 5
+    height : int, optional
+        Height of each subplot, by default 4
+    flatten : bool, optional
+        Whether to flatten the axes array, by default True
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        The figure object
+    axes : np.ndarray
+        The axes array
+    """
     n_rows = int( np.ceil( n_charts / n_cols ) )
 
     fig, axes = plt.subplots(n_rows, n_cols, figsize=( width * n_cols, height * n_rows))
