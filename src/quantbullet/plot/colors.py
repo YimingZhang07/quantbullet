@@ -56,3 +56,6 @@ class EconomistBrandColor(StrEnum):
     PARIS_85 = "#D0E1E1"
     PARIS_90 = "#E0EBEB"
     PARIS_95 = "#EFF5F5"
+    PURPLE_85 = "#925977"
+    PURPLE_70 = "#9A607F"
+    PURPLE_55 = "#AD7291"

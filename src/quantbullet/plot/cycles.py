@@ -9,8 +9,9 @@ _ECONOMIST_COLORS = [
     EconomistBrandColor.SINGAPORE_55, # orange
     EconomistBrandColor.HONG_KONG_45, # green
     EconomistBrandColor.TOKYO_45,     # red
-    EconomistBrandColor.LONDON_20,    # purple
     EconomistBrandColor.NEW_YORK_55,  # yellow
+    EconomistBrandColor.PURPLE_70,    # purple
+    EconomistBrandColor.LONDON_20,    # Black/Grey
 ]
 
 _BASE_LINESTYLES = ['-', '--']
