@@ -31,7 +31,7 @@ class TestPDFTextReport(unittest.TestCase):
             PdfColumnMeta(name="B", display_name="Column B", format=PdfColumnFormat(decimals=2, comma=True, transformer=lambda x: x * 1000)),
             PdfColumnMeta(name="C", display_name="Column C", format=PdfColumnFormat())
         ]
-        report.add_df_table( test_df, schema=schema )
+        report.add_df_table( test_df, schema=schema, heatmap_all=True )
         report.add_table_footnote("This is a footnote for the table.")
         report.add_page_break()
 

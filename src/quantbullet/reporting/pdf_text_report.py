@@ -34,6 +34,7 @@ from reportlab.platypus import (
 
 from .formatters import number2string
 from ._reportlab_utils import PdfColumnFormat, PdfColumnMeta, build_table_from_df, multi_index_df_to_table_data, apply_heatmap, make_diverging_colormap
+from ..plot.colors import ColorEnum
 
 class PdfTextReport:
     def __init__( self, file_path:str, page_size:tuple=None, report_title:str=None, margins:tuple=(36,36,36,36), page_numbering:bool=True ):
@@ -118,7 +119,10 @@ class PdfTextReport:
                 styles.append(("FONTNAME", (c, 0), (c, -1), "Helvetica-Bold"))
         return styles
 
-    def add_df_table( self, df, schema:list[PdfColumnMeta], space_after:int=12, font_size:int=8, bold_rows=None, bold_cols=None ):
+    def add_df_table( self, df, schema:list[PdfColumnMeta], 
+                     space_after:int=12, font_size:int=8, 
+                     bold_rows=None, bold_cols=None, 
+                     heatmap_all:bool=False, color_map=None, cmap_vmid=None ):
         """Add a DataFrame as a table to the PDF.
 
         Parameters
@@ -127,9 +131,35 @@ class PdfTextReport:
             The DataFrame to render as a table.
         schema : list of PdfColumnMeta
             Metadata for each column, including formatting and colormap info.
+        space_after : int, optional
+            Space after the table in points, by default 12.
+        font_size : int, optional
+            Font size for the table text, by default 8.
+        bold_rows : list of int, optional
+            List of row indices to bold, by default None.
+        bold_cols : list of int, optional
+            List of column indices to bold, by default None.
+        heatmap_all : bool, optional
+            Whether to apply a heatmap to all numeric columns, by default False.
+        color_map : callable, optional
+            A colormap function that takes a float in [0, 1] and returns a color string, by default None.
+        cmap_vmid : float, optional
+            The midpoint value for the colormap, by default None.
         """
         tbl = build_table_from_df( df, schema )
         nrows, ncols = len(df) + 1, len(schema)
+
+        # deal with the heatmap if needed
+        if heatmap_all:
+            if color_map is None:
+                color_map = make_diverging_colormap( high_color="#639567", mid_color="#aed6b2", low_color=(1, 1, 1) )
+            _styles = apply_heatmap( table_data=tbl._cellvalues, 
+                                    row_range=(1, nrows-1), 
+                                    col_range=(0, ncols-1),
+                                    cmap=color_map,
+                                    vmid=cmap_vmid )
+            tbl.setStyle( TableStyle(_styles) )
+
         # tbl has the style already applied lets append the font size style
         styles = [ ( "FONTSIZE", ( 0, 0 ), ( -1, -1 ), font_size) ]
         styles += self._bold_rows_cols_styles( nrows, ncols, bold_rows, bold_cols )

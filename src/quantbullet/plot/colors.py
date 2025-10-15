@@ -16,6 +16,8 @@ class ColorEnum(StrEnum):
     ORANGE_L3 = "#fd8d3c"  # medium orange
     ORANGE_L4 = "#d95f0e"  # dark orange
 
+    CYAN      = "#61c6b4"
+
 class EconomistBrandColor(StrEnum):
     """Please refer to https://design-system.economist.com/foundations/colour/palettes#canvas"""
     ECONOMIST_RED = "#E3120B"
