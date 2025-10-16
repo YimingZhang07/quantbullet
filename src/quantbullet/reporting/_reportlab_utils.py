@@ -83,6 +83,20 @@ class PdfColumnMeta(  BaseColumnMeta ):
     # override the format type
     format: PdfColumnFormat = field( default_factory=PdfColumnFormat )
 
+def safe_color(c, default=colors.white):
+    """Ensure ReportLab color is finite and valid."""
+    if c is None:
+        return default
+    
+    try:
+        r, g, b = c.red, c.green, c.blue
+        if all(math.isfinite(v) and 0 <= v <= 1 for v in (r, g, b)):
+            return c
+    except AttributeError:
+        pass
+    
+    return default
+
 def apply_heatmap(table_data, row_range, col_range, cmap, vmid=None):
     """
     Apply heatmap coloring to a region of table_data.
@@ -114,28 +128,40 @@ def apply_heatmap(table_data, row_range, col_range, cmap, vmid=None):
             try:
                 x = table_data[r][c]
                 x = x.replace(",", "").replace("$", "").replace("%", "")
-                values.append(float(x))
-            except:
-                pass
+                v = float(x)
+                if math.isfinite(v):
+                    values.append(v)
+            except ( ValueError, TypeError ):
+                continue
 
     if not values:
         return []
 
     vmin, vmax = min(values), max(values)
+
+    if vmin == vmax:
+        vmax = vmin + 1e-5
+
     if vmid is None:
         vmid = (vmax + vmin) / 2.0
 
     styles = []
-    for r in range(r0, r1+1):
-        for c in range(c0, c1+1):
+
+    # we certainly hope the logic should be very robust
+    # try not to crash the code when data is bad and colors are not computable
+    # the code here is obviously not super efficient and we have done too many repetitive protections
+
+    for r in range(r0, r1 + 1):
+        for c in range(c0, c1 + 1):
             try:
-                x = table_data[r][c]
-                x = x.replace(",", "").replace("$", "").replace("%", "")
+                x = str(table_data[r][c]).replace(",", "").replace("$", "").replace("%", "")
                 val = float(x)
-            except:
+                if not math.isfinite(val):
+                    continue
+                color = safe_color(cmap(val, vmin, vmax, vmid))
+                styles.append(("BACKGROUND", (c, r), (c, r), color))
+            except (ValueError, TypeError):
                 continue
-            color = cmap(val, vmin, vmax, vmid)
-            styles.append(("BACKGROUND", (c, r), (c, r), color))
     return styles
 
 def build_table_from_df( df: pd.DataFrame, schema: list[PdfColumnMeta] ) -> Table:
