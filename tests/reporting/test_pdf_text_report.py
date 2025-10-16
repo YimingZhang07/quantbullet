@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from quantbullet.reporting.pdf_text_report import PdfTextReport, PdfColumnFormat, PdfColumnMeta
 from pathlib import Path
 from quantbullet.dfutils import sort_multiindex_by_hierarchy
+from quantbullet.reporting.formatters import flex_number_formatter
 
 class TestPDFTextReport(unittest.TestCase):
     def setUp(self):
@@ -14,8 +15,8 @@ class TestPDFTextReport(unittest.TestCase):
         Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
     
     def tearDown(self):
-        shutil.rmtree(self.cache_dir, ignore_errors=True)
-        Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
+        # shutil.rmtree(self.cache_dir, ignore_errors=True)
+        # Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
         pass
 
     def test_pdf_text_report_main( self ):
@@ -75,6 +76,10 @@ class TestPDFTextReport(unittest.TestCase):
             'Metric': ['Metric2', 'Metric1'] # Metric level
         }
         multiindex_df = sort_multiindex_by_hierarchy(multiindex_df, row_orders=row_order, col_orders=col_order)
+
+        # turn each column to some strings
+        for col in multiindex_df.columns:
+            multiindex_df[col] = multiindex_df[col].apply(lambda x: flex_number_formatter(x, decimals=0, comma=False))
 
         report = PdfTextReport( file_path=str( Path(self.cache_dir) / "test_report_multiindex.pdf" ),
                                 report_title="Test Report MultiIndex", page_numbering=True )

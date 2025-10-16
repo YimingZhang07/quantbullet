@@ -1,15 +1,15 @@
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
+import math
 import numpy as np
 import pandas as pd
-
 from reportlab.lib import colors
 from reportlab.platypus import Table, TableStyle
-from .formatters import flex_number_formatter
-from .base import BaseColumnFormat, BaseColumnMeta
 
-from reportlab.lib import colors
+from .base import BaseColumnFormat, BaseColumnMeta
+from .formatters import flex_number_formatter
+
 
 def hex_to_rgb01(hex_str: str):
     """Convert a hex color string to an RGB tuple with values between 0 and 1."""
