@@ -16,6 +16,7 @@ class MtgPerfColnames:
     response        : str | None = 'actual'
     model_preds     : dict[ str, str ] = field( default_factory=dict )
     dt              : str | None = None
+    orig_dt         : str | None = None
 
     # derived columns
     vintage_year    : str = 'vintage_year'
@@ -66,7 +67,7 @@ class MtgModelPerformanceEvaluator:
         self._derive_cols()
 
     def _derive_cols( self ):
-        dt = pd.to_datetime( self.df[ self.colmap.dt ] )
+        dt = pd.to_datetime( self.df[ self.colmap.orig_dt ] )
         # Extract vintage year and quarter as categorical variables
         years = dt.dt.year
         year_categories = sorted(years.unique())
