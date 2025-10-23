@@ -16,9 +16,9 @@ def hex_to_rgb01(hex_str: str):
     hex_str = hex_str.lstrip("#")
     return tuple(int(hex_str[i:i+2], 16) / 255.0 for i in (0, 2, 4))
 
-def make_diverging_colormap(low_color=(0.8, 0, 0), mid_color=(1, 1, 1), high_color=(0, 0.8, 0)):
+def make_diverging_colormap(low_color=(0.8, 0, 0), mid_color=(1, 1, 1), high_color=(0, 0.8, 0), vmid=None):
     """Create a diverging colormap function that maps values to colors.
-    
+
     Parameters
     ----------
     low_color : tuple
@@ -41,23 +41,24 @@ def make_diverging_colormap(low_color=(0.8, 0, 0), mid_color=(1, 1, 1), high_col
     if "#" in high_color:
         high_color = hex_to_rgb01(high_color)
 
-    def _map(val, vmin, vmax, vmid=None):
+    def _map(val, vmin, vmax, vmid_override=None):
+        _vmid = vmid_override if vmid_override is not None else vmid
         if vmax == vmin:  # avoid division by zero
             return colors.Color(*mid_color if mid_color else low_color)
 
         # default mid = midpoint
-        if vmid is None:
-            vmid = (vmax + vmin) / 2.0
+        if _vmid is None:
+            _vmid = (vmax + vmin) / 2.0
 
-        if val <= vmid:
+        if val <= _vmid:
             # interpolate low → mid
-            t = (val - vmin) / (vmid - vmin) if vmid > vmin else 0
+            t = (val - vmin) / (_vmid - vmin) if _vmid > vmin else 0
             r = low_color[0] + t * (mid_color[0] - low_color[0])
             g = low_color[1] + t * (mid_color[1] - low_color[1])
             b = low_color[2] + t * (mid_color[2] - low_color[2])
         else:
             # interpolate mid → high
-            t = (val - vmid) / (vmax - vmid) if vmax > vmid else 0
+            t = (val - _vmid) / (vmax - _vmid) if vmax > _vmid else 0
             r = mid_color[0] + t * (high_color[0] - mid_color[0])
             g = mid_color[1] + t * (high_color[1] - mid_color[1])
             b = mid_color[2] + t * (high_color[2] - mid_color[2])
