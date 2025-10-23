@@ -10,11 +10,40 @@ from reportlab.platypus import Table, TableStyle
 from .base import BaseColumnFormat, BaseColumnMeta
 from .formatters import flex_number_formatter
 
+def to_reportlab_color(value):
+    """Convert a hex string or RGB tuple into a reportlab Color object."""
+    if isinstance(value, colors.Color):
+        return value  # already a Color object
 
-def hex_to_rgb01(hex_str: str):
-    """Convert a hex color string to an RGB tuple with values between 0 and 1."""
-    hex_str = hex_str.lstrip("#")
-    return tuple(int(hex_str[i:i+2], 16) / 255.0 for i in (0, 2, 4))
+    if isinstance(value, str):
+        # handle hex color like '#RRGGBB' or '#RGB'
+        value = value.strip()
+        if value.startswith("#"):
+            hex_value = value.lstrip("#")
+            if len(hex_value) == 3:
+                hex_value = "".join(c * 2 for c in hex_value)
+            r, g, b = [int(hex_value[i:i+2], 16) / 255.0 for i in (0, 2, 4)]
+            return colors.Color(r, g, b)
+        else:
+            # also allow named colors like "red", "blue", etc.
+            return getattr(colors, value.lower(), colors.Color(0, 0, 0))
+
+    elif isinstance(value, (tuple, list)) and len(value) == 3:
+        # assume tuple/list of RGB in 0–1 or 0–255 scale
+        if max(value) > 1:  # detect 0–255 scale
+            r, g, b = [v / 255.0 for v in value]
+        else:
+            r, g, b = value
+        return colors.Color(r, g, b)
+
+    else:
+        raise ValueError(f"Unsupported color format: {value!r}")
+
+# This function should have been deprecated in favor of to_reportlab_color
+# def hex_to_rgb01(hex_str: str):
+#     """Convert a hex color string to an RGB tuple with values between 0 and 1."""
+#     hex_str = hex_str.lstrip("#")
+#     return tuple(int(hex_str[i:i+2], 16) / 255.0 for i in (0, 2, 4))
 
 def make_diverging_colormap(low_color=(0.8, 0, 0), mid_color=(1, 1, 1), high_color=(0, 0.8, 0), vmid=None):
     """Create a diverging colormap function that maps values to colors.
@@ -33,13 +62,9 @@ def make_diverging_colormap(low_color=(0.8, 0, 0), mid_color=(1, 1, 1), high_col
     function
         A function that takes a value, min, max, and optional mid, and returns a reportlab color.
     """
-
-    if "#" in low_color:
-        low_color = hex_to_rgb01(low_color)
-    if "#" in mid_color:
-        mid_color = hex_to_rgb01(mid_color)
-    if "#" in high_color:
-        high_color = hex_to_rgb01(high_color)
+    low_color = to_reportlab_color(low_color)
+    mid_color = to_reportlab_color(mid_color)
+    high_color = to_reportlab_color(high_color)
 
     def _map(val, vmin, vmax, vmid_override=None):
         _vmid = vmid_override if vmid_override is not None else vmid
@@ -53,15 +78,15 @@ def make_diverging_colormap(low_color=(0.8, 0, 0), mid_color=(1, 1, 1), high_col
         if val <= _vmid:
             # interpolate low → mid
             t = (val - vmin) / (_vmid - vmin) if _vmid > vmin else 0
-            r = low_color[0] + t * (mid_color[0] - low_color[0])
-            g = low_color[1] + t * (mid_color[1] - low_color[1])
-            b = low_color[2] + t * (mid_color[2] - low_color[2])
+            r = low_color.red + t * (mid_color.red - low_color.red)
+            g = low_color.green + t * (mid_color.green - low_color.green)
+            b = low_color.blue + t * (mid_color.blue - low_color.blue)
         else:
             # interpolate mid → high
             t = (val - _vmid) / (vmax - _vmid) if vmax > _vmid else 0
-            r = mid_color[0] + t * (high_color[0] - mid_color[0])
-            g = mid_color[1] + t * (high_color[1] - mid_color[1])
-            b = mid_color[2] + t * (high_color[2] - mid_color[2])
+            r = mid_color.red + t * (high_color.red - mid_color.red)
+            g = mid_color.green + t * (high_color.green - mid_color.green)
+            b = mid_color.blue + t * (high_color.blue - mid_color.blue)
 
         return colors.Color(r, g, b)
 
