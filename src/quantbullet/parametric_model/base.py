@@ -27,11 +27,11 @@ class ParametricModel(ABC):
         # Allow instance-level override of model name; None means use default
         self._model_name = model_name
         
-    def fit(self, x, y, p0=None, bounds=(-np.inf, np.inf), weights=None):
+    def fit(self, x, y, p0=None, bounds=(-np.inf, np.inf), weights=None, left_bound=None, right_bound=None):
         
         # NOTE the weights here correspond to the sigma parameter in curve_fit, which is not about the importance weights but the standard deviation
-        self.left_bound_ = np.min(x)
-        self.right_bound_ = np.max(x)
+        self.left_bound_ = left_bound if left_bound is not None else np.min(x)
+        self.right_bound_ = right_bound if right_bound is not None else np.max(x)
         param_names = self.get_param_names()
         popt, pcov = curve_fit(self.func_with_args, x, y, p0=p0, bounds=bounds, maxfev=10000, sigma=weights)
         # Convert fitted parameters back to dictionary format

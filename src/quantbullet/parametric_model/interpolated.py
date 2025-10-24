@@ -54,20 +54,36 @@ class InterpolatedModel:
         return cls(x_grid, y_grid, **kwargs)
 
     def predict(self, x):
-        return self.interp(x)
+        preds = self.interp(x)
+        preds = np.asarray( preds ).ravel()
+        return preds
 
     def to_dict(self):
         return {
-            "x_grid": self.x_grid.tolist(), 
-            "y_grid": self.y_grid.tolist(),
-            "extrapolation": self.extrapolation
+            "x_grid": self.x_grid.tolist() if hasattr(self, "x_grid") else None,
+            "y_grid": self.y_grid.tolist() if hasattr(self, "y_grid") else None,
+            "kind": self.kind,
+            "extrapolation": self.extrapolation,
+            "_model_name": self._model_name,
         }
 
     @classmethod
     def from_dict(cls, d, **kwargs):
-        extrapolation = d.get("extrapolation", "linear")
-        return cls(np.array(d["x_grid"]), np.array(d["y_grid"]), 
-                  extrapolation=extrapolation, **kwargs)
+        """Reconstruct the model from a serialized dictionary."""
+        # create instance with basic parameters only
+        extrapolation = d.get("extrapolation", "flat")
+        kind = d.get("kind", "linear")
+        model_name = d.get("_model_name")
+
+        obj = cls(kind=kind, extrapolation=extrapolation, model_name=model_name, **kwargs)
+
+        # restore grids
+        if d.get("x_grid") is not None and d.get("y_grid") is not None:
+            obj.x_grid = np.array(d["x_grid"])
+            obj.y_grid = np.array(d["y_grid"])
+            obj.fit(obj.x_grid, obj.y_grid)  # rebuild interp automatically
+
+        return obj
     
     def math_repr(self):
         return " - Interpolated Model - "
