@@ -1,4 +1,8 @@
 import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from quantbullet.plot.utils import get_grid_fig_axes, scale_scatter_sizes
+from quantbullet.plot.colors import EconomistBrandColor as EBC
 
 def plot_facet_scatter(
     df,

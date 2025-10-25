@@ -4,6 +4,7 @@ from quantbullet.plot.utils import scale_scatter_sizes, get_grid_fig_axes, close
 from matplotlib import ticker as mticker
 from quantbullet.plot.colors import EconomistBrandColor
 import pandas as pd
+import numpy as np
 
 @dataclass
 class MtgPerfColnames:
@@ -17,6 +18,9 @@ class MtgPerfColnames:
     model_preds     : dict[ str, str ] = field( default_factory=dict )
     dt              : str | None = None
     orig_dt         : str | None = None
+
+    # optional column
+    weighted_by     : str | None = None
 
     # derived columns
     vintage_year    : str = 'vintage_year'
@@ -77,18 +81,35 @@ class MtgModelPerformanceEvaluator:
         quarter_categories = sorted(quarters.unique(), key=lambda x: (int(x[:4]), int(x[-1])))
         self.df[ self.colmap.vintage_quarter ] = pd.Categorical(quarters, categories=quarter_categories, ordered=True)
 
-    def incentive_by_vintage_year_plots( self, n_quantile_bins: int = 50, n_cols: int = 3, hspace: float = 0.4, wspace: float = 0.3 ):
+    def incentive_by_vintage_year_plots( self, n_quantile_bins: int = 50, n_cols: int = 3, hspace: float = 0.4, wspace: float = 0.3, scatter_size_by: str = 'sum_weights', scatter_size_scale: float = 0.5 ):
 
+        # TODO we can update this so X does not need to copy the entire df
         X = self.df.copy()
 
         X['incentive_bins'] = pd.qcut( X[ self.colmap.incentive ], q=n_quantile_bins, duplicates='drop' )
+        if self.colmap.weighted_by is not None:
+            X['weights'] = X[ self.colmap.weighted_by ]
+        else:
+            X['weights'] = 1.0
+
+        def weighted_mean(x, w):
+            return (x * w).sum() / w.sum() if w.sum() != 0 else np.nan
 
         res = (
-            X.groupby( [ self.colmap.vintage_year, 'incentive_bins' ], observed=True )
-            .agg(
-                actual_mean =( self.colmap.response, 'mean' ),
-                count       =( self.colmap.response, 'count' ),
-                **{ col: ( orig_col, 'mean' ) for col, orig_col in self.colmap.model_preds.items() }
+            X.groupby([self.colmap.vintage_year, "incentive_bins"], observed=True)
+            .apply(
+                lambda g: pd.Series(
+                    {
+                        "actual_mean": weighted_mean(g[self.colmap.response], g["weights"]),
+                        "count": g[self.colmap.response].count(),
+                        "sum_weights": g["weights"].sum(),
+                        **{
+                            col: weighted_mean(g[orig_col], g["weights"])
+                            for col, orig_col in self.colmap.model_preds.items()
+                        },
+                    }
+                )
+                , include_groups=False
             )
             .reset_index()
         )
@@ -97,9 +118,10 @@ class MtgModelPerformanceEvaluator:
         interval_codes = res[ 'incentive_bins' ].cat.codes
         res[ 'bin_right' ] = interval_index.right.take( interval_codes ).to_numpy()
 
-        # Scale sizes for scatter plot
-        cmin, cmax = res[ 'count' ].min(), res[ 'count' ].max()
-        rescaled_sizes = scale_scatter_sizes( res[ 'count' ], min_size=30, max_size=300, global_min=cmin, global_max=cmax )
+        # TODO: revise if needed
+        # res[ 'sum_weights_scaled' ] = res[ 'sum_weights' ] ** scatter_size_scale  # square root scaling
+        cmin, cmax = res[ scatter_size_by ].min(), res[ scatter_size_by ].max()
+        rescaled_sizes = scale_scatter_sizes( res[ scatter_size_by ], min_size=30, max_size=300, global_min=cmin, global_max=cmax )
         res[ 'size' ] = rescaled_sizes
 
         vintages = res[ self.colmap.vintage_year ].unique()
