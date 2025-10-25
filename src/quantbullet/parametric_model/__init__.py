@@ -7,6 +7,7 @@ from .sigmoid import SigmoidModel
 from .double_exponential import DoubleExponentialModel
 from .exp_plateau import ExpPlateauModel
 from .stretched_exponential import StretchedExponentialModel
+from .spline_model import SplineModel
 from .utils import compare_models
 
 __all__ = [ 'ParametricModel', 
@@ -19,4 +20,5 @@ __all__ = [ 'ParametricModel',
             'HillDoubleLogisticModel',
             'ExpPlateauModel',
             'StretchedExponentialModel',
+            'SplineModel',
             'compare_models' ]

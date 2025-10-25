@@ -15,6 +15,7 @@ from quantbullet.parametric_model import (
     InterpolatedModel,
     SigmoidModel,
     BathtubModel,
+    SplineModel,
 )
 
 MODEL_REGISTRY = {
@@ -23,6 +24,7 @@ MODEL_REGISTRY = {
     "InterpolatedModel": InterpolatedModel,
     "SigmoidModel": SigmoidModel,
     "BathtubModel": BathtubModel,
+    "SplineModel": SplineModel,
 }
 
 @dataclass
