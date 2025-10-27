@@ -1,10 +1,31 @@
 """
 Tests: tests/test_validation
 """
-
+import math
 import pandas as pd
 import numpy as np
 from typing import Sequence
+
+
+def is_nan_inf_scalar(x):
+    """Return True if x is NaN, None, pd.NA, or ±Inf."""
+    # Fast path for obvious cases
+    if x is None or x is pd.NA:
+        return True
+
+    # Try numeric checks safely
+    try:
+        # np.isnan handles np.nan, float('nan'), numpy.float64, etc.
+        if np.isnan(x):
+            return True
+        # np.isinf handles float('inf'), numpy.inf, etc.
+        if np.isinf(x):
+            return True
+    except (TypeError, ValueError):
+        # np.isnan() fails on non-numerical types (like str)
+        pass
+
+    return False
 
 def validate_range_index(x):
     """Validate that the index of a dataframe or series is a RangeIndex from 0."""
