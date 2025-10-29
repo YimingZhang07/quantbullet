@@ -165,14 +165,12 @@ def external_viewer(open_with_arg="open_with", flag_arg="external_view"):
 
 def disk_cache(cache_dir: str):
     """Cache function outputs to disk using pickle, keying only on kwargs."""
-
-    os.makedirs(cache_dir, exist_ok=True)
-
     def decorator(func):
         sig = inspect.signature(func)
 
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
+            os.makedirs(cache_dir, exist_ok=True)
             # Extract control flags (not part of cache key)
             force_recache = kwargs.pop("force_recache", False)
             expire_days   = kwargs.pop("expire_days", None)
