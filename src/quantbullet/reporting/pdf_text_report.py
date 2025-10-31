@@ -37,12 +37,17 @@ from ._reportlab_utils import PdfColumnFormat, PdfColumnMeta, build_table_from_d
 from ..plot.colors import ColorEnum
 
 class PdfTextReport:
-    def __init__( self, file_path:str, page_size:tuple=None, report_title:str=None, margins:tuple=(36,36,36,36), page_numbering:bool=True ):
+    def __init__( self, 
+                  file_path:str, 
+                  page_size:tuple=None, 
+                  report_title:str=None, 
+                  margins:tuple=(36,36,36,36), 
+                  page_numbering:bool=True ):
 
         if page_size is None:
-            page_size = landscape(letter)
+            self.page_size = landscape(letter)
         else:
-            page_size = (page_size[0] * inch, page_size[1] * inch)
+            self.page_size = (page_size[0] * inch, page_size[1] * inch)
 
         # sometimes file_path is a Path object
         if not isinstance(file_path, str):
@@ -50,7 +55,7 @@ class PdfTextReport:
 
         self.doc = SimpleDocTemplate(
             file_path,
-            pagesize=page_size,
+            pagesize=self.page_size,
             leftMargin=margins[0],
             rightMargin=margins[1],
             topMargin=margins[2],
@@ -119,10 +124,17 @@ class PdfTextReport:
                 styles.append(("FONTNAME", (c, 0), (c, -1), "Helvetica-Bold"))
         return styles
 
-    def add_df_table( self, df, schema:list[PdfColumnMeta], 
-                     space_after:int=12, font_size:int=8, 
-                     bold_rows=None, bold_cols=None, 
-                     heatmap_all:bool=False, color_map=None, cmap_vmid=None ):
+    def add_df_table( self, 
+                      df, 
+                      schema:list[PdfColumnMeta], 
+                      space_after:int=12, 
+                      font_size:int=8, 
+                      bold_rows=None, 
+                      bold_cols=None, 
+                      heatmap_all:bool=False, 
+                      color_map=None, 
+                      cmap_vmid=None,
+                      col_widths=None ):
         """Add a DataFrame as a table to the PDF.
 
         Parameters
@@ -146,7 +158,7 @@ class PdfTextReport:
         cmap_vmid : float, optional
             The midpoint value for the colormap, by default None.
         """
-        tbl = build_table_from_df( df, schema )
+        tbl = build_table_from_df( df, schema, col_widths=col_widths )
         nrows, ncols = len(df) + 1, len(schema)
 
         # deal with the heatmap if needed
@@ -167,6 +179,26 @@ class PdfTextReport:
         tbl.setStyle(TableStyle(styles))
         self.story.append( tbl )
         self.story.append( Spacer( 1, space_after ) )
+
+    def add_df_table_breakdown( self, df, schema, nrows=20, space_between=8, space_after=12, font_size=8 ):
+        # This is to add a large table, and we want to repeat the table for every several rows
+        # the space between the smaller tables is controlled by the space_between parameter
+        # the last table will have space_after applied
+        total_rows = len( df )
+        first_table = True
+        table_widths = None
+        for start_row in range( 0, total_rows, nrows ):
+            end_row = min( start_row + nrows, total_rows )
+            sub_df = df.iloc[ start_row:end_row ].copy()
+            self.add_df_table( sub_df, schema, space_after=( space_after if end_row == total_rows else space_between ), font_size=font_size, col_widths=table_widths )
+
+            # for the first table, we need to wrap it to fit the page size
+            # then we can forward its size to the later tables for better performance
+            if first_table:
+                first_table = False
+                t = self.story[-2]  # the last added table
+                t.wrap(self.page_size[0], self.page_size[1])
+                table_widths = t._colWidths
 
     def add_multiindex_df_table( self, df, font_size:int=6, space_after:int=12, 
                                  heatmap_cols:bool=False, heatmap_all:bool=False, 

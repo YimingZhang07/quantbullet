@@ -190,7 +190,7 @@ def apply_heatmap(table_data, row_range, col_range, cmap, vmid=None):
                 continue
     return styles
 
-def build_table_from_df( df: pd.DataFrame, schema: list[PdfColumnMeta] ) -> Table:
+def build_table_from_df( df: pd.DataFrame, schema: list[PdfColumnMeta], col_widths: list[float] = None ) -> Table:
     """Turn DataFrame + schema into a styled ReportLab Table.
     
     Parameters
@@ -239,7 +239,11 @@ def build_table_from_df( df: pd.DataFrame, schema: list[PdfColumnMeta] ) -> Tabl
         table_data.append(row_data)
 
     # --- Build ReportLab table
-    tbl = Table(table_data, repeatRows=1)
+    if col_widths is not None:
+        tbl = Table( table_data, repeatRows=1, colWidths=col_widths )
+    else:
+        tbl = Table( table_data, repeatRows=1 )
+        
     style = TableStyle([
         ("GRID", (0,0), (-1,-1), 0.5, colors.black),
         ("BACKGROUND", (0,0), (-1,0), colors.lightgrey),  # header
