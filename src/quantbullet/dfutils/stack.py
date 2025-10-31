@@ -32,3 +32,14 @@ def stack_dataframes(dfs):
     # Concatenate and reset index
     full_df = pd.concat(concat_dfs, ignore_index=True)
     return full_df
+
+def concat_dfs( dfs: list[pd.DataFrame] ) -> pd.DataFrame:
+    """Concatenate a list of DataFrames into a single DataFrame.
+
+    Parameters
+    ----------
+    dfs : list[pd.DataFrame]
+        List of DataFrames to concatenate.
+    """
+    combined = pd.concat(dfs, ignore_index=True, sort=False)
+    return combined
