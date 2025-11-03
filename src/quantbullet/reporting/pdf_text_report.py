@@ -259,17 +259,18 @@ class PdfTextReport:
         self.story.append( tbl )
         self.story.append( Spacer( 1, space_after ) )
 
-    def add_text( self, text:str, font_size:int=10, space_after:int=12 ):
+    def add_text( self, text: str, font_size: int = 10, space_after: int = 12, alignment: int = 0, left_indent: int = 0 ):
         """Add a left-aligned text paragraph."""
         style = ParagraphStyle(
-            name="NormalStyle",
-            fontName="Helvetica",
-            fontSize=font_size,
-            alignment=0  # left
+            name        = "NormalStyle",
+            fontName    = "Helvetica",
+            fontSize    = font_size,
+            alignment   = alignment,
+            leftIndent  = left_indent,
         )
-        p = Paragraph(text, style=style)
-        self.story.append(p)
-        self.story.append(Spacer(1, space_after))
+        p = Paragraph( text, style=style )
+        self.story.append( p )
+        self.story.append( Spacer( 1, space_after ) )
 
     def add_table_footnote(self, text:str, font_size:int=8, space_after:int=0, alignment:int=0):
         """Add a footnote text paragraph, typically after a table."""
@@ -338,7 +339,11 @@ class PdfTextReport:
     def _add_page_number(self, canvas, doc):
         """Add page number at bottom center."""
         page_num = canvas.getPageNumber()
-        text = f"{page_num}"
+        text = f"{ page_num }"
         width, height = self.doc.pagesize
-        canvas.setFont("Helvetica", 9)
-        canvas.drawCentredString(width / 2.0, 15, text)  # y=15 points from bottom
+        canvas.setFont( "Helvetica", 9 )
+        canvas.drawCentredString( width / 2.0, 15, text )  # y=15 points from bottom
+
+    def add_spacer( self, height: int = 12 ):
+        """Add a vertical spacer."""
+        self.story.append( Spacer( 1, height ) )

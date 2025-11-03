@@ -15,8 +15,8 @@ class TestPDFTextReport(unittest.TestCase):
         Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
     
     def tearDown(self):
-        # shutil.rmtree(self.cache_dir, ignore_errors=True)
-        # Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
+        shutil.rmtree(self.cache_dir, ignore_errors=True)
+        Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
         pass
 
     def test_pdf_text_report_main( self ):
