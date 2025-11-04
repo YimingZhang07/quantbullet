@@ -187,6 +187,19 @@ class PdfTextReport:
         total_rows = len( df )
         first_table = True
         table_widths = None
+
+        # even if the table is broken down, we still need to compute the colormap vmin/vmax
+        for col_schema in schema:
+            if col_schema.format.colormap is not None:
+                # we need to compute vmin and vmax for the colormap
+                col_values = df[ col_schema.name ].dropna().values
+                vmin = np.min( col_values )
+                vmax = np.max( col_values )
+                if col_schema.format.vmin is None:
+                    col_schema.format.vmin = vmin
+                if col_schema.format.vmax is None:
+                    col_schema.format.vmax = vmax
+
         for start_row in range( 0, total_rows, nrows ):
             end_row = min( start_row + nrows, total_rows )
             sub_df = df.iloc[ start_row:end_row ].copy()

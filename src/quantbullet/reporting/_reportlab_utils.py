@@ -75,6 +75,11 @@ def make_diverging_colormap(low_color=(0.8, 0, 0), mid_color=(1, 1, 1), high_col
         if _vmid is None:
             _vmid = (vmax + vmin) / 2.0
 
+        if val < vmin:
+            return low_color
+        if val > vmax:
+            return high_color 
+
         if val <= _vmid:
             # interpolate low → mid
             t = (val - vmin) / (_vmid - vmin) if _vmid > vmin else 0
@@ -97,6 +102,9 @@ class PdfColumnFormat( BaseColumnFormat ):
     formatter: Optional[Callable[[Any], str]] = None  # e.g., lambda x: f"${x:,.2f}"
     colormap: Optional[Callable[[float, float, float], colors.Color]] = None  # colormap takes (val, vmin, vmax) and returns a ReportLab Color
     named_colormap: Optional[str] = None # we use a few predefined colormaps by name
+    headerbgcolor: tuple[float, float, float] | colors.Color | None = None
+    vmin: Optional[float] = None
+    vmax: Optional[float] = None
 
     def __post_init__(self):
         if self.named_colormap == "red_white_green":
@@ -215,7 +223,10 @@ def build_table_from_df( df: pd.DataFrame, schema: list[PdfColumnMeta], col_widt
     for col in schema:
         if col.format.colormap:
             series = pd.to_numeric(df[col.name], errors="coerce")
-            vmin_vmax[col.name] = (series.min(), series.max())
+            # use the specified vmin/vmax if provided, else compute from data
+            vmin = col.format.vmin if col.format.vmin is not None else series.min()
+            vmax = col.format.vmax if col.format.vmax is not None else series.max()
+            vmin_vmax[col.name] = (vmin, vmax)
 
     # Process each row and each cell with appropriate formatting
     for _, row in df.iterrows():
@@ -261,6 +272,19 @@ def build_table_from_df( df: pd.DataFrame, schema: list[PdfColumnMeta], col_widt
                     style.add("BACKGROUND", (col_idx, row_idx), (col_idx, row_idx), bgcolor)
 
     tbl.setStyle(style)
+
+    # --- Apply header background color if specified
+    for col_idx, col in enumerate(schema):
+        if col.format.headerbgcolor is not None:
+            header_bgcolor = to_reportlab_color(col.format.headerbgcolor)
+            tbl.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (col_idx, 0), (col_idx, 0), header_bgcolor),
+                    ]
+                )
+            )
+            
     return tbl
 
 def multi_index_df_to_table_data(df: pd.DataFrame):

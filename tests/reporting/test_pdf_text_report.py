@@ -1,8 +1,9 @@
 import unittest
 import shutil
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
-from quantbullet.reporting.pdf_text_report import PdfTextReport, PdfColumnFormat, PdfColumnMeta
+from quantbullet.reporting.pdf_text_report import PdfTextReport, PdfColumnFormat, PdfColumnMeta, make_diverging_colormap
 from pathlib import Path
 from quantbullet.dfutils import sort_multiindex_by_hierarchy
 from quantbullet.reporting.formatters import flex_number_formatter
@@ -13,6 +14,7 @@ class TestPDFTextReport(unittest.TestCase):
         # just remove all files in the cache dir, but not the dir itself
         shutil.rmtree(self.cache_dir, ignore_errors=True)
         Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
+        pass
     
     def tearDown(self):
         shutil.rmtree(self.cache_dir, ignore_errors=True)
@@ -84,4 +86,24 @@ class TestPDFTextReport(unittest.TestCase):
         report = PdfTextReport( file_path=str( Path(self.cache_dir) / "test_report_multiindex.pdf" ),
                                 report_title="Test Report MultiIndex", page_numbering=True )
         report.add_multiindex_df_table( multiindex_df, font_size=10, heatmap_all=True )
+        report.save()
+
+    def test_df_table_breakdown( self ):
+        report = PdfTextReport( file_path=str( Path(self.cache_dir) / "test_report_breakdown.pdf" ) )
+
+        test_df = pd.DataFrame({
+            "A": np.arange(1, 41),
+            "B": np.random.rand(40) * 100,
+        })
+
+        schema = [
+            PdfColumnMeta(name="A", display_name="Column A", format=PdfColumnFormat(decimals=0, colormap=make_diverging_colormap(high_color="#63be7b", mid_color=(1, 1, 1), low_color="#f8696b", vmid=0))),
+            PdfColumnMeta(name="B", display_name="Column B", format=PdfColumnFormat(decimals=2, comma=True, headerbgcolor="#63be7b") ),
+        ]
+
+        report.add_df_table_breakdown( test_df, schema=schema, nrows=10 )
+        
+        report.add_page_break()
+        report.add_df_table( test_df, schema=schema )
+
         report.save()
