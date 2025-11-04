@@ -1,5 +1,6 @@
 import numpy as np
 import cvxpy as cp
+from scipy.interpolate import PchipInterpolator
 
 def smooth_monotone_fit(xs, ys, weights=None, n_grid=200, alpha=10.0, increasing=True):
     """
@@ -81,3 +82,52 @@ def smooth_monotone_fit(xs, ys, weights=None, n_grid=200, alpha=10.0, increasing
     prob.solve(solver=cp.OSQP, verbose=False)
 
     return grid_x, f.value
+
+def make_monotone_predictor_pchip(xs_smooth, ys_smooth, extrapolate='flat'):
+    """
+    Create a monotone predictor function using PCHIP interpolation.
+    
+    Parameters
+    ----------
+    xs_smooth : array-like
+        1D array of x-values for the fitted curve (must be sorted).
+    ys_smooth : array-like
+        1D array of y-values for the fitted curve, same length as xs_smooth.
+    extrapolate : str
+        Extrapolation method outside the fitted x-range:
+        'flat' = hold constant; 'linear' = linear extrapolation.
+    
+    Returns
+    -------
+    f : function
+        A function that takes new x-values and returns predicted y-values.
+    """
+    xs = np.asarray(xs_smooth)
+    ys = np.asarray(ys_smooth)
+    f_inner = PchipInterpolator(xs, ys, extrapolate=True)
+
+    if extrapolate == 'flat':
+        def f(x_new):
+            x_new = np.asarray(x_new)
+            y_pred = f_inner(x_new)
+            y_pred = np.where(x_new < xs[0], ys[0], y_pred)
+            y_pred = np.where(x_new > xs[-1], ys[-1], y_pred)
+            return y_pred
+    elif extrapolate == 'linear':
+        left_slope = (ys[1] - ys[0]) / (xs[1] - xs[0])
+        right_slope = (ys[-1] - ys[-2]) / (xs[-1] - xs[-2])
+
+        def f(x_new):
+            x_new = np.asarray(x_new)
+            y_pred = f_inner(x_new)
+            y_pred = np.where(x_new < xs[0],
+                              ys[0] + left_slope * (x_new - xs[0]),
+                              y_pred)
+            y_pred = np.where(x_new > xs[-1],
+                              ys[-1] + right_slope * (x_new - xs[-1]),
+                              y_pred)
+            return y_pred
+    else:
+        raise ValueError("extrapolate must be 'flat' or 'linear'")
+
+    return f
