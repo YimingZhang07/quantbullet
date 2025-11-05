@@ -97,7 +97,7 @@ class MVOCCurve:
 
         return curve_df
     
-    def plot_curve( self ):
+    def plot_curve( self, title=None ):
 
         x_name = self.x_name or 'X'
         y_name = self.y_name or 'Y'
@@ -121,7 +121,7 @@ class MVOCCurve:
             )
             ax.set_xlabel(x_name)
             ax.set_ylabel(y_name)
-            ax.set_title(f'{y_name} vs {x_name} Curve')
+            ax.set_title( title or f'{y_name} vs {x_name} Curve')
             ax.grid(True, linestyle="--", alpha=0.5)
 
         return fig, ax
