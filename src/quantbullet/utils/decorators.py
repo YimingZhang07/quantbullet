@@ -163,7 +163,7 @@ def external_viewer(open_with_arg="open_with", flag_arg="external_view"):
         return wrapper
     return decorator
 
-def disk_cache(cache_dir: str):
+def disk_cache(cache_dir: str, self_fields: tuple | None = None ):
     """Cache function outputs to disk using pickle, keying only on kwargs."""
     def decorator(func):
         sig = inspect.signature(func)
@@ -181,8 +181,16 @@ def disk_cache(cache_dir: str):
 
             # Drop self/cls and keep only kwargs
             ba = bound.arguments.copy()
-            ba.pop("self", None)
-            ba.pop("cls", None)
+            self_obj = ba.pop( "self", None )
+            ba.pop( "cls", None )
+
+            if self_obj is not None and self_fields is not None:
+                for field_name in self_fields:
+                    if hasattr( self_obj, field_name ):
+                        field_name = f"self_{ field_name }"
+                        ba[ field_name ] = getattr( self_obj, field_name )
+                    else:
+                        raise AttributeError( f"Object of type { type( self_obj ) } has no attribute '{ field_name }'" )
 
             # Now everything is in kwargs form
             key_kwargs = dict(sorted(ba.items()))
