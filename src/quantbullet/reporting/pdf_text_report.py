@@ -213,6 +213,27 @@ class PdfTextReport:
                 t.wrap(self.page_size[0], self.page_size[1])
                 table_widths = t._colWidths
 
+    def compute_col_widths_for_df( self, df, schema, font_size=8 ):
+        if df is None or df.empty:
+            return None
+
+        # Build a temporary table from the full df
+        tbl = build_table_from_df(df, schema)
+
+        # Use the same base font size; this affects width calculation
+        tbl.setStyle(TableStyle([
+            ("FONTSIZE", (0, 0), (-1, -1), font_size),
+        ]))
+
+        # Let ReportLab compute column widths.
+        # If you have a "frame width" instead of full page width, use that here.
+        available_width = self.page_size[0]
+        available_height = self.page_size[1]
+        tbl.wrap(available_width, available_height)
+
+        # _colWidths is what ReportLab decided was best
+        return list(tbl._colWidths)
+
     def add_multiindex_df_table( self, df, font_size:int=6, space_after:int=12, 
                                  heatmap_cols:bool=False, heatmap_all:bool=False, 
                                  bold_rows=None, bold_cols=None, heatmap_cmap:callable=None, heatmap_selected_cols:list=None):
