@@ -17,6 +17,7 @@ from functools import wraps
 from inspect import signature
 from threading import RLock
 from zoneinfo import ZoneInfo
+import pandas as pd
 
 from .cast import to_date
 
@@ -163,7 +164,13 @@ def external_viewer(open_with_arg="open_with", flag_arg="external_view"):
         return wrapper
     return decorator
 
-def disk_cache(cache_dir: str, self_fields: tuple | None = None ):
+def _df_fingerprint(df: pd.DataFrame) -> str:
+    buf = io.BytesIO()
+    # Parquet or feather are relatively stable & efficient
+    df.to_parquet(buf, index=True)
+    return hashlib.sha256(buf.getvalue()).hexdigest()
+
+def disk_cache( cache_dir: str ):
     """Cache function outputs to disk using pickle, keying only on kwargs."""
     def decorator(func):
         sig = inspect.signature(func)
@@ -181,24 +188,21 @@ def disk_cache(cache_dir: str, self_fields: tuple | None = None ):
 
             # Drop self/cls and keep only kwargs
             ba = bound.arguments.copy()
-            self_obj = ba.pop( "self", None )
-            ba.pop( "cls", None )
+            ba.pop("self", None)
+            ba.pop("cls", None)
 
-            if self_obj is not None and self_fields is not None:
-                for field_name in self_fields:
-                    if hasattr( self_obj, field_name ):
-                        field_name = f"self_{ field_name }"
-                        ba[ field_name ] = getattr( self_obj, field_name )
-                    else:
-                        raise AttributeError( f"Object of type { type( self_obj ) } has no attribute '{ field_name }'" )
+            safe_kwargs = {}
+            for k, v in ba.items():
+                if isinstance(v, pd.DataFrame):
+                    # we need additional stability for dataframes
+                    # as if we use str( df ) it may get truncated for large dfs
+                    safe_kwargs[k] = {"__df_hash__": _df_fingerprint(v)}
+                else:
+                    safe_kwargs[k] = v
 
-            # Now everything is in kwargs form
-            key_kwargs = dict(sorted(ba.items()))
+            key_kwargs = dict(sorted(safe_kwargs.items()))
             key_raw = (func.__qualname__, key_kwargs)
-
-            key_hash = hashlib.sha256(
-                json.dumps(key_raw, sort_keys=True, default=str).encode()
-            ).hexdigest()[:16]
+            key_hash = hashlib.sha256(json.dumps(key_raw, sort_keys=True, default=str).encode()).hexdigest()[:16]
 
             base_name = f"{func.__qualname__.replace('.', '_')}_{key_hash}"
             cache_path = os.path.join(cache_dir, base_name + ".pkl")
