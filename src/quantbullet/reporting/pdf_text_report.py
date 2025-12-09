@@ -215,7 +215,7 @@ class PdfTextReport:
 
     def add_multiindex_df_table( self, df, font_size:int=6, space_after:int=12, 
                                  heatmap_cols:bool=False, heatmap_all:bool=False, 
-                                 bold_rows=None, bold_cols=None ):
+                                 bold_rows=None, bold_cols=None, heatmap_cmap:callable=None, heatmap_selected_cols:list=None):
         """Add a MultiIndex DataFrame as a table to the PDF.
         
         This is a less configurable function than the regular add_df_table, due to the complexity of MultiIndex tables.
@@ -238,6 +238,23 @@ class PdfTextReport:
                                          col_range=(col, col),
                                          cmap=make_diverging_colormap(),
                                          vmid=0 )
+                heatmap_styles.extend(_styles)
+
+        if heatmap_selected_cols:
+            n_rows = len(table_data)
+            n_cols = len(table_data[0])
+            for col in heatmap_selected_cols:
+                if col < nrow_levels or col >= n_cols:
+                    continue
+                _styles = apply_heatmap(
+                    table_data=table_data,
+                    row_range=(nrow_levels, n_rows - 1),
+                    col_range=(col, col),
+                    cmap=heatmap_cmap
+                    if heatmap_cmap
+                    else make_diverging_colormap(high_color="#63be7b", mid_color=(1, 1, 1), low_color=(1, 1, 1)),
+                    vmid=None,
+                )
                 heatmap_styles.extend(_styles)
 
         if heatmap_all:
