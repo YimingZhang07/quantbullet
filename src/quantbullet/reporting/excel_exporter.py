@@ -3,6 +3,7 @@ import pandas as pd
 from .columns import ColumnFormat
 from openpyxl.styles import Alignment
 from openpyxl.utils import get_column_letter
+from .columns import ColumnSchema
 
 class ExcelExporter:
     def __init__(self, filename):
@@ -27,10 +28,18 @@ class ExcelExporter:
         self._overwrite = bool(value)
         return self
 
-    def add_sheet(self, sheet_name, df, column_formats=None, start_col=1, start_row=1, wrap_header=False, include_header=True):
+    def add_sheet(self, sheet_name, df, schema: ColumnSchema = None, start_col=1, start_row=1, wrap_header=False, include_header=True):
         # Check for duplicate columns
         if self._is_duplicate_columns(df):
             raise ValueError("DataFrame contains duplicate columns. Please rename them before exporting to Excel.")
+        
+        df = df.copy()
+        if schema:
+            df.rename(columns=schema.rename_map, inplace=True)
+            df = df[list(schema.col_config.keys())]
+            column_formats = schema.col_config
+        else:
+            column_formats = None
         
         if column_formats is None:
             column_formats = {col: ColumnFormat() for col in df.columns}

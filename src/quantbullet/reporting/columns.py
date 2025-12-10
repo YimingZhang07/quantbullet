@@ -100,7 +100,7 @@ class ColumnSchema:
 
     @property
     def rename_map(self) -> Dict[str, str]:
-        return {col.raw_name: col.display_name for col in self.columns}
+        return {col.name: col.display_name for col in self.columns}
 
     @property
     def col_config(self) -> Dict[str, ColumnFormat]:
