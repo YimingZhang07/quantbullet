@@ -9,6 +9,8 @@ from quantbullet.plot import (
 )
 from quantbullet.plot.utils import close_unused_axes
 from quantbullet.plot.cycles import use_economist_cycle
+import numpy as np
+import matplotlib.pyplot as plt
 
 class WrapperGAM:
     """A wrapper around pygam's LinearGAM to integrate with FeatureSpec and provide additional functionality.
@@ -185,7 +187,22 @@ class WrapperGAM:
     def __repr__(self):
         return f"WrapperGAM({self.gam_})"
     
-    def plot_partial_dependence(self, n_cols=3, suptitle=None, scale_y_axis=True):
+    def _get_term_indices_for_feature(self, feature_name: str):
+        """Map stored term objects to their term indices in self.gam_.terms."""
+        term_list = self.feature_term_map_.get(feature_name, [])
+        if not isinstance(term_list, (list, tuple)):
+            term_list = [term_list]
+
+        idxs = []
+        for ti, t in enumerate(self.gam_.terms):
+            # match by object identity
+            for t_ref in term_list:
+                if t is t_ref:
+                    idxs.append(ti)
+                    break
+        return idxs
+    
+    def plot_partial_dependence(self, n_cols=3, suptitle=None, scale_y_axis=True, te_plot_style="heatmap"):
         """
         Plot partial dependence for each feature.
 
@@ -199,29 +216,11 @@ class WrapperGAM:
             raise ValueError("Model not fit yet. Call fit() before plotting.")
 
         # ---------- helpers ----------
-        def _term_indices_for_feature(feature_name: str):
-            """Map stored term objects to their term indices in self.gam_.terms."""
-            term_list = self.feature_term_map_.get(feature_name, [])
-            if not isinstance(term_list, (list, tuple)):
-                term_list = [term_list]
-
-            idxs = []
-            for ti, t in enumerate(self.gam_.terms):
-                # match by object identity
-                for t_ref in term_list:
-                    if t is t_ref:
-                        idxs.append(ti)
-                        break
-            return idxs
-
         def _get_colname(col_idx: int) -> str:
-            if self.design_columns_ is None:
-                # fallback (old behavior) – but strongly recommend storing design_columns_
-                return f"col_{col_idx}"
             return self.design_columns_[col_idx]
 
         def _is_dummy_of(by_name: str, colname: str) -> bool:
-            return colname.startswith(f"{by_name}__")
+            return colname.startswith(f"{by_name}___")
 
         def _dummy_label(by_name: str, colname: str) -> str:
             # "level__A" -> "A"
@@ -229,10 +228,6 @@ class WrapperGAM:
             return colname[len(prefix):] if colname.startswith(prefix) else colname
 
         # ---------- create axes ----------
-        from quantbullet.plot.cycles import use_economist_cycle
-        from quantbullet.plot import get_grid_fig_axes, EconomistBrandColor
-        from quantbullet.plot.utils import close_unused_axes
-
         feature_names = list(self.feature_term_map_.keys())
 
         with use_economist_cycle():
@@ -244,7 +239,7 @@ class WrapperGAM:
         # ---------- main loop ----------
         for i_feat, feature_name in enumerate(feature_names):
             ax = axes.flat[i_feat]
-            idxs = _term_indices_for_feature(feature_name)
+            idxs = self._get_term_indices_for_feature(feature_name)
 
             if not idxs:
                 ax.set_title(f"{feature_name} (no term found)")
@@ -295,6 +290,11 @@ class WrapperGAM:
                     x_grid = np.linspace(x_min, x_max, 200)
 
                     for ti in idxs:
+                        # if we have term 1 cross with four dummies, then we have s(0, by=1), s(0, by=2), s(0, by=3), s(0, by=4)
+                        # say we are at term s(0, by=3)
+                        # t = 2, we are at the third term of the formula
+                        # x_col_idx = 0, the main continuous feature is still at column 0
+                        # by_col_idx = 3, the dummy column for this term is at column 3
                         t = self.gam_.terms[ti]
                         x_col_idx = int(t.feature)
                         by_col_idx = int(t.by)
@@ -336,63 +336,41 @@ class WrapperGAM:
             # Case B: tensor_term
             # ----------------------------
             elif term0_name == "tensor_term":
-                # For tensor, term.feature is typically a list/array of feature indices
-                # We'll plot slices across the second dimension if it's categorical-like.
                 ti = idxs[0]
                 t = self.gam_.terms[ti]
 
-                feats = getattr(t, "feature", None)
-                if feats is None or len(feats) < 2:
-                    ax.set_title(f"{feature_name} (tensor: cannot parse features)")
+                feats = t.feature
+                if feats is None or len(feats) != 2:
+                    ax.set_title(f"{feature_name} (tensor: invalid)")
                     ax.axis("off")
                     continue
 
                 x_col_idx = int(feats[0])
-                z_col_idx = int(feats[1])  # "by" dimension
+                z_col_idx = int(feats[1])
+                x_col_name = _get_colname(x_col_idx)
+                z_col_name = _get_colname(z_col_idx)
 
-                # x-grid range from generate_X_grid
-                Xg = self.gam_.generate_X_grid(term=ti)
-                x_vals = Xg[:, x_col_idx]
-                x_min, x_max = np.min(x_vals), np.max(x_vals)
-                x_grid = np.linspace(x_min, x_max, 200)
+                # generate meshgrid
+                XX = self.gam_.generate_X_grid(term=ti, meshgrid=True)
+                Z = self.gam_.partial_dependence(term=ti, X=XX, meshgrid=True)
 
-                # If z dimension corresponds to a known categorical, we can slice by levels
-                z_colname = _get_colname(z_col_idx)
+                X1, X2 = XX[0], XX[1]
 
-                # Try to infer original categorical name for nicer legend:
-                # If you have original 'by' in specs use it; else fallback to z_colname.
-                specs = getattr(self.feature_spec[feature_name], "specs", None) or {}
-                by_name = specs.get("by", z_colname)
+                plot_tensor(ax, X1, X2, Z, style=te_plot_style)
 
-                # Determine codes to slice
-                # If this z_col was originally a categorical column (codes), use stored levels
-                labels = None
-                if by_name in self.category_levels_:
-                    labels = list(self.category_levels_[by_name])
-                    codes = list(range(len(labels)))
-                else:
-                    # fallback: slice only at min/max of z values
-                    z_vals = np.unique(Xg[:, z_col_idx])
-                    codes = sorted(list(z_vals))
-                    labels = [str(c) for c in codes]
-
-                for code, label in zip(codes, labels):
-                    XX = np.zeros((len(x_grid), len(self.design_columns_)))
-                    XX[:, x_col_idx] = x_grid
-                    XX[:, z_col_idx] = code
-                    pdep, confi = self.gam_.partial_dependence(term=ti, X=XX, width=0.95)
-                    ax.plot(x_grid, pdep, label=str(label))
-                    ax.fill_between(x_grid, confi[:, 0], confi[:, 1], alpha=0.15)
-
-                ax.set_xlabel(f"{feature_name} (tensor slice)", fontdict={'fontsize': 12})
-                ax.set_ylabel("Partial Dependence", fontdict={'fontsize': 12})
-                ax.legend(title=str(by_name))
-                continuous_axes.append(ax)
+                ax.set_xlabel(x_col_name, fontsize=12)
+                ax.set_ylabel(z_col_name, fontsize=12)
+                ax.set_title(f"{x_col_name} x {z_col_name} (tensor surface)", fontsize=12)
 
             # ----------------------------
             # Case C: factor_term (categorical main effect)
             # ----------------------------
             elif term0_name == "factor_term":
+                # due to the by terms, the term indices may be multiple for the same feature
+                # ti is the index for the factor_term
+                # cat_col_idx is the column index of the categorical feature
+                # if feature A has three by terms ( term indices 0, 1, 2 ), and term B is a categorical,
+                # then ti = 3, but cat_col_index = 2.
                 ti = idxs[0]
                 t = self.gam_.terms[ti]
                 cat_col_idx = int(t.feature)
@@ -485,3 +463,109 @@ class WrapperGAM:
         self.category_levels_   = state["category_levels_"]
         self.design_columns_    = state["design_columns_"]
         self.by_dummy_info_     = state["by_dummy_info_"]
+
+    def intercept_(self):
+        """Get the intercept term of the fitted GAM model."""
+        if self.gam_ is None:
+            raise ValueError("Model not fit yet. Call fit() before accessing intercept.")
+        return self.gam_.intercept_
+
+def plot_tensor(
+    ax,
+    X1,
+    X2,
+    Z,
+    style="contour",
+    levels=10,
+    cmap="viridis",
+    alpha=0.6,
+    show_labels=True,
+    colorbar=False,
+    colorbar_label=None,
+):
+    """
+    Plot a tensor term (2D smooth) on the given axes.
+
+    Parameters
+    ----------
+    ax : matplotlib Axes
+        Target axes.
+    X1, X2 : 2D arrays
+        Meshgrid arrays for the two dimensions.
+    Z : 2D array
+        Partial dependence values.
+    style : {"contour", "contourf", "heatmap"}
+        Plotting style.
+    levels : int
+        Number of contour levels.
+    cmap : str or Colormap
+        Colormap to use. 'viridis' is good for screen, 'Greys' for print.
+    alpha : float
+        Transparency for filled plots.
+    show_labels : bool
+        Whether to label contour lines.
+    colorbar : bool
+        Whether to add a colorbar.
+    colorbar_label : str
+        Label for the colorbar.
+    """
+
+    if style not in {"contour", "contourf", "heatmap"}:
+        raise ValueError(f"Unknown style: {style}")
+
+    mappable = None  # for optional colorbar
+
+    # -------------------------
+    # 1) Contour only (best for print)
+    # -------------------------
+    if style == "contour":
+        cs = ax.contour(
+            X1, X2, Z,
+            levels=levels,
+            colors="black",
+            linewidths=1.0,
+        )
+        if show_labels:
+            ax.clabel(cs, inline=True, fontsize=8, fmt="%.2f")
+
+        mappable = cs
+
+    # -------------------------
+    # 2) Contour + light fill
+    # -------------------------
+    elif style == "contourf":
+        cf = ax.contourf(
+            X1, X2, Z,
+            levels=levels,
+            cmap=cmap,
+            alpha=alpha,
+        )
+        cs = ax.contour(
+            X1, X2, Z,
+            levels=levels,
+            colors="black",
+            linewidths=0.8,
+        )
+        if show_labels:
+            ax.clabel(cs, inline=True, fontsize=8, fmt="%.2f")
+
+        mappable = cf
+
+    # -------------------------
+    # 3) Heatmap (screen only)
+    # -------------------------
+    elif style == "heatmap":
+        mappable = ax.pcolormesh(
+            X1, X2, Z,
+            shading="auto",
+            cmap=cmap,
+        )
+
+    # -------------------------
+    # Optional colorbar
+    # -------------------------
+    if colorbar and mappable is not None:
+        cb = plt.colorbar(mappable, ax=ax)
+        cb.set_label(colorbar_label)
+
+    return ax
