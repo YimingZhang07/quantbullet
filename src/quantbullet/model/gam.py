@@ -9,6 +9,7 @@ from quantbullet.plot import (
 )
 from quantbullet.plot.utils import close_unused_axes
 from quantbullet.plot.cycles import use_economist_cycle
+from scipy.interpolate import RegularGridInterpolator
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -469,6 +470,95 @@ class WrapperGAM:
         if self.gam_ is None:
             raise ValueError("Model not fit yet. Call fit() before accessing intercept.")
         return self.gam_.intercept_
+    
+
+    def get_tensor_term_grid(self, feature_name: str, grid_size: int = 100):
+        """Get grid values for a tensor term corresponding to the given feature name.
+
+        Parameters
+        ----------
+        feature_name : str
+            The name of the feature associated with the tensor term.
+        grid_size : int
+            The number of points along each axis in the grid.
+        """
+        idxs = self._get_term_indices_for_feature(feature_name)
+        if not idxs:
+            raise ValueError(f"No term found for feature: {feature_name}")
+
+        term0 = self.gam_.terms[idxs[0]]
+        term0_name = getattr(term0, "_name", "")
+
+        if term0_name != "tensor_term":
+            raise ValueError(f"Feature '{feature_name}' is not associated with a tensor term.")
+
+        ti = idxs[0]
+        t = self.gam_.terms[ti]
+
+        feats = t.feature
+        if feats is None or len(feats) != 2:
+            raise ValueError(f"Tensor term for feature '{feature_name}' does not have exactly two features.")
+
+        # generate meshgrid
+        XX = self.gam_.generate_X_grid(term=ti, meshgrid=True, n=grid_size)
+        Z = self.gam_.partial_dependence(term=ti, X=XX, meshgrid=True)
+
+        X1, X2 = XX[0], XX[1]
+        # The returned X1, X2 are 2D meshgrid arrays; we need to return 1D arrays for each axis
+        x1_grid = X1[:, 0]
+        x2_grid = X2[0, :]
+        return x1_grid, x2_grid, Z
+    
+    def make_tensor_term_surface(self, feature_name: str, grid_size: int = 100):
+        """Get a callable surface function for a tensor term corresponding to the given feature name."""
+        x1_grid, x2_grid, Z = self.get_tensor_term_grid(feature_name, grid_size)
+        interp = RegularGridInterpolator(
+            (x1_grid, x2_grid),
+            Z,
+            bounds_error=False,
+            fill_value=np.nan
+        )
+
+        def surface(x1, x2):
+            x1 = np.asarray(x1)
+            x2 = np.asarray(x2)
+            x1b, x2b = np.broadcast_arrays(x1, x2)
+            pts = np.column_stack([x1b.ravel(), x2b.ravel()])
+            return interp(pts).reshape(x1b.shape)
+        return surface
+    
+    def plot_tensor_term_slices( self, feature_name: str, cross_term_vals=None, ax=None, grid_size: int = 100 ):
+        if ax is None:
+            _, ax = plt.subplots()
+
+        x1_grid, x2_grid, _ = self.get_tensor_term_grid(feature_name, grid_size=grid_size)
+        surface = self.make_tensor_term_surface(feature_name, grid_size=grid_size)
+
+        if cross_term_vals is None:
+            slice_vals = np.quantile(x2_grid, [0.25, 0.5, 0.75])
+        else:
+            slice_vals = np.asarray(cross_term_vals, dtype=float)
+
+        x1_dense = np.linspace(x1_grid.min(), x1_grid.max(), grid_size)
+
+        lines = []
+        for v in slice_vals:
+            y = surface(x1_dense, np.full_like(x1_dense, v))
+            line, = ax.plot(x1_dense, y)
+            lines.append(line)
+
+        cross_term_name = self.feature_spec[feature_name].specs['by']
+
+        ax.set_xlabel(feature_name, fontsize=12)
+        ax.set_ylabel("Partial Dependence", fontsize=12)
+        ax.set_title(f"Slices of tensor term for {feature_name} by {cross_term_name}", fontsize=12)
+
+        for line, v in zip(lines, slice_vals):
+            line.set_label(f"{cross_term_name}={v:.1f}")
+
+        ax.legend()
+        return ax
+        
 
 def plot_tensor(
     ax,
