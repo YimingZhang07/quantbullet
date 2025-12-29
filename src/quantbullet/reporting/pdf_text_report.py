@@ -30,6 +30,7 @@ from reportlab.platypus import (
     Spacer,
     Table,
     TableStyle,
+    Preformatted,
 )
 
 from .formatters import number2string
@@ -322,6 +323,17 @@ class PdfTextReport:
         p = Paragraph( text, style=style )
         self.story.append( p )
         self.story.append( Spacer( 1, space_after ) )
+
+    def add_pre(self, text: str, font_size: int = 8, space_after: int = 12, left_indent: int = 0):
+        style = ParagraphStyle(
+            name="CodeBlock",
+            fontName="Courier",
+            fontSize=font_size,
+            leftIndent=left_indent,
+            leading=font_size * 1.2,
+        )
+        self.story.append(Preformatted(text, style))
+        self.story.append(Spacer(1, space_after))
 
     def add_table_footnote(self, text:str, font_size:int=8, space_after:int=0, alignment:int=0):
         """Add a footnote text paragraph, typically after a table."""
