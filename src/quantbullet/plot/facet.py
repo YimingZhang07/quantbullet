@@ -29,11 +29,11 @@ def plot_facet_scatter(
 
     df = pd.DataFrame(
         {
-            'facet': facet_col,
-            'x': x_col,
-            'weight': weight_col,
-            'act': act_col,
-            'pred': pred_col
+            'facet'     : facet_col,
+            'x'         : x_col,
+            'weight'    : weight_col,
+            'act'       : act_col,
+            'pred'      : pred_col
         }
     )
 
