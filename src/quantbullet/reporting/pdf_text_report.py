@@ -17,25 +17,32 @@ import io
 
 import matplotlib.pyplot as plt
 import numpy as np
+from PIL import Image as PILImage
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import landscape, letter
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.platypus import (
     Image,
     PageBreak,
     Paragraph,
+    Preformatted,
     SimpleDocTemplate,
     Spacer,
     Table,
     TableStyle,
-    Preformatted,
 )
 
+from ._reportlab_utils import (
+    PdfColumnFormat,
+    PdfColumnMeta,
+    apply_heatmap,
+    build_table_from_df,
+    make_diverging_colormap,
+    multi_index_df_to_table_data,
+)
 from .formatters import number2string
-from ._reportlab_utils import PdfColumnFormat, PdfColumnMeta, build_table_from_df, multi_index_df_to_table_data, apply_heatmap, make_diverging_colormap
-from ..plot.colors import ColorEnum
 
 class PdfTextReport:
     def __init__( self, 
@@ -365,23 +372,31 @@ class PdfTextReport:
         """Add a matplotlib figure as an image to the PDF."""
         available_w, available_h = self.get_page_dimensions()
 
-        # target width
-        width = available_w * width_fraction
-        height = width * fig.get_size_inches()[1] / fig.get_size_inches()[0]
-
-        # scale down if too tall
-        if height > available_h:
-            scale = available_h / height
-            width *= scale
-            height *= scale
-
+        # 1) render to PNG
         buf = io.BytesIO()
-        fig.savefig(buf, format="png", bbox_inches="tight", dpi=dpi)
+        fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight")
         buf.seek(0)
-        img = Image(buf, width=width, height=height)
-        self.story.append(img)
+
+        # 2) get actual exported pixel size (after "tight" cropping)
+        pil_img = PILImage.open(buf)
+        px_w, px_h = pil_img.size
+
+        # reset buffer position for ReportLab
+        buf.seek(0)
+
+        # 3) target width, preserve aspect ratio from PNG
+        draw_w = available_w * width_fraction
+        draw_h = draw_w * (px_h / px_w)
+
+        # 4) if too tall, scale down
+        if draw_h > available_h:
+            scale = available_h / draw_h
+            draw_w *= scale
+            draw_h *= scale
+
+        self.story.append(Image(buf, width=draw_w, height=draw_h))
         # self.story.append(Spacer(1, space_after))
-        plt.close(fig)  # free memory
+        plt.close(fig)
         
     # -----------------
     # Page dimensions
