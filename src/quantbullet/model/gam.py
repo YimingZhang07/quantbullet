@@ -465,12 +465,15 @@ class WrapperGAM:
         self.design_columns_    = state["design_columns_"]
         self.by_dummy_info_     = state["by_dummy_info_"]
 
+    @property
     def intercept_(self):
         """Get the intercept term of the fitted GAM model."""
         if self.gam_ is None:
             raise ValueError("Model not fit yet. Call fit() before accessing intercept.")
-        return self.gam_.intercept_
+        return self.gam_.coef_[-1]
     
+    # ##########Below codes are for tensor term surface extraction and plotting ##########
+    # Instead of plotting the full surface, we provide utilities to extract the surface and plot slices in 2D.
 
     def get_tensor_term_grid(self, feature_name: str, grid_size: int = 100):
         """Get grid values for a tensor term corresponding to the given feature name.
@@ -558,7 +561,81 @@ class WrapperGAM:
 
         ax.legend()
         return ax
+    
+    # ########## Prediction Decomposition ##########
+    def decompose( self, X: pd.DataFrame ):
+        if self.gam_ is None:
+            raise ValueError("Model not fit yet.")
+
+        # 1) build design matrix in training column order
+        Xd = self._prepare_design_matrix_predict(X)
+        Xd_np = np.asarray(Xd)
+
+        # 2) prediction
+        pred = self.gam_.predict(Xd_np)
         
+        term_contribs = []
+        term_names = []
+        used_term_indices = []
+
+        for ti, t in enumerate(self.gam_.terms):
+            if getattr(t, "isintercept", False):
+                continue  # pyGAM can't partial_dependence() the intercept term
+            c = self.gam_.partial_dependence(term=ti, X=Xd_np)
+            term_contribs.append(np.asarray(c).reshape(-1))
+            term_names.append(self._format_term_name(ti))
+            used_term_indices.append(ti)
+
+        if term_contribs:
+            term_contribs = np.column_stack(term_contribs)
+        else:
+            term_contribs = np.zeros((len(Xd_np), 0))
+
+        intercept = self.intercept_
+        term_contribs_df = pd.DataFrame(term_contribs, columns=term_names, index=X.index)
+        term_contribs_df['intercept'] = intercept
+        term_contribs_df['pred'] = pred
+
+        out = {
+            "pred": pred,
+            "intercept": intercept,
+            "term_contrib": term_contribs_df,
+            "term_indices": used_term_indices,  # optional but useful for debugging
+        }
+        return out
+        
+    def _format_term_name(self, ti: int) -> str:
+        """Human-readable term name for term index ti."""
+        t = self.gam_.terms[ti]
+        tname = getattr(t, "_name", "term")
+
+        # spline_term
+        if tname == "spline_term":
+            feat_idx = int(getattr(t, "feature", -1))
+            feat = self.design_columns_[feat_idx] if feat_idx >= 0 else "?"
+            by = getattr(t, "by", None)
+            if by is None:
+                return f"s({feat})"
+            by_idx = int(by)
+            by_name = self.design_columns_[by_idx]
+            return f"s({feat})*by({by_name})"
+
+        # tensor_term
+        if tname == "tensor_term":
+            feats = getattr(t, "feature", None)
+            if feats is not None and len(feats) == 2:
+                a = self.design_columns_[int(feats[0])]
+                b = self.design_columns_[int(feats[1])]
+                return f"te({a},{b})"
+            return "te(?)"
+
+        # factor_term
+        if tname == "factor_term":
+            feat_idx = int(getattr(t, "feature", -1))
+            feat = self.design_columns_[feat_idx] if feat_idx >= 0 else "?"
+            return f"f({feat})"
+
+        return f"{tname}[{ti}]"
 
 def plot_tensor(
     ax,
