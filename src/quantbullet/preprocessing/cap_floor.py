@@ -10,32 +10,33 @@ class Bounds:
     floor: Optional[float] = None
     cap: Optional[float] = None
 
-
-# feature -> depends_on -> table
-# Example:
-# RULES["MVOC"][("currency","rating")] = { ("USD","BBB"): Bounds(...), ("USD","*"): ..., ("*","*"): ... }
 Rules = Dict[str, Dict[Tuple[str, ...], Dict[Tuple[str, ...], Bounds]]]
 
-def _key(values: Sequence[Any]) -> Tuple[str, ...]:
-    return tuple(W if v is None else str(v) for v in values)
 
-def get_bounds(
-    rules: Rules,
-    feature: str,
-    depends_on: Tuple[str, ...],
-    *values: Any,
-) -> Bounds:
-    """
-    Explicit resolver for a given dependency shape.
-    For 1 dim: (x) -> (*) 
-    For 2 dims: (x,y) -> (x,*) -> (*,y) -> (*,*)
-    For >2 dims: we keep it strict (exact or global) to avoid magic.
-    """
+def _dep_key(dims: Mapping[str, Any] | None) -> Tuple[str, ...]:
+    """Dependency key = sorted dimension names (stable)."""
+    if not dims:
+        return ()
+    return tuple(sorted(dims.keys()))
+
+
+def _val_tuple(depends_on: Tuple[str, ...], dims: Mapping[str, Any]) -> Tuple[str, ...]:
+    """Value tuple in depends_on order; missing/None -> wildcard."""
+    out = []
+    for d in depends_on:
+        v = dims.get(d, None)
+        out.append(W if v is None else str(v))
+    return tuple(out)
+
+
+def get_bounds(rules: Rules, feature: str, dims: Mapping[str, Any] | None = None) -> Bounds:
+    depends_on = _dep_key(dims)
     table = rules[feature][depends_on]
-    vals = _key(values)
 
-    if len(depends_on) == 0:
-        return table[( )]  # store under empty tuple
+    if not depends_on:
+        return table[()]
+
+    vals = _val_tuple(depends_on, dims or {})
 
     if len(depends_on) == 1:
         (a,) = vals
@@ -50,8 +51,7 @@ def get_bounds(
             or table[(W, W)]
         )
 
-    # Keep >2 dims explicit to avoid “mystery resolution”
-    # (you can extend later if you truly need it)
+    # >2 dims: exact-or-global default
     return table.get(vals, table[tuple([W] * len(depends_on))])
 
 def cap_floor_scalar(x: Optional[float], b: Bounds) -> Optional[float]:
@@ -64,32 +64,39 @@ def cap_floor_scalar(x: Optional[float], b: Bounds) -> Optional[float]:
         v = b.cap
     return v
 
-# helper: do it in one line
-def cap_floor_scalar_by_rules(x, rules: Rules, feature: str, depends_on: Tuple[str, ...], *values):
-    b = get_bounds(rules, feature, depends_on, *values)
-    return cap_floor_scalar(x, b)
+
+def cap_floor_scalar_by_rules(
+    x: Optional[float],
+    rules: Rules,
+    feature: str,
+    dims: Mapping[str, Any] | None = None,
+) -> Optional[float]:
+    return cap_floor_scalar(x, get_bounds(rules, feature, dims=dims))
 
 def cap_floor_df(
     df: pd.DataFrame,
     rules: Rules,
     feature: str,
     value_col: str,
-    depends_on: Tuple[str, ...],          # e.g. ("currency","rating")
-    dim_cols: Mapping[str, str],          # e.g. {"currency":"Currency", "rating":"Rating"}
+    *,
+    dims: Tuple[str, ...] = (),               # which df columns drive the rule
+    dim_cols: Mapping[str, str] | None = None, # map dim name -> df column (optional)
     out_col: Optional[str] = None,
 ) -> pd.DataFrame:
     out_col = out_col or value_col
     df = df.copy()
+    dim_cols = dim_cols or {d: d for d in dims}
 
-    group_cols = [dim_cols[d] for d in depends_on]
-    if not group_cols:  # global
-        b = get_bounds(rules, feature, depends_on)
+    if not dims:
+        b = get_bounds(rules, feature, dims=None)
         df[out_col] = df[value_col].clip(lower=b.floor, upper=b.cap)
         return df
 
+    group_cols = [dim_cols[d] for d in dims]
+
     def _apply_group(g: pd.DataFrame) -> pd.DataFrame:
-        vals = [g[dim_cols[d]].iloc[0] for d in depends_on]
-        b = get_bounds(rules, feature, depends_on, *vals)
+        dim_values = {d: g[dim_cols[d]].iloc[0] for d in dims}
+        b = get_bounds(rules, feature, dims=dim_values)
         g[out_col] = g[value_col].clip(lower=b.floor, upper=b.cap)
         return g
 
