@@ -1,3 +1,4 @@
+import math
 import pandas as pd
 import datetime
 import numpy as np
@@ -98,3 +99,101 @@ def df_columns_to_dict(key_col: pd.Series, value_col: pd.Series) -> dict:
     # Safe: reduce to unique pairs
     df_unique = df.drop_duplicates()
     return dict(zip(df_unique["key"], df_unique["val"]))
+
+def _scalar_jsonable(v):
+    # pandas missing
+    if v is None:
+        return None
+
+    # numpy scalars
+    if isinstance(v, (np.floating,)):
+        fv = float(v)
+        if math.isfinite(fv):
+            return fv
+        return None  # or str(fv)
+    if isinstance(v, (np.integer,)):
+        return int(v)
+    if isinstance(v, (np.bool_,)):
+        return bool(v)
+
+    # python float inf/nan
+    if isinstance(v, float):
+        if math.isfinite(v):
+            return v
+        return None
+
+    # pandas timestamp / datetime
+    if isinstance(v, (pd.Timestamp, datetime.datetime, datetime.date)):
+        # isoformat keeps timezone if present
+        return v.isoformat()
+
+    # pandas timedelta
+    if isinstance(v, (pd.Timedelta,)):
+        return v.isoformat()  # e.g. 'P0DT00H00M01S'
+
+    # pandas NA checks (avoid containers)
+    try:
+        if pd.isna(v):
+            return None
+    except Exception:
+        pass
+
+    # plain JSON types
+    if isinstance(v, (str, int, bool)):
+        return v
+
+    return str(v)
+
+def to_jsonable(x):
+    # DataFrame → JSON payload
+    if isinstance(x, pd.DataFrame):
+        records = x.to_dict(orient="records")
+        return {
+            "type": "dataframe",
+            "data": [{k: to_jsonable(v) for k, v in row.items()} for row in records],
+        }
+
+    # Series
+    if isinstance(x, pd.Series):
+        return {k: to_jsonable(v) for k, v in x.to_dict().items()}
+
+    # dict / list / tuple / set
+    if isinstance(x, dict):
+        return {str(k): to_jsonable(v) for k, v in x.items()}
+    if isinstance(x, (list, tuple, set)):
+        return [to_jsonable(v) for v in x]
+
+    # ndarray
+    if isinstance(x, np.ndarray):
+        return [to_jsonable(v) for v in x.tolist()]
+
+    return _scalar_jsonable(x)
+
+import pandas as pd
+
+def from_jsonable(x):
+    """
+    Lossy decoder for `to_jsonable`.
+
+    - Rebuilds DataFrame payloads: {"type":"dataframe","data":[...]} -> pd.DataFrame
+    - Recursively decodes dict/list
+    - Leaves scalars as-is (strings stay strings; consumers decide)
+    """
+
+    # DataFrame payload
+    if isinstance(x, dict) and x.get("type") == "dataframe" and "data" in x:
+        data = x["data"]
+        # data should be a list[dict]; still decode recursively in case nested payloads exist
+        rows = [from_jsonable(r) for r in data] if isinstance(data, list) else []
+        return pd.DataFrame(rows)
+
+    # dict
+    if isinstance(x, dict):
+        return {k: from_jsonable(v) for k, v in x.items()}
+
+    # list
+    if isinstance(x, list):
+        return [from_jsonable(v) for v in x]
+
+    # scalar (int/float/bool/None/str already JSON-native)
+    return x
