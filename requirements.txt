@@ -39,3 +39,4 @@ fastparquet
 reportlab
 pypdf
 openpyxl
+rpy2>=3.5
