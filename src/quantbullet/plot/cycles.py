@@ -30,3 +30,26 @@ def use_economist_cycle():
         yield
     finally:
         plt.rcParams['axes.prop_cycle'] = orig_cycle
+
+ECONOMIST_SIDE_BY_SIDE_COLORS = [
+    "#106ea0",
+    "#32c0d2",
+    "#e0b165",
+    "#00969e",
+    "#963c4c",
+    "#ab8b95",
+]
+
+ECONOMIST_SIDE_BY_SIDE_CYCLE = cycler(
+    color       = ECONOMIST_SIDE_BY_SIDE_COLORS * len( _BASE_LINESTYLES ),
+    linestyle   = [ style for style in _BASE_LINESTYLES for _ in ECONOMIST_SIDE_BY_SIDE_COLORS ]
+)
+
+@contextmanager
+def use_economist_side_by_side_cycle():
+    orig_cycle = plt.rcParams['axes.prop_cycle']
+    try:
+        plt.rcParams['axes.prop_cycle'] = ECONOMIST_SIDE_BY_SIDE_CYCLE
+        yield
+    finally:
+        plt.rcParams['axes.prop_cycle'] = orig_cycle
