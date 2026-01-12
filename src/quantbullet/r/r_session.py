@@ -25,6 +25,7 @@ def get_r() -> RSession:
 
     # must be set before importing rpy2
     os.environ.setdefault("RPY2_CFFI_MODE", "ABI")
+    os.environ["RENV_CONFIG_AUTOLOADER_ENABLED"] = "false"
 
     try:
         from rpy2 import robjects as ro
@@ -34,6 +35,8 @@ def get_r() -> RSession:
         raise RuntimeError(
             "R backend is not available. Install R + rpy2 and ensure R_HOME/Rscript is configured."
         ) from e
+
+    ro.r("renv::load()")
 
     _session = RSession(ro=ro, pandas2ri=pandas2ri, numpy2ri=numpy2ri, localconverter=localconverter)
     return _session

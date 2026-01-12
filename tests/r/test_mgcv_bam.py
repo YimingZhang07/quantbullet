@@ -5,8 +5,28 @@ from quantbullet.r.mgcv_bam import MgcvBamWrapper
 
 DEV_MODE = True
 
+def print_environment_paths():
+    import os
+    print( "=====" * 10 )
+    for key in ["PYTHONPATH", "Path", "R_HOME"]:
+        value = os.environ.get(key, "Not Set")
+        if value != "Not Set" and os.pathsep in value:
+            print(f"{key}:")
+            for path in value.split(os.pathsep):
+                print(f"  {path}")
+        else:
+            print(f"{key}: {value}")
+
+    # print the interpreter being used
+    import sys
+    print(f"Python Interpreter: {sys.executable}")
+    import rpy2.robjects as ro
+    print(f"R Library Paths: {list(ro.r('.libPaths()'))}")
+    print( "=====" * 10 )
+
 class TestMgcvBam(unittest.TestCase):
     def setUp(self):
+        # print_environment_paths()
         self.cache_dir = "./tests/_cache_dir"
         # just remove all files in the cache dir, but not the dir itself
         if not DEV_MODE:
@@ -25,7 +45,7 @@ class TestMgcvBam(unittest.TestCase):
         import numpy as np
 
         # Create a simple test DataFrame
-        n = 100
+        n = 200_000
         df = pd.DataFrame({
             'x1': np.random.rand(n),
             'x2': np.random.rand(n),
