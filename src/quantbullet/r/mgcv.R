@@ -1,4 +1,6 @@
 ## ---- Locale / encoding guard (for rpy2 / Windows) ----
+# print(paste("SOURCED mgcv.R @ ", Sys.time()))
+
 try({
   Sys.setenv(LANGUAGE = "en")
   Sys.setlocale("LC_ALL", "C")
@@ -381,3 +383,81 @@ plot_gam_smooth_api <- function(
   invisible(TRUE)
 }
 
+# fit_gam_no_cluster_api <- function(
+#   data_train,
+#   model_formula,
+#   weights_col = "weight",
+#   family_str = c("gaussian", "binomial"),
+#   num_cores = 4,
+#   maxit = 100,
+#   scale = -1,
+#   min_sp = NULL,
+#   coef_init = NULL,
+#   discrete = TRUE
+# ) {
+#   out <- list(ok = FALSE, model = NULL, error_msg = NULL)
+
+#   tryCatch({
+#     dt <- data.table::as.data.table(data_train)
+
+#     if (!weights_col %in% names(dt)) {
+#       dt[, (weights_col) := 1]
+#     }
+
+#     w <- dt[[weights_col]]
+#     if (anyNA(w)) stop("weights contain NA")
+#     if (any(w < 0)) stop("weights must be non-negative")
+
+#     if (is.character(model_formula)) {
+#       model_formula <- stats::as.formula(model_formula)
+#     } else if (!inherits(model_formula, "formula")) {
+#       stop("model_formula must be a formula or a character string.")
+#     }
+
+#     family_str <- match.arg(family_str)
+#     family <- switch(
+#       family_str,
+#       gaussian = stats::gaussian(),
+#       binomial = stats::binomial()
+#     )
+
+#     ctrl <- mgcv::gam.control(trace = FALSE, maxit = as.integer(maxit))
+
+#     model_obj <- mgcv::bam(
+#       formula  = model_formula,
+#       data     = dt,
+#       weights  = w,
+#       family   = family,
+#       method   = "REML",
+#       control  = ctrl,
+#       scale    = scale,
+#       min.sp   = min_sp,
+#       coef     = coef_init,
+#       nthreads = as.integer(max(1, num_cores)),
+#       discrete = isTRUE(discrete)
+#     )
+
+#     out$ok <- TRUE
+#     out$model <- model_obj
+#     out
+#   }, error = function(e) {
+#     out$error_msg <- conditionMessage(e)
+#     out
+#   })
+# }
+
+# bam_predict_no_cluster_api <- function(model, newdata, type = "response",
+#                             num_cores_predict = 1, num_split = 1) {
+#   dt <- data.table::as.data.table(newdata)
+
+#   if (is.null(num_split) || num_split <= 1) {
+#     return(stats::predict(model, newdata = dt, type = type))
+#   }
+
+#   n <- nrow(dt)
+#   idx <- split(seq_len(n), cut(seq_len(n), breaks = num_split, labels = FALSE))
+#   preds <- lapply(idx, function(ii) {
+#     stats::predict(model, newdata = dt[ii], type = type)
+#   })
+#   do.call(c, preds)
+# }
