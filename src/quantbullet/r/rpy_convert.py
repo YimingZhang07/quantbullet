@@ -2,8 +2,9 @@ import pandas as pd
 from .r_session import get_r
 
 
-def py_df_to_r(df: pd.DataFrame):
-    r = get_r()
+def py_df_to_r(df: pd.DataFrame, r=None):
+    if r is None:
+        r = get_r()
     from rpy2.robjects.conversion import get_conversion
     with r.localconverter(r.ro.default_converter + r.pandas2ri.converter):
         return get_conversion().py2rpy(df)

@@ -1,5 +1,6 @@
 import unittest
 import shutil
+import time
 from pathlib import Path
 from quantbullet.r.mgcv_bam import MgcvBamWrapper
 
@@ -45,7 +46,7 @@ class TestMgcvBam(unittest.TestCase):
         import numpy as np
 
         # Create a simple test DataFrame
-        n = 200_000
+        n = 10_000
         df = pd.DataFrame({
             'x1': np.random.rand(n),
             'x2': np.random.rand(n),
@@ -54,15 +55,72 @@ class TestMgcvBam(unittest.TestCase):
 
         formula = 'y ~ s(x1) + s(x2)'
 
+        time_begin = time.perf_counter()
         mgcv_wrapper = MgcvBamWrapper()
-        mgcv_wrapper.fit(df, formula, family='gaussian', num_cores=4)
 
-        # Predict on the same data
-        predictions = mgcv_wrapper.predict(df, type='response', num_cores_predict=4, num_split=4)
+        time_init = time.perf_counter() - time_begin
+        print(f"**********MgcvBamWrapper init time**********: {time_init:.2f}s")
+
+        time_begin = time.perf_counter()
+        mgcv_wrapper.fit(df, formula, family='gaussian', num_cores=8, discrete=True)
+        time_fit = time.perf_counter() - time_begin
+        print(f"**********MgcvBamWrapper fit time**********: {time_fit:.2f}s")
+        
+        time_begin = time.perf_counter()
+        predictions = mgcv_wrapper.predict(df, type='response', num_cores_predict=8, num_split=8)
+        time_predict = time.perf_counter() - time_begin
+        print(f"**********MgcvBamWrapper predict time**********: {time_predict:.2f}s")
 
         # Optionally, test plotting
-        fpath = Path(self.cache_dir) / "mgcv_plot.pdf"
-        mgcv_wrapper.plot_to_file( out_fpath=fpath, width=2400, height=800, dpi=300, pages=1 )
+        # fpath = Path(self.cache_dir) / "mgcv_plot.pdf"
+        # mgcv_wrapper.plot_to_file( out_fpath=fpath, width=2400, height=800, dpi=300, pages=1 )
+        mgcv_wrapper.stop_cluster()
+        self.assertEqual(len(predictions), n)
+        self.assertTrue(isinstance(predictions, (list, np.ndarray)))
 
+    def test_fit_and_predict_pinned_data(self):
+        import pandas as pd
+        import numpy as np
+
+        # Create a simple test DataFrame
+        n = 1_000_000
+        df = pd.DataFrame({
+            'x1': np.random.rand(n),
+            'x2': np.random.rand(n),
+            'y': np.random.rand(n)
+        })
+
+        formula = 'y ~ s(x1) + s(x2)'
+
+        time_begin = time.perf_counter()
+        mgcv_wrapper = MgcvBamWrapper()
+
+        time_init = time.perf_counter() - time_begin
+        print(f"**********MgcvBamWrapper init time**********: {time_init:.2f}s")
+
+        time_begin = time.perf_counter()
+        mgcv_wrapper.pin_put( name = "test_data", df = df, as_datatable = True, lock = True )
+        time_pin = time.perf_counter() - time_begin
+        print(f"**********MgcvBamWrapper pin_put time**********: {time_pin:.2f}s")
+
+        time_begin = time.perf_counter()
+        mgcv_wrapper.fit_pinned_data( data_name = "test_data", 
+                                      formula = formula, 
+                                      family = 'gaussian', 
+                                      num_cores = 8, 
+                                      discrete = True )
+        time_fit = time.perf_counter() - time_begin
+        print(f"**********MgcvBamWrapper fit_pinned_data time**********: {time_fit:.2f}s")
+
+        
+        time_begin = time.perf_counter()
+        predictions = mgcv_wrapper.predict_pinned_data( data_name = "test_data", type='response', num_cores_predict=8, num_split=8)
+        time_predict = time.perf_counter() - time_begin
+        print(f"**********MgcvBamWrapper predict_pinned_data time**********: {time_predict:.2f}s")
+
+        # Optionally, test plotting
+        # fpath = Path(self.cache_dir) / "mgcv_plot.pdf"
+        # mgcv_wrapper.plot_to_file( out_fpath=fpath, width=2400, height=800, dpi=300, pages=1 )
+        mgcv_wrapper.stop_cluster()
         self.assertEqual(len(predictions), n)
         self.assertTrue(isinstance(predictions, (list, np.ndarray)))

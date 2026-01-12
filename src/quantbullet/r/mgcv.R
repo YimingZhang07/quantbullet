@@ -22,7 +22,129 @@ suppressPackageStartupMessages({
     library(glue)
     library(pdftools)
     library(itertools)
+    library(glue)
 })
+
+# --- cluster manager (PSOCK) ---
+
+.qb_cluster_env <- new.env(parent = emptyenv())
+
+qb_stop_cluster <- function() {
+  if (exists("cl", envir = .qb_cluster_env, inherits = FALSE)) {
+    cl <- get("cl", envir = .qb_cluster_env)
+    try(parallel::stopCluster(cl), silent = TRUE)
+    rm("cl", envir = .qb_cluster_env)
+  }
+  if (exists("n", envir = .qb_cluster_env, inherits = FALSE)) {
+    rm("n", envir = .qb_cluster_env)
+  }
+  invisible(TRUE)
+}
+
+qb_get_cluster <- function(num_cores) {
+  num_cores <- as.integer(num_cores)
+  if (is.na(num_cores) || num_cores <= 1L) return(NULL)
+
+  # already have a cluster of the right size -> reuse
+  if (exists("cl", envir = .qb_cluster_env, inherits = FALSE) &&
+      exists("n",  envir = .qb_cluster_env, inherits = FALSE)) {
+    cl <- get("cl", envir = .qb_cluster_env)
+    n0 <- get("n",  envir = .qb_cluster_env)
+    if (!is.null(cl) && length(cl) == n0 && n0 == num_cores){
+      print(glue("Reusing existing cluster with {n0} cores."))
+      return(cl)
+    }
+
+    # size mismatch or invalid -> recreate
+    qb_stop_cluster()
+  }
+
+  # create new cluster (use --vanilla to avoid loading .Rprofile/site)
+  cl <- parallel::makeCluster(num_cores, outfile = "", rscript_args = "--vanilla")
+
+  # warm-up: load needed pkgs once per worker
+  parallel::clusterEvalQ(cl, {
+    library(mgcv)
+    library(data.table)
+    NULL
+  })
+
+  assign("cl", cl, envir = .qb_cluster_env)
+  assign("n",  num_cores, envir = .qb_cluster_env)
+
+  cl
+}
+
+# ---------- Pinned data registry ----------
+.qb_pin_env <- new.env(parent = emptyenv())
+
+qb_pin_put <- function(name, df, as_datatable = TRUE, lock = TRUE) {
+  # name: string key
+  # df: data.frame coming from rpy2
+  # lock: set as "locked binding" to prevent accidental overwrite
+
+  if (!is.character(name) || length(name) != 1L) stop("name must be a single string")
+
+  if (as_datatable) {
+    df <- data.table::as.data.table(df)
+  }
+
+  # Store
+  assign(name, df, envir = .qb_pin_env)
+
+  if (isTRUE(lock)) {
+    # prevent overwrite unless explicitly dropped
+    lockBinding(name, .qb_pin_env)
+  }
+
+  invisible(TRUE)
+}
+
+qb_pin_get <- function(name) {
+  if (!exists(name, envir = .qb_pin_env, inherits = FALSE)) {
+    stop("Pinned data not found: ", name)
+  }
+  get(name, envir = .qb_pin_env, inherits = FALSE)
+}
+
+qb_pin_exists <- function(name) {
+  exists(name, envir = .qb_pin_env, inherits = FALSE)
+}
+
+qb_pin_drop <- function(name) {
+  if (exists(name, envir = .qb_pin_env, inherits = FALSE)) {
+    # unlock before removal
+    if (bindingIsLocked(name, .qb_pin_env)) unlockBinding(name, .qb_pin_env)
+    rm(list = name, envir = .qb_pin_env)
+    invisible(TRUE)
+  } else {
+    invisible(FALSE)
+  }
+}
+
+qb_pin_drop_all <- function() {
+  all_names <- ls(envir = .qb_pin_env, all.names = TRUE)
+  for (name in all_names) {
+    qb_pin_drop(name)
+  }
+  invisible(TRUE)
+}
+
+qb_pin_list <- function() {
+  ls(envir = .qb_pin_env, all.names = TRUE)
+}
+
+qb_pin_info <- function(name) {
+  dt <- qb_pin_get(name)
+  list(
+    name = name,
+    nrow = nrow(dt),
+    ncol = ncol(dt),
+    colnames = names(dt),
+    object_size = format(utils::object.size(dt), units = "auto")
+  )
+}
+
 
 sanitize_factor_levels <- function(fit, data, set_level = FALSE, verbose = TRUE) {
 
@@ -132,10 +254,71 @@ strip_gam_object <- function(cm) {
   cm
 }
 
+predict_gam_chunked_api <- function(gam_fit, X, set_level = FALSE, type = "response",
+                                    chunk_size = 250000L, num_cores_predict = NULL, num_split = NULL) {
+  if (!inherits(X, "data.frame")) X <- as.data.frame(X)
+
+  X <- sanitize_factor_levels(gam_fit, X, set_level = set_level)
+  gam_fit <- strip_gam_object(gam_fit)
+
+  n <- nrow(X)
+  if (n == 0L) return(numeric(0))
+
+  chunk_size <- as.integer(chunk_size)
+  if (is.na(chunk_size) || chunk_size <= 0L) chunk_size <- n
+
+  # preallocate
+  out <- numeric(n)
+
+  for (s in seq.int(1L, n, by = chunk_size)) {
+    e <- min(n, s + chunk_size - 1L)
+    out[s:e] <- predict.gam(gam_fit, newdata = X[s:e, , drop = FALSE], type = type)
+  }
+
+  out
+}
+
+predict_gam_chunked_pinned_data_api <- function(gam_fit, data_name,
+                                      set_level = FALSE, type = "response",
+                                      chunk_size = 250000L,
+                                      num_cores_predict = NULL,
+                                      num_split = NULL)
+{
+  X <- qb_pin_get(data_name)  # will error if missing
+
+  predict_gam_chunked_api(
+    gam_fit     = gam_fit,
+    X           = X,
+    set_level   = set_level,
+    type        = type,
+    chunk_size  = chunk_size,
+    num_cores_predict = num_cores_predict,
+    num_split         = num_split
+  )
+}
+
+predict_gam_parallel_pinned_data_api <- function(gam_fit, data_name,
+                              set_level = FALSE, type = "response",
+                              num_cores_predict = 20,
+                              num_split = 8)
+{
+  X <- qb_pin_get(data_name)  # will error if missing
+
+  predict_gam_parallel_api(
+    gam_fit            = gam_fit,
+    X                  = X,
+    set_level         = set_level,
+    type              = type,
+    num_cores_predict = num_cores_predict,
+    num_split         = num_split
+  )
+}
+
 predict_gam_parallel_api <- function(gam_fit, X, set_level = FALSE, type = "response",
                               num_cores_predict = 20,
                               num_split = 8)
 {
+  time_begin = Sys.time()
   # --- keep original semantics ---
   if (inherits(X, "data.table")) {
     X <- data.table::copy(X)
@@ -160,19 +343,10 @@ predict_gam_parallel_api <- function(gam_fit, X, set_level = FALSE, type = "resp
   # roughly equal sized blocks
   idx <- split(seq_len(n), cut(seq_len(n), breaks = num_split, labels = FALSE))
 
-  start_time <- Sys.time()
+  time_cluster_begin <- Sys.time()
   message(sprintf("Predict with %d cores.", num_cores_predict))
 
-  cl <- parallel::makeCluster(num_cores_predict)
-  on.exit({
-    try(parallel::stopCluster(cl), silent = TRUE)
-  }, add = TRUE)
-
-  # Ensure mgcv is available on workers (and data.table if ed is data.table)
-  parallel::clusterEvalQ(cl, {
-    library(mgcv)
-    NULL
-  })
+  cl <- qb_get_cluster(num_cores_predict)
 
   # Export only what we need
   parallel::clusterExport(
@@ -180,6 +354,8 @@ predict_gam_parallel_api <- function(gam_fit, X, set_level = FALSE, type = "resp
     varlist = c("gam_fit", "X", "type"),
     envir = environment()
   )
+
+  time_cluster_finish <- Sys.time()
 
   # worker function: subset by indices, then predict
   worker_fun <- function(ii) {
@@ -202,8 +378,12 @@ predict_gam_parallel_api <- function(gam_fit, X, set_level = FALSE, type = "resp
     unlist(pieces, use.names = FALSE)
   }
 
-  end_time <- Sys.time()
-  print(end_time - start_time)
+  time_end <- Sys.time()
+
+  print(glue("predict_gam_parallel_api::prepare {time_cluster_begin - time_begin}"))
+  print(glue("predict_gam_parallel_api::cluster {time_cluster_finish - time_cluster_begin}"))
+  print(glue("predict_gam_parallel_api::predict  {time_end - time_cluster_finish}"))
+  print(glue("predict_gam_parallel_api::total    {time_end - time_begin}"))
   return(predictions)
 }
 
@@ -259,6 +439,34 @@ predict_gam_parallel_api <- function(gam_fit, X, set_level = FALSE, type = "resp
 #   list(ok = TRUE, model = model_obj, error = NULL)
 # }
 
+fit_gam_pinned_data_api <- function(
+  data_name,
+  model_formula,
+  weights_col = "weight",
+  family_str = c("gaussian", "binomial"),
+  num_cores = 4,
+  maxit = 100,
+  scale = -1,
+  min_sp = NULL,
+  coef_init = NULL,
+  discrete = TRUE
+) {
+  data_train <- qb_pin_get(data_name)  # will error if missing
+
+  fit_gam_api(
+    data_train     = data_train,
+    model_formula  = model_formula,
+    weights_col    = weights_col,
+    family_str     = family_str,
+    num_cores      = num_cores,
+    maxit          = maxit,
+    scale          = scale,
+    min_sp         = min_sp,
+    coef_init      = coef_init,
+    discrete       = discrete
+  )
+}
+
 fit_gam_api <- function(
   data_train,
   model_formula,
@@ -268,7 +476,8 @@ fit_gam_api <- function(
   maxit = 100,
   scale = -1,
   min_sp = NULL,
-  coef_init = NULL
+  coef_init = NULL,
+  discrete = TRUE
 ) {
   out <- list(ok = FALSE, model = NULL, error_msg = NULL)
 
@@ -296,28 +505,32 @@ fit_gam_api <- function(
       binomial = stats::binomial()
     )
 
-    cl <- NULL
-    if (isTRUE(num_cores > 1)) {
-      cl <- parallel::makeCluster(as.integer(num_cores))
-      on.exit(try(parallel::stopCluster(cl), silent = TRUE), add = TRUE)
-
-      # optional: keep libs consistent across workers (can help on Windows)
-      # parallel::clusterEvalQ(cl, .libPaths(.libPaths()))
+    # below logic has been improved to reuse clusters
+    # cl <- qb_get_cluster(num_cores)
+    # when discrete=TRUE, clusters are not used at all so avoid creating them
+    if (isTRUE(discrete)) {
+      cl <- NULL
+    } else {
+      cl <- qb_get_cluster(num_cores)
     }
-
     ctrl <- mgcv::gam.control(trace = FALSE, maxit = as.integer(maxit))
 
+    # we have removed the as.data.frame(dt) conversion to reduce overhead
+    # use fREML, and discrete=TRUE for large data
+    method_val <- if (isTRUE(discrete)) "fREML" else "REML"
+    
     model_obj <- mgcv::bam(
       formula = model_formula,
-      data = as.data.frame(dt),
+      data = dt,
       weights = w,
       family = family,
-      method = "REML",
+      method = method_val,
       cluster = cl,
       control = ctrl,
       scale = scale,
       min.sp = min_sp,
-      coef = coef_init
+      coef = coef_init,
+      discrete = discrete
     )
 
     out$ok <- TRUE
