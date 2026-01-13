@@ -27,7 +27,11 @@ suppressPackageStartupMessages({
 
 # --- cluster manager (PSOCK) ---
 
-.qb_cluster_env <- new.env(parent = emptyenv())
+# changed from .qb_cluster_env <- new.env(parent = emptyenv())
+# to avoid overwriting existing cluster env on re-source
+if (!exists(".qb_cluster_env", envir = .GlobalEnv, inherits = FALSE)) {
+  .qb_cluster_env <- new.env(parent = emptyenv())
+}
 
 qb_stop_cluster <- function() {
   if (exists("cl", envir = .qb_cluster_env, inherits = FALSE)) {
@@ -76,7 +80,10 @@ qb_get_cluster <- function(num_cores) {
 }
 
 # ---------- Pinned data registry ----------
-.qb_pin_env <- new.env(parent = emptyenv())
+# .qb_pin_env <- new.env(parent = emptyenv())
+if (!exists(".qb_pin_env", envir = .GlobalEnv, inherits = FALSE)) {
+  .qb_pin_env <- new.env(parent = emptyenv())
+}
 
 qb_pin_put <- function(name, df, as_datatable = TRUE, lock = TRUE) {
   # name: string key
@@ -143,6 +150,15 @@ qb_pin_info <- function(name) {
     colnames = names(dt),
     object_size = format(utils::object.size(dt), units = "auto")
   )
+}
+
+qb_pin_put_parquet <- function(data_name, parquet_path, lock = TRUE) {
+  if (!requireNamespace("arrow", quietly = TRUE)) stop("arrow package not installed")
+  if (!requireNamespace("data.table", quietly = TRUE)) stop("data.table package not installed")
+
+  dt <- data.table::as.data.table(arrow::read_parquet(parquet_path))
+  qb_pin_put(data_name, dt, as_datatable = TRUE, lock = lock)
+  invisible(TRUE)
 }
 
 
@@ -449,7 +465,8 @@ fit_gam_pinned_data_api <- function(
   scale = -1,
   min_sp = NULL,
   coef_init = NULL,
-  discrete = TRUE
+  discrete = TRUE,
+  nthreads = 1
 ) {
   data_train <- qb_pin_get(data_name)  # will error if missing
 
@@ -463,7 +480,8 @@ fit_gam_pinned_data_api <- function(
     scale          = scale,
     min_sp         = min_sp,
     coef_init      = coef_init,
-    discrete       = discrete
+    discrete       = discrete,
+    nthreads      = nthreads
   )
 }
 
@@ -477,7 +495,8 @@ fit_gam_api <- function(
   scale = -1,
   min_sp = NULL,
   coef_init = NULL,
-  discrete = TRUE
+  discrete = TRUE,
+  nthreads = 1
 ) {
   out <- list(ok = FALSE, model = NULL, error_msg = NULL)
 
@@ -530,7 +549,8 @@ fit_gam_api <- function(
       scale = scale,
       min.sp = min_sp,
       coef = coef_init,
-      discrete = discrete
+      discrete = discrete,
+      nthreads = as.integer(max(1, nthreads))
     )
 
     out$ok <- TRUE

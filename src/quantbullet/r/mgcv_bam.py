@@ -31,6 +31,7 @@ class MgcvBamWrapper:
         self._qb_pin_put            = r.ro.globalenv["qb_pin_put"]
         self._qb_pin_drop           = r.ro.globalenv["qb_pin_drop"]
         self._qb_pin_drop_all       = r.ro.globalenv["qb_pin_drop_all"]
+        self._qb_pin_parquet        = r.ro.globalenv["qb_pin_put_parquet"]
 
         _R_GET_VARS = r.ro.r("""
             function(formula_str) {
@@ -60,8 +61,21 @@ class MgcvBamWrapper:
         cols = set(self._get_formula_vars(formula)) | set(extra_cols)
         cols = [c for c in cols if c in df.columns]
         return df.loc[:, cols]
+    
+    def pin_df_to_parquet( self, df, name, formula=None, fpath=None ):
+        # if fpath is None, just save in the current directory with the name
+        if fpath is None:
+            fpath = f"./{name}.parquet"
 
-    def fit( self, df, formula: str, family: str = "gaussian", num_cores: int = 20, discrete: bool = True):
+        if formula is None:
+            df_sub = df
+        else:
+            df_sub = self.select_columns_for_formula(df, formula, extra_cols=("weight",))
+        df_sub.to_parquet(fpath, index=False)
+        r_fpath = str(Path(fpath).as_posix())  # Use forward slashes for R on Windows
+        self._qb_pin_parquet( data_name = name, parquet_path = r_fpath, lock = True )
+
+    def fit( self, df, formula: str, family: str = "gaussian", num_cores: int = 20, discrete: bool = True, nthreads: int = 1):
         self.formula_ = formula
         df_sub = self.select_columns_for_formula(df, formula, extra_cols=("weight",))
 
@@ -74,7 +88,8 @@ class MgcvBamWrapper:
                              model_formula = formula, 
                              family_str = family, 
                              num_cores = num_cores,
-                             discrete = discrete )
+                             discrete = discrete,
+                             nthreads = nthreads )
         t_bam_fit = time.perf_counter() - t0
 
         ok = r_generic_types_to_py(res.rx2('ok'))
@@ -87,7 +102,7 @@ class MgcvBamWrapper:
         print(f"[mgcv.fit] py_df_to_r={t_py_to_r:.2f}s | bam_fit={t_bam_fit:.2f}s")
         return self
     
-    def fit_pinned_data( self, data_name: str, formula: str, family: str = "gaussian", num_cores: int = 20, discrete: bool = True):
+    def fit_pinned_data( self, data_name: str, formula: str, family: str = "gaussian", num_cores: int = 20, discrete: bool = True, nthreads: int = 1):
         self.formula_ = formula
 
         t0 = time.perf_counter()
@@ -95,7 +110,8 @@ class MgcvBamWrapper:
                                          model_formula = formula, 
                                          family_str = family, 
                                          num_cores = num_cores,
-                                         discrete = discrete )
+                                         discrete = discrete,
+                                         nthreads = nthreads )
         t_bam_fit = time.perf_counter() - t0
 
         ok = r_generic_types_to_py(res.rx2('ok'))

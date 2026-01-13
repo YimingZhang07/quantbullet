@@ -46,7 +46,7 @@ class TestMgcvBam(unittest.TestCase):
         import numpy as np
 
         # Create a simple test DataFrame
-        n = 10_000
+        n = 1_000_000
         df = pd.DataFrame({
             'x1': np.random.rand(n),
             'x2': np.random.rand(n),
@@ -62,7 +62,7 @@ class TestMgcvBam(unittest.TestCase):
         print(f"**********MgcvBamWrapper init time**********: {time_init:.2f}s")
 
         time_begin = time.perf_counter()
-        mgcv_wrapper.fit(df, formula, family='gaussian', num_cores=8, discrete=True)
+        mgcv_wrapper.fit(df, formula, family='gaussian', num_cores=8, discrete=True, nthreads=8)
         time_fit = time.perf_counter() - time_begin
         print(f"**********MgcvBamWrapper fit time**********: {time_fit:.2f}s")
         
