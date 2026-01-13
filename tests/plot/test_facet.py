@@ -1,7 +1,7 @@
 import unittest
 import shutil
 from pathlib import Path
-from quantbullet.plot.model_perf import plot_facet_scatter
+from quantbullet.plot.model_perf import plot_facet_scatter, plot_binned_model_preds
 import pandas as pd
 
 DEV_MODE = True
@@ -32,13 +32,23 @@ class TestPlotModelPerf(unittest.TestCase):
         }
         df = pd.DataFrame(data)
 
-        fig, axes = plot_facet_scatter(
+        # fig, axes = plot_facet_scatter(
+        #     df,
+        #     facet_colname='facet_col',
+        #     x_colname='x_col',
+        #     act_colname='act_col',
+        #     pred_colname='pred_col',
+        #     weight_colname='weight_col',
+        #     n_bins=2
+        # )
+
+        fig, axes = plot_binned_model_preds(
             df,
-            facet_colname='facet_col',
-            x_colname='x_col',
-            act_colname='act_col',
-            pred_colname='pred_col',
-            weight_colname='weight_col',
+            facet_col='facet_col',
+            x_col='x_col',
+            act_col='act_col',
+            pred_col='pred_col',
+            weight_col='weight_col',
             n_bins=2
         )
 

@@ -153,32 +153,41 @@ def prepare_binned_data(df, x_col, act_col, pred_col, facet_col=None, weight_col
     meta = {'global_min': global_min, 'global_max': global_max, 'min_size': min_size, 'max_size': max_size}
     return agg, meta
 
-def draw_act_vs_pred(ax, agg_df, title=None):
-    """Draws on a single axis using the standard aggregated column names."""
-    ax.scatter(agg_df['bin_val'], agg_df['act_mean'], color='blue', alpha=0.6)
-    ax.plot(agg_df['bin_val'], agg_df['pred_mean'], color='red')
-    
+def draw_act_vs_pred(ax, agg_df, title=None, show_legend=False):
+    ax.scatter(
+        agg_df['bin_val'], agg_df['act_mean'],
+        color=EBC.LONDON_70, alpha=0.6,
+        s=agg_df['scatter_size'],
+        label='Actual' if show_legend else None
+    )
+    ax.plot(
+        agg_df['bin_val'], agg_df['pred_mean'],
+        color=EBC.ECONOMIST_RED,
+        label='Predicted' if show_legend else None
+    )
     if title:
         ax.set_title(title)
     return ax
 
-def add_size_legend(fig, meta, color):
-    """Adds the bubble size reference to the right of the figure."""
-    # Values to show in legend (Min, Mid, Max)
-    test_values = [meta['global_min'], (meta['global_min'] + meta['global_max']) / 2, meta['global_max']]
-    
-    # Calculate what those sizes look like using the same scale
-    scaled_sizes = scale_scatter_sizes(
-        pd.Series(test_values), 
-        **meta # Unpack the min/max/limits
-    )
 
-    # Create 'phantom' points for the legend
+def add_size_legend(fig, meta, color, ax_for_handles):
+    """Adds the bubble size reference to the LEFT of the figure."""
+    test_values = [
+        meta['global_min'],
+        (meta['global_min'] + meta['global_max']) / 2,
+        meta['global_max']
+    ]
+
+    scaled_sizes = scale_scatter_sizes(pd.Series(test_values), **meta)
+
+    handles = []
+    labels = []
     for val, sz in zip(test_values, scaled_sizes):
-        plt.scatter([], [], s=sz, color=color, alpha=0.6, label=f'Size: {int(val)}')
-    
-    fig.legend(loc="center right", bbox_to_anchor=(1.15, 0.5), frameon=False, title="Count")
+        h = ax_for_handles.scatter([], [], s=sz, color=color, alpha=0.6)
+        handles.append(h)
+        labels.append(f"{int(val)}")
 
+    return handles, labels
 
 def plot_binned_model_preds(df, x_col, act_col, pred_col, facet_col=None, ax=None, **kwargs):
     # 1. Get data and scaling metadata
@@ -206,6 +215,20 @@ def plot_binned_model_preds(df, x_col, act_col, pred_col, facet_col=None, ax=Non
         )
 
     # 4. Add Global Size Legend
-    add_size_legend(fig, meta, color=EBC.LONDON_70)
+    model_handles, model_labels = axes[0].get_legend_handles_labels()
+    size_handles, size_labels = add_size_legend(fig, meta, color=EBC.LONDON_70, ax_for_handles=axes[0])
+    handles = model_handles + size_handles
+    labels = model_labels + size_labels
+
+    # make room on the left so the legend doesn't overlap/crop
+    # fig.subplots_adjust(right=0.75)
+
+    fig.legend(
+        handles, labels,
+        loc="center right",
+        bbox_to_anchor=(1.0, 0.5),
+        frameon=False,
+        labelspacing=1.5
+    )
     
     return fig, axes
