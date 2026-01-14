@@ -16,36 +16,41 @@ from typing import List, Dict, Union, Tuple, Optional
 @dataclass
 class GAMTermData:
     """Base class for GAM term partial dependence data."""
-    term_type: str
-    features: List[str]
+    term_type: str = "base"
 
 @dataclass
 class SplineTermData(GAMTermData):
     """Data for a simple spline term s(x)."""
-    x: np.ndarray
-    y: np.ndarray
+    feature: str = ""
+    x: np.ndarray = None
+    y: np.ndarray = None
     term_type: str = "spline"
 
 @dataclass
 class SplineByGroupTermData(GAMTermData):
     """Data for a spline term interacted with a categorical s(x, by=cat)."""
+    feature: str = ""
+    by_feature: str = ""
     # map group_label -> {'x': np.ndarray, 'y': np.ndarray}
-    group_curves: Dict[str, Dict[str, np.ndarray]]
+    group_curves: Dict[str, Dict[str, np.ndarray]] = None
     term_type: str = "spline_by_category"
 
 @dataclass
 class TensorTermData(GAMTermData):
-    """Data for a tensor product term te(x1, x2)."""
-    x1: np.ndarray
-    x2: np.ndarray
-    z: np.ndarray
+    """Data for a tensor product term te(x, y)."""
+    feature_x: str = ""
+    feature_y: str = ""
+    x: np.ndarray = None
+    y: np.ndarray = None
+    z: np.ndarray = None
     term_type: str = "tensor"
 
 @dataclass
 class FactorTermData(GAMTermData):
     """Data for a categorical factor term f(cat)."""
-    categories: List[str]
-    values: np.ndarray
+    feature: str = ""
+    categories: List[str] = None
+    values: np.ndarray = None
     term_type: str = "factor"
 
 class WrapperGAM:
@@ -238,22 +243,19 @@ class WrapperGAM:
                     break
         return idxs
     
-    def get_partial_dependence_data(self, grid_size=200):
+    def get_partial_dependence_data(self, grid_size=200) -> Dict[Union[str, Tuple[str, str]], GAMTermData]:
         """
-        Extract partial dependence data for all features.
+        Extract partial dependence data for all features using structured Dataclasses.
 
         Returns
         -------
         dict
             A dictionary where keys are feature names (str) or interaction tuples (str, str).
-            Values depend on the term type:
-            - Spline term: {'x': np.array, 'y': np.array}
-            - Spline term by category: { level_name: {'x': np.array, 'y': np.array}, ... }
-              Key is (feature_name, by_name).
-            - Tensor term: {'x1': np.array, 'x2': np.array, 'z': np.array}
-              Key is (feature_name, by_name).
-            - Factor term: { category_name: value, ... }
-              Key is feature_name.
+            Values are instances of:
+            - SplineTermData
+            - SplineByGroupTermData
+            - TensorTermData
+            - FactorTermData
         """
         if self.gam_ is None:
             raise ValueError("Model not fit yet.")
@@ -284,6 +286,11 @@ class WrapperGAM:
             # Case A: spline_term
             # ----------------------------
             if term0_name == "spline_term":
+                # Check if this feature is "FLOAT by CATEGORY" expanded:
+                # heuristics:
+                # - multiple spline terms
+                # - each has a non-None 'by'
+                # - dummy column names share prefix "{by}__"
                 specs = getattr(self.feature_spec[feature_name], "specs", None) or {}
                 by_name = specs.get("by", None)
 
@@ -304,7 +311,8 @@ class WrapperGAM:
                     is_group_by_cat = all_have_by and all_look_like_dummies
 
                 if is_group_by_cat:
-                    # Spline by categorical
+                    # Plot multiple curves on same axis, one per dummy level
+                    # All share the same x feature column index:
                     key = (feature_name, by_name)
                     curves = {}
                     
@@ -316,6 +324,11 @@ class WrapperGAM:
                     x_grid = np.linspace(x_min, x_max, grid_size)
                     
                     for ti in idxs:
+                        # if we have term 1 cross with four dummies, then we have s(0, by=1), s(0, by=2), s(0, by=3), s(0, by=4)
+                        # say we are at term s(0, by=3)
+                        # t = 2, we are at the third term of the formula
+                        # x_col_idx = 0, the main continuous feature is still at column 0
+                        # by_col_idx = 3, the dummy column for this term is at column 3
                         t = self.gam_.terms[ti]
                         by_col_idx = int(t.by)
                         by_colname = _get_colname(by_col_idx)
@@ -325,11 +338,14 @@ class WrapperGAM:
                         XX[:, x_col_idx] = x_grid
                         XX[:, by_col_idx] = 1.0
                         
-                        # partial_dependence returns (N,) or (N,1)
                         pdep = self.gam_.partial_dependence(term=ti, X=XX, width=None)
                         curves[label] = {'x': x_grid, 'y': np.asarray(pdep).flatten()}
                         
-                    data[key] = curves
+                    data[key] = SplineByGroupTermData(
+                        feature=feature_name,
+                        by_feature=by_name,
+                        group_curves=curves
+                    )
                 
                 else:
                     # Simple spline
@@ -337,14 +353,14 @@ class WrapperGAM:
                     t = self.gam_.terms[ti]
                     x_col_idx = int(t.feature)
                     
-                    # For simple spline, generate_X_grid is sufficient
                     Xg = self.gam_.generate_X_grid(term=ti, n=grid_size)
                     pdep = self.gam_.partial_dependence(term=ti, X=Xg, width=None)
                     
-                    data[feature_name] = {
-                        'x': Xg[:, x_col_idx],
-                        'y': np.asarray(pdep).flatten()
-                    }
+                    data[feature_name] = SplineTermData(
+                        feature=feature_name,
+                        x=Xg[:, x_col_idx],
+                        y=np.asarray(pdep).flatten()
+                    )
 
             # ----------------------------
             # Case B: tensor_term
@@ -353,14 +369,16 @@ class WrapperGAM:
                 specs = getattr(self.feature_spec[feature_name], "specs", None) or {}
                 by_name = specs.get("by", None)
                 key = (feature_name, by_name) if by_name else feature_name
+                features = [feature_name, by_name] if by_name else [feature_name]
                 
-                # Use existing helper
-                x1, x2, Z = self.get_tensor_term_grid(feature_name, grid_size=grid_size)
-                data[key] = {
-                    'x1': x1,
-                    'x2': x2,
-                    'z': Z
-                }
+                x_grid, y_grid, Z = self.get_tensor_term_grid(feature_name, grid_size=grid_size)
+                data[key] = TensorTermData(
+                    feature_x=features[0],
+                    feature_y=features[1] if len(features) > 1 else "unknown",
+                    x=x_grid,
+                    y=y_grid,
+                    z=Z
+                )
 
             # ----------------------------
             # Case C: factor_term
@@ -388,9 +406,11 @@ class WrapperGAM:
                 pdep = self.gam_.partial_dependence(term=ti, X=XX, width=None)
                 pdep = np.asarray(pdep).flatten()
                 
-                data[feature_name] = {
-                    lbl: val for lbl, val in zip(labels, pdep)
-                }
+                data[feature_name] = FactorTermData(
+                    feature=feature_name,
+                    categories=list(labels),
+                    values=pdep
+                )
 
         return data
 
@@ -528,6 +548,11 @@ class WrapperGAM:
             # Case B: tensor_term
             # ----------------------------
             elif term0_name == "tensor_term":
+                # due to the by terms, the term indices may be multiple for the same feature
+                # ti is the index for the factor_term
+                # cat_col_idx is the column index of the categorical feature
+                # if feature A has three by terms ( term indices 0, 1, 2 ), and term B is a categorical,
+                # then ti = 3, but cat_col_index = 2.
                 ti = idxs[0]
                 t = self.gam_.terms[ti]
 
