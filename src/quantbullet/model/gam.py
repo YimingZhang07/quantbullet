@@ -24,6 +24,8 @@ class SplineTermData(GAMTermData):
     feature: str = ""
     x: np.ndarray = None
     y: np.ndarray = None
+    conf_lower: np.ndarray = None
+    conf_upper: np.ndarray = None
     term_type: str = "spline"
 
 @dataclass
@@ -31,7 +33,7 @@ class SplineByGroupTermData(GAMTermData):
     """Data for a spline term interacted with a categorical s(x, by=cat)."""
     feature: str = ""
     by_feature: str = ""
-    # map group_label -> {'x': np.ndarray, 'y': np.ndarray}
+    # map group_label -> {'x': np.ndarray, 'y': np.ndarray, 'conf_lower': np.ndarray, 'conf_upper': np.ndarray}
     group_curves: Dict[str, Dict[str, np.ndarray]] = None
     term_type: str = "spline_by_category"
 
@@ -43,6 +45,7 @@ class TensorTermData(GAMTermData):
     x: np.ndarray = None
     y: np.ndarray = None
     z: np.ndarray = None
+    # Tensor terms usually just return surface Z in pygam, no CI by default for meshgrid
     term_type: str = "tensor"
 
 @dataclass
@@ -51,6 +54,8 @@ class FactorTermData(GAMTermData):
     feature: str = ""
     categories: List[str] = None
     values: np.ndarray = None
+    conf_lower: np.ndarray = None
+    conf_upper: np.ndarray = None
     term_type: str = "factor"
 
 class WrapperGAM:
@@ -243,7 +248,7 @@ class WrapperGAM:
                     break
         return idxs
     
-    def get_partial_dependence_data(self, grid_size=200) -> Dict[Union[str, Tuple[str, str]], GAMTermData]:
+    def get_partial_dependence_data(self, grid_size=200, width=0.95) -> Dict[Union[str, Tuple[str, str]], GAMTermData]:
         """
         Extract partial dependence data for all features using structured Dataclasses.
 
@@ -338,8 +343,13 @@ class WrapperGAM:
                         XX[:, x_col_idx] = x_grid
                         XX[:, by_col_idx] = 1.0
                         
-                        pdep = self.gam_.partial_dependence(term=ti, X=XX, width=None)
-                        curves[label] = {'x': x_grid, 'y': np.asarray(pdep).flatten()}
+                        pdep, confi = self.gam_.partial_dependence(term=ti, X=XX, width=width)
+                        curves[label] = {
+                            'x': x_grid, 
+                            'y': np.asarray(pdep).flatten(),
+                            'conf_lower': confi[:, 0],
+                            'conf_upper': confi[:, 1]
+                        }
                         
                     data[key] = SplineByGroupTermData(
                         feature=feature_name,
@@ -354,12 +364,14 @@ class WrapperGAM:
                     x_col_idx = int(t.feature)
                     
                     Xg = self.gam_.generate_X_grid(term=ti, n=grid_size)
-                    pdep = self.gam_.partial_dependence(term=ti, X=Xg, width=None)
+                    pdep, confi = self.gam_.partial_dependence(term=ti, X=Xg, width=width)
                     
                     data[feature_name] = SplineTermData(
                         feature=feature_name,
                         x=Xg[:, x_col_idx],
-                        y=np.asarray(pdep).flatten()
+                        y=np.asarray(pdep).flatten(),
+                        conf_lower=confi[:, 0],
+                        conf_upper=confi[:, 1]
                     )
 
             # ----------------------------
@@ -403,13 +415,15 @@ class WrapperGAM:
                 XX = np.zeros((len(codes), len(self.design_columns_)))
                 XX[:, cat_col_idx] = codes
                 
-                pdep = self.gam_.partial_dependence(term=ti, X=XX, width=None)
+                pdep, confi = self.gam_.partial_dependence(term=ti, X=XX, width=width)
                 pdep = np.asarray(pdep).flatten()
                 
                 data[feature_name] = FactorTermData(
                     feature=feature_name,
                     categories=list(labels),
-                    values=pdep
+                    values=pdep,
+                    conf_lower=confi[:, 0],
+                    conf_upper=confi[:, 1]
                 )
 
         return data
@@ -427,19 +441,8 @@ class WrapperGAM:
         if self.gam_ is None:
             raise ValueError("Model not fit yet. Call fit() before plotting.")
 
-        # ---------- helpers ----------
-        def _get_colname(col_idx: int) -> str:
-            return self.design_columns_[col_idx]
-
-        def _is_dummy_of(by_name: str, colname: str) -> bool:
-            return colname.startswith(f"{by_name}___")
-
-        def _dummy_label(by_name: str, colname: str) -> str:
-            # "level__A" -> "A"
-            prefix = f"{by_name}___"
-            return colname[len(prefix):] if colname.startswith(prefix) else colname
-
-        # ---------- create axes ----------
+        # Get structured data for all features
+        pdep_data = self.get_partial_dependence_data()
         feature_names = list(self.feature_term_map_.keys())
 
         with use_economist_cycle():
@@ -448,131 +451,69 @@ class WrapperGAM:
 
         continuous_axes = []
 
-        # ---------- main loop ----------
+        def get_data_for_feature(fname):
+            if fname in pdep_data:
+                return pdep_data[fname]
+            # check for interaction keys
+            for k, v in pdep_data.items():
+                if isinstance(k, tuple) and k[0] == fname:
+                    return v
+            return None
+
         for i_feat, feature_name in enumerate(feature_names):
             ax = axes.flat[i_feat]
-            idxs = self._get_term_indices_for_feature(feature_name)
+            
+            term_data = get_data_for_feature(feature_name)
 
-            if not idxs:
-                ax.set_title(f"{feature_name} (no term found)")
+            if term_data is None:
+                ax.set_title(f"{feature_name} (no term data)")
                 ax.axis("off")
                 continue
 
-            # Grab the first term type to decide plotting mode
-            term0 = self.gam_.terms[idxs[0]]
-            term0_name = getattr(term0, "_name", "")
+            # ----------------------------
+            # Case A: Spline By Group
+            # ----------------------------
+            if isinstance(term_data, SplineByGroupTermData):
+                by_name = term_data.by_feature
+
+                for label, curves in term_data.group_curves.items():
+                    x_grid = curves['x']
+                    y_vals = curves['y']
+                    ax.plot(x_grid, y_vals, label=label)
+                    
+                    if 'conf_lower' in curves and 'conf_upper' in curves:
+                         ax.fill_between(x_grid, curves['conf_lower'], curves['conf_upper'], alpha=0.15)
+
+                ax.set_xlabel(f"{feature_name} (by {by_name})", fontdict={'fontsize': 12})
+                ax.set_ylabel("Partial Dependence", fontdict={'fontsize': 12})
+                ax.legend(title=by_name)
+                continuous_axes.append(ax)
 
             # ----------------------------
-            # Case A: spline_term (possibly expanded by-categorical)
+            # Case B: Simple Spline
             # ----------------------------
-            if term0_name == "spline_term":
-                # Check if this feature is "FLOAT by CATEGORY" expanded:
-                # heuristics:
-                # - multiple spline terms
-                # - each has a non-None 'by'
-                # - dummy column names share prefix "{by}__"
-                specs = getattr(self.feature_spec[feature_name], "specs", None) or {}
-                by_name = specs.get("by", None)
-
-                is_group_by_cat = False
-                if by_name and len(idxs) > 1:
-                    all_have_by = True
-                    all_look_like_dummies = True
-                    for ti in idxs:
-                        t = self.gam_.terms[ti]
-                        if getattr(t, "by", None) is None:
-                            all_have_by = False
-                            break
-                        by_col_idx = int(t.by)
-                        by_colname = _get_colname(by_col_idx)
-                        if not _is_dummy_of(by_name, by_colname):
-                            all_look_like_dummies = False
-                            break
-                    is_group_by_cat = all_have_by and all_look_like_dummies
-
-                if is_group_by_cat:
-                    # Plot multiple curves on same axis, one per dummy level
-                    # All share the same x feature column index:
-                    x_col_idx = int(self.gam_.terms[idxs[0]].feature)
-
-                    # use X_grid from the first term just to get x range
-                    Xg = self.gam_.generate_X_grid(term=idxs[0])
-                    x_vals = Xg[:, x_col_idx]
-                    x_min, x_max = np.min(x_vals), np.max(x_vals)
-                    x_grid = np.linspace(x_min, x_max, 200)
-
-                    for ti in idxs:
-                        # if we have term 1 cross with four dummies, then we have s(0, by=1), s(0, by=2), s(0, by=3), s(0, by=4)
-                        # say we are at term s(0, by=3)
-                        # t = 2, we are at the third term of the formula
-                        # x_col_idx = 0, the main continuous feature is still at column 0
-                        # by_col_idx = 3, the dummy column for this term is at column 3
-                        t = self.gam_.terms[ti]
-                        x_col_idx = int(t.feature)
-                        by_col_idx = int(t.by)
-
-                        by_colname = _get_colname(by_col_idx)
-                        label = _dummy_label(by_name, by_colname)
-
-                        # Build a full X for partial dependence evaluation
-                        XX = np.zeros((len(x_grid), len(self.design_columns_)))
-                        XX[:, x_col_idx] = x_grid
-                        XX[:, by_col_idx] = 1.0  # turn on this dummy
-
-                        pdep, confi = self.gam_.partial_dependence(term=ti, X=XX, width=0.95)
-                        ax.plot(x_grid, pdep, label=label)
-                        ax.fill_between(x_grid, confi[:, 0], confi[:, 1], alpha=0.15)
-
-                    ax.set_xlabel(f"{feature_name} (by {by_name})", fontdict={'fontsize': 12})
-                    ax.set_ylabel("Partial Dependence", fontdict={'fontsize': 12})
-                    ax.legend(title=by_name)
-                    continuous_axes.append(ax)
-
-                else:
-                    # Single spline term
-                    ti = idxs[0]
-                    t = self.gam_.terms[ti]
-                    x_col_idx = int(t.feature)
-
-                    Xg = self.gam_.generate_X_grid(term=ti)
-                    pdep, confi = self.gam_.partial_dependence(term=ti, X=Xg, width=0.95)
-
-                    ax.plot(Xg[:, x_col_idx], pdep, color=EconomistBrandColor.CHICAGO_45)
-                    ax.fill_between(Xg[:, x_col_idx], confi[:, 0], confi[:, 1],
+            elif isinstance(term_data, SplineTermData):
+                ax.plot(term_data.x, term_data.y, color=EconomistBrandColor.CHICAGO_45)
+                
+                if term_data.conf_lower is not None and term_data.conf_upper is not None:
+                    ax.fill_between(term_data.x, term_data.conf_lower, term_data.conf_upper, 
                                     alpha=0.2, color=EconomistBrandColor.CHICAGO_45)
-                    ax.set_xlabel(feature_name, fontdict={'fontsize': 12})
-                    ax.set_ylabel("Partial Dependence", fontdict={'fontsize': 12})
-                    continuous_axes.append(ax)
+                
+                ax.set_xlabel(feature_name, fontdict={'fontsize': 12})
+                ax.set_ylabel("Partial Dependence", fontdict={'fontsize': 12})
+                continuous_axes.append(ax)
 
             # ----------------------------
-            # Case B: tensor_term
+            # Case C: Tensor Term
             # ----------------------------
-            elif term0_name == "tensor_term":
-                # due to the by terms, the term indices may be multiple for the same feature
-                # ti is the index for the factor_term
-                # cat_col_idx is the column index of the categorical feature
-                # if feature A has three by terms ( term indices 0, 1, 2 ), and term B is a categorical,
-                # then ti = 3, but cat_col_index = 2.
-                ti = idxs[0]
-                t = self.gam_.terms[ti]
-
-                feats = t.feature
-                if feats is None or len(feats) != 2:
-                    ax.set_title(f"{feature_name} (tensor: invalid)")
-                    ax.axis("off")
-                    continue
-
-                x_col_idx = int(feats[0])
-                z_col_idx = int(feats[1])
-                x_col_name = _get_colname(x_col_idx)
-                z_col_name = _get_colname(z_col_idx)
-
-                # generate meshgrid
-                XX = self.gam_.generate_X_grid(term=ti, meshgrid=True)
-                Z = self.gam_.partial_dependence(term=ti, X=XX, meshgrid=True)
-
-                X1, X2 = XX[0], XX[1]
-
+            elif isinstance(term_data, TensorTermData):
+                x_col_name = term_data.feature_x
+                z_col_name = term_data.feature_y
+                
+                # We need meshgrid for plotting, but data has 1D arrays for axes
+                X1, X2 = np.meshgrid(term_data.x, term_data.y, indexing='ij')
+                Z = term_data.z
+                
                 plot_tensor(ax, X1, X2, Z, style=te_plot_style)
 
                 ax.set_xlabel(x_col_name, fontsize=12)
@@ -580,57 +521,44 @@ class WrapperGAM:
                 ax.set_title(f"{x_col_name} x {z_col_name} (tensor surface)", fontsize=12)
 
             # ----------------------------
-            # Case C: factor_term (categorical main effect)
+            # Case D: Factor Term
             # ----------------------------
-            elif term0_name == "factor_term":
-                # due to the by terms, the term indices may be multiple for the same feature
-                # ti is the index for the factor_term
-                # cat_col_idx is the column index of the categorical feature
-                # if feature A has three by terms ( term indices 0, 1, 2 ), and term B is a categorical,
-                # then ti = 3, but cat_col_index = 2.
-                ti = idxs[0]
-                t = self.gam_.terms[ti]
-                cat_col_idx = int(t.feature)
-
-                cat_colname = _get_colname(cat_col_idx)
-                # Prefer feature_name if it is actually that cat feature
-                labels = self.category_levels_.get(feature_name, None)
-                if labels is None and cat_colname in self.category_levels_:
-                    labels = self.category_levels_[cat_colname]
-
-                if labels is None:
-                    # fallback if unknown
-                    # just plot codes 0..max seen
-                    Xg = self.gam_.generate_X_grid(term=ti)
-                    codes = sorted(list(np.unique(Xg[:, cat_col_idx])))
-                    labels = [str(c) for c in codes]
+            elif isinstance(term_data, FactorTermData):
+                # Original used errorbar with CIs. Now we just have values.
+                labels = term_data.categories
+                pdep = term_data.values
+                
+                if term_data.conf_lower is not None and term_data.conf_upper is not None:
+                    yerr = [pdep - term_data.conf_lower, term_data.conf_upper - pdep]
+                    ax.errorbar(labels, pdep, yerr=yerr,
+                                fmt='o', capsize=5,
+                                color=EconomistBrandColor.CHICAGO_45)
                 else:
-                    codes = list(range(len(labels)))
-
-                XX = np.zeros((len(codes), len(self.design_columns_)))
-                XX[:, cat_col_idx] = codes
-
-                pdep, confi = self.gam_.partial_dependence(term=ti, X=XX, width=0.95)
-
-                ax.errorbar(labels, pdep,
-                            yerr=[pdep - confi[:, 0], confi[:, 1] - pdep],
-                            fmt='o', capsize=5,
-                            color=EconomistBrandColor.CHICAGO_45)
+                    ax.plot(labels, pdep, 'o', color=EconomistBrandColor.CHICAGO_45)
+                    
                 ax.axhline(0, color='gray', linestyle='--', linewidth=1)
                 ax.set_xlabel(feature_name, fontdict={'fontsize': 12})
                 ax.set_ylabel("Partial Dependence", fontdict={'fontsize': 12})
 
             else:
-                ax.set_title(f"{feature_name} ({term0_name}: not handled)")
+                ax.set_title(f"{feature_name} (unknown type)")
                 ax.axis("off")
 
         # ---------- scale y axis across continuous plots ----------
         if scale_y_axis and continuous_axes:
-            y_mins = [ax.get_ylim()[0] for ax in continuous_axes]
-            y_maxs = [ax.get_ylim()[1] for ax in continuous_axes]
-            global_y_min, global_y_max = min(y_mins), max(y_maxs)
+            y_mins = []
+            y_maxs = []
             for ax in continuous_axes:
-                ax.set_ylim(global_y_min, global_y_max)
+                # get_ylim() might include autoscaling padding, better to check data limits if possible
+                # but standard approach is check ax limits
+                lims = ax.get_ylim()
+                y_mins.append(lims[0])
+                y_maxs.append(lims[1])
+            
+            if y_mins and y_maxs:
+                global_y_min, global_y_max = min(y_mins), max(y_maxs)
+                for ax in continuous_axes:
+                    ax.set_ylim(global_y_min, global_y_max)
 
         if suptitle:
             plt.suptitle(suptitle, fontsize=14)
