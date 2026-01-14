@@ -144,5 +144,49 @@ class TestWrapperGAM(unittest.TestCase):
         self.assertFalse(np.any(np.isnan(oob_preds)))
         self.assertFalse(np.any(np.isinf(oob_preds)))
 
+    def test_replay_decompose(self):
+        """Test that GAMReplayModel.decompose matches WrapperGAM.decompose output structure and values."""
+        # Fit
+        wgam = WrapperGAM(self.features)
+        wgam.fit(self.data, self.data['happiness'])
+        
+        # Original Decompose
+        # Select a few rows for decomposition
+        sample_data = self.data.iloc[:10]
+        orig_res = wgam.decompose(sample_data)
+        
+        # Replay Decompose
+        pdata = wgam.get_partial_dependence_data()
+        replay = GAMReplayModel(pdata, intercept=wgam.intercept_)
+        replay_res = replay.decompose(sample_data)
+        
+        # 1. Check keys
+        self.assertEqual(orig_res.keys(), replay_res.keys())
+        
+        # 2. Check Intercept
+        self.assertAlmostEqual(orig_res['intercept'], replay_res['intercept'])
+        
+        # 3. Check Prediction values
+        np.testing.assert_allclose(orig_res['pred'], replay_res['pred'], rtol=0.01, atol=0.05)
+        
+        # 4. Check DataFrame structure
+        orig_df = orig_res['term_contrib']
+        replay_df = replay_res['term_contrib']
+        
+        # Check matching columns
+        # Note: Set comparison handles order differences
+        self.assertEqual(set(orig_df.columns), set(replay_df.columns))
+        
+        # Check all columns values are close
+        for col in orig_df.columns:
+            # We use a relatively loose tolerance because of grid interpolation vs direct B-spline eval
+            np.testing.assert_allclose(
+                orig_df[col], 
+                replay_df[col], 
+                rtol=0.01, 
+                atol=0.05,
+                err_msg=f"Mismatch in column: {col}"
+            )
+
 if __name__ == '__main__':
     unittest.main()
