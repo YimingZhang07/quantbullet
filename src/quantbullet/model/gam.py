@@ -10,8 +10,43 @@ from quantbullet.plot import (
 from quantbullet.plot.utils import close_unused_axes
 from quantbullet.plot.cycles import use_economist_cycle
 from scipy.interpolate import RegularGridInterpolator
-import numpy as np
-import matplotlib.pyplot as plt
+from dataclasses import dataclass
+from typing import List, Dict, Union, Tuple, Optional
+
+@dataclass
+class GAMTermData:
+    """Base class for GAM term partial dependence data."""
+    term_type: str
+    features: List[str]
+
+@dataclass
+class SplineTermData(GAMTermData):
+    """Data for a simple spline term s(x)."""
+    x: np.ndarray
+    y: np.ndarray
+    term_type: str = "spline"
+
+@dataclass
+class SplineByGroupTermData(GAMTermData):
+    """Data for a spline term interacted with a categorical s(x, by=cat)."""
+    # map group_label -> {'x': np.ndarray, 'y': np.ndarray}
+    group_curves: Dict[str, Dict[str, np.ndarray]]
+    term_type: str = "spline_by_category"
+
+@dataclass
+class TensorTermData(GAMTermData):
+    """Data for a tensor product term te(x1, x2)."""
+    x1: np.ndarray
+    x2: np.ndarray
+    z: np.ndarray
+    term_type: str = "tensor"
+
+@dataclass
+class FactorTermData(GAMTermData):
+    """Data for a categorical factor term f(cat)."""
+    categories: List[str]
+    values: np.ndarray
+    term_type: str = "factor"
 
 class WrapperGAM:
     """A wrapper around pygam's LinearGAM to integrate with FeatureSpec and provide additional functionality.
@@ -203,6 +238,162 @@ class WrapperGAM:
                     break
         return idxs
     
+    def get_partial_dependence_data(self, grid_size=200):
+        """
+        Extract partial dependence data for all features.
+
+        Returns
+        -------
+        dict
+            A dictionary where keys are feature names (str) or interaction tuples (str, str).
+            Values depend on the term type:
+            - Spline term: {'x': np.array, 'y': np.array}
+            - Spline term by category: { level_name: {'x': np.array, 'y': np.array}, ... }
+              Key is (feature_name, by_name).
+            - Tensor term: {'x1': np.array, 'x2': np.array, 'z': np.array}
+              Key is (feature_name, by_name).
+            - Factor term: { category_name: value, ... }
+              Key is feature_name.
+        """
+        if self.gam_ is None:
+            raise ValueError("Model not fit yet.")
+
+        data = {}
+        feature_names = list(self.feature_term_map_.keys())
+
+        # Helpers
+        def _get_colname(col_idx: int) -> str:
+            return self.design_columns_[col_idx]
+
+        def _is_dummy_of(by_name: str, colname: str) -> bool:
+            return colname.startswith(f"{by_name}___")
+
+        def _dummy_label(by_name: str, colname: str) -> str:
+            prefix = f"{by_name}___"
+            return colname[len(prefix):] if colname.startswith(prefix) else colname
+
+        for feature_name in feature_names:
+            idxs = self._get_term_indices_for_feature(feature_name)
+            if not idxs:
+                continue
+
+            term0 = self.gam_.terms[idxs[0]]
+            term0_name = getattr(term0, "_name", "")
+
+            # ----------------------------
+            # Case A: spline_term
+            # ----------------------------
+            if term0_name == "spline_term":
+                specs = getattr(self.feature_spec[feature_name], "specs", None) or {}
+                by_name = specs.get("by", None)
+
+                is_group_by_cat = False
+                if by_name and len(idxs) > 1:
+                    all_have_by = True
+                    all_look_like_dummies = True
+                    for ti in idxs:
+                        t = self.gam_.terms[ti]
+                        if getattr(t, "by", None) is None:
+                            all_have_by = False
+                            break
+                        by_col_idx = int(t.by)
+                        by_colname = _get_colname(by_col_idx)
+                        if not _is_dummy_of(by_name, by_colname):
+                            all_look_like_dummies = False
+                            break
+                    is_group_by_cat = all_have_by and all_look_like_dummies
+
+                if is_group_by_cat:
+                    # Spline by categorical
+                    key = (feature_name, by_name)
+                    curves = {}
+                    
+                    # Use grid from first term to get x range
+                    x_col_idx = int(self.gam_.terms[idxs[0]].feature)
+                    Xg = self.gam_.generate_X_grid(term=idxs[0])
+                    x_vals = Xg[:, x_col_idx]
+                    x_min, x_max = np.min(x_vals), np.max(x_vals)
+                    x_grid = np.linspace(x_min, x_max, grid_size)
+                    
+                    for ti in idxs:
+                        t = self.gam_.terms[ti]
+                        by_col_idx = int(t.by)
+                        by_colname = _get_colname(by_col_idx)
+                        label = _dummy_label(by_name, by_colname)
+                        
+                        XX = np.zeros((len(x_grid), len(self.design_columns_)))
+                        XX[:, x_col_idx] = x_grid
+                        XX[:, by_col_idx] = 1.0
+                        
+                        # partial_dependence returns (N,) or (N,1)
+                        pdep = self.gam_.partial_dependence(term=ti, X=XX, width=None)
+                        curves[label] = {'x': x_grid, 'y': np.asarray(pdep).flatten()}
+                        
+                    data[key] = curves
+                
+                else:
+                    # Simple spline
+                    ti = idxs[0]
+                    t = self.gam_.terms[ti]
+                    x_col_idx = int(t.feature)
+                    
+                    # For simple spline, generate_X_grid is sufficient
+                    Xg = self.gam_.generate_X_grid(term=ti, n=grid_size)
+                    pdep = self.gam_.partial_dependence(term=ti, X=Xg, width=None)
+                    
+                    data[feature_name] = {
+                        'x': Xg[:, x_col_idx],
+                        'y': np.asarray(pdep).flatten()
+                    }
+
+            # ----------------------------
+            # Case B: tensor_term
+            # ----------------------------
+            elif term0_name == "tensor_term":
+                specs = getattr(self.feature_spec[feature_name], "specs", None) or {}
+                by_name = specs.get("by", None)
+                key = (feature_name, by_name) if by_name else feature_name
+                
+                # Use existing helper
+                x1, x2, Z = self.get_tensor_term_grid(feature_name, grid_size=grid_size)
+                data[key] = {
+                    'x1': x1,
+                    'x2': x2,
+                    'z': Z
+                }
+
+            # ----------------------------
+            # Case C: factor_term
+            # ----------------------------
+            elif term0_name == "factor_term":
+                ti = idxs[0]
+                t = self.gam_.terms[ti]
+                cat_col_idx = int(t.feature)
+                
+                cat_colname = _get_colname(cat_col_idx)
+                labels = self.category_levels_.get(feature_name, None)
+                if labels is None and cat_colname in self.category_levels_:
+                    labels = self.category_levels_[cat_colname]
+                
+                if labels is None:
+                    Xg = self.gam_.generate_X_grid(term=ti)
+                    codes = sorted(list(np.unique(Xg[:, cat_col_idx])))
+                    labels = [str(c) for c in codes]
+                else:
+                    codes = list(range(len(labels)))
+                    
+                XX = np.zeros((len(codes), len(self.design_columns_)))
+                XX[:, cat_col_idx] = codes
+                
+                pdep = self.gam_.partial_dependence(term=ti, X=XX, width=None)
+                pdep = np.asarray(pdep).flatten()
+                
+                data[feature_name] = {
+                    lbl: val for lbl, val in zip(labels, pdep)
+                }
+
+        return data
+
     def plot_partial_dependence(self, n_cols=3, suptitle=None, scale_y_axis=True, te_plot_style="heatmap"):
         """
         Plot partial dependence for each feature.
