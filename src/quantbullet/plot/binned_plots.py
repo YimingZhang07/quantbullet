@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-from quantbullet.plot.utils import get_grid_fig_axes, scale_scatter_sizes, pretty_int_breaks
+from quantbullet.plot.utils import get_grid_fig_axes, scale_scatter_sizes, pretty_int_breaks, close_unused_axes
 from quantbullet.plot.colors import EconomistBrandColor as EBC
 
 # def plot_facet_scatter(
@@ -221,7 +221,18 @@ def add_size_legend(fig, meta, color, ax_for_handles):
 
     return handles, labels
 
-def plot_binned_actual_vs_pred(df, x_col, act_col, pred_col, facet_col=None, figsize=(6, 4), **kwargs):
+def plot_binned_actual_vs_pred(
+    df,
+    x_col,
+    act_col,
+    pred_col,
+    facet_col=None,
+    figsize=(6, 4),
+    n_cols=3,
+    compact_cols=True,
+    close_unused=True,
+    **kwargs,
+):
     # 1. Get data and scaling metadata
     pred_cols = [pred_col] if isinstance(pred_col, str) else list(pred_col)
     agg, meta = prepare_binned_data(df, x_col, act_col, pred_cols, facet_col, **kwargs)
@@ -238,8 +249,17 @@ def plot_binned_actual_vs_pred(df, x_col, act_col, pred_col, facet_col=None, fig
     else:
         # If faceting, figsize tuple is interpreted as (width per subplot, height per subplot)
         width, height = figsize
-        fig, axes = get_grid_fig_axes(n_charts=len(agg['facet'].unique()), width=width, height=height)
         facets = agg['facet'].unique()
+        n_charts = len(facets)
+        # If we can fit all charts in a single row, optionally avoid extra columns.
+        if compact_cols:
+            n_cols = min(n_cols, n_charts)
+        fig, axes = get_grid_fig_axes(
+            n_charts=n_charts,
+            n_cols=n_cols,
+            width=width,
+            height=height,
+        )
         
         # Facet grid is usually wider, so we reserve less percentage width
         layout_rect = [0, 0, 0.85, 1]
@@ -259,6 +279,8 @@ def plot_binned_actual_vs_pred(df, x_col, act_col, pred_col, facet_col=None, fig
             act_label=act_col,
             pred_labels={pred: pred for pred in pred_cols},
         )
+    if close_unused:
+        close_unused_axes(axes)
 
     # 4. Add Global Size Legend
     model_handles, model_labels = axes[0].get_legend_handles_labels()

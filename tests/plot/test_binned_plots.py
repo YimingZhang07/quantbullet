@@ -152,6 +152,83 @@ class TestPlotBinnedPlots(unittest.TestCase):
         report.add_matplotlib_figure(fig, width_fraction=0.5)
         report.save()
 
+    def test_two_facets_compact_cols_default(self):
+        # Two facets should use a single row without extra empty axes
+        np.random.seed(202)
+        n_rows = 120
+        data = {
+            "facet_col": np.random.choice(["A", "B"], n_rows),
+            "x_col": np.random.uniform(0, 100, n_rows),
+            "act_col": np.random.normal(40, 8, n_rows),
+            "pred_col": np.random.normal(41, 7, n_rows),
+        }
+        df = pd.DataFrame(data)
+        df["act_col"] += df["x_col"] * 0.2
+        df["pred_col"] += df["x_col"] * 0.18
+
+        fig, axes = plot_binned_actual_vs_pred(
+            df,
+            facet_col="facet_col",
+            x_col="x_col",
+            act_col="act_col",
+            pred_col="pred_col",
+            n_bins=6,
+        )
+
+        fig_path = Path(self.cache_dir) / "test_two_facets_compact.png"
+        fig.savefig(fig_path)
+        self.assertTrue(fig_path.exists(), "Two-facet plot was not saved correctly.")
+
+        self.assertEqual(len(axes), 2, "Expected a 1x2 grid for two facets.")
+        for ax in axes:
+            has_data = (
+                len(ax.lines) > 0
+                or len(ax.patches) > 0
+                or len(ax.collections) > 0
+                or len(ax.images) > 0
+            )
+            self.assertTrue(has_data, "Expected each facet axis to have plotted data.")
+
+    def test_two_facets_keep_three_columns_when_compact_disabled(self):
+        # Two facets with compact_cols=False should keep the full 1x3 grid
+        np.random.seed(202)
+        n_rows = 120
+        data = {
+            "facet_col": np.random.choice(["A", "B"], n_rows),
+            "x_col": np.random.uniform(0, 100, n_rows),
+            "act_col": np.random.normal(40, 8, n_rows),
+            "pred_col": np.random.normal(41, 7, n_rows),
+        }
+        df = pd.DataFrame(data)
+        df["act_col"] += df["x_col"] * 0.2
+        df["pred_col"] += df["x_col"] * 0.18
+
+        fig, axes = plot_binned_actual_vs_pred(
+            df,
+            facet_col="facet_col",
+            x_col="x_col",
+            act_col="act_col",
+            pred_col="pred_col",
+            n_bins=6,
+            n_cols=3,
+            compact_cols=False,
+            close_unused=False,
+        )
+
+        fig_path = Path(self.cache_dir) / "test_two_facets_three_cols.png"
+        fig.savefig(fig_path)
+        self.assertTrue(fig_path.exists(), "Two-facet plot was not saved correctly.")
+
+        self.assertEqual(len(axes), 3, "Expected a 1x3 grid when compact_cols is disabled.")
+        unused_ax = axes[-1]
+        has_data = (
+            len(unused_ax.lines) > 0
+            or len(unused_ax.patches) > 0
+            or len(unused_ax.collections) > 0
+            or len(unused_ax.images) > 0
+        )
+        self.assertFalse(has_data, "Expected the third axis to be unused/empty.")
+
     def test_size_legend_labels_are_unique_for_tight_ranges(self):
         # Construct data so bin counts are very similar, which previously produced confusing
         # legend labels like 18, 18, 19 (with different dot sizes for the two "18"s).
