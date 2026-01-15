@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from quantbullet.plot.utils import get_grid_fig_axes, scale_scatter_sizes, pretty_int_breaks, close_unused_axes
 from quantbullet.plot.colors import EconomistBrandColor as EBC
+from quantbullet.plot.cycles import ECONOMIST_LINE_COLORS
 
 # def plot_facet_scatter(
 #     df,
@@ -169,30 +170,62 @@ def prepare_binned_data(df, x_col, act_col, pred_cols, facet_col=None, weight_co
     }
     return agg, meta
 
-def draw_act_vs_pred(ax, agg_df, pred_mean_cols, title=None, show_legend=False, act_label="Actual", pred_labels=None):
-
-    # Drop rows where act_mean is NaN, this has nothing to do with the plot
-    # there are cases when matplotlib complains about no arrays to concatenate
+def draw_act_vs_pred(
+    ax, 
+    agg_df, 
+    pred_mean_cols, 
+    title=None, 
+    show_legend=False, 
+    act_label="Actual", 
+    pred_labels=None,
+    pred_colors=None,
+):
+    # Drop rows where act_mean is NaN
     agg_df = agg_df[agg_df["act_mean"].notna()]
 
     if agg_df.empty:
         return ax
+    
+    # Use provided colors or default to Economist line colors
+    if pred_colors is None:
+        pred_colors = ECONOMIST_LINE_COLORS
 
+    # Scatter for actuals (gray)
     ax.scatter(
-        agg_df['bin_val'], agg_df['act_mean'],
-        color=EBC.LONDON_70, alpha=0.6,
+        agg_df['bin_val'], 
+        agg_df['act_mean'],
+        color=EBC.LONDON_70, 
+        alpha=0.6,
         s=agg_df['scatter_size'],
-        label=act_label if show_legend else None
+        label=act_label if show_legend else None,
+        zorder=3,
     )
+    
+    # Prediction lines
     pred_labels = pred_labels or {}
-    for pred_col, pred_mean_col in pred_mean_cols.items():
+    for idx, (pred_col, pred_mean_col) in enumerate(pred_mean_cols.items()):
         label = pred_labels.get(pred_col, pred_col) if show_legend else None
+        color = pred_colors[idx % len(pred_colors)]
         ax.plot(
-            agg_df['bin_val'], agg_df[pred_mean_col],
-            label=label
+            agg_df['bin_val'], 
+            agg_df[pred_mean_col],
+            label=label,
+            color=color,
+            linewidth=2,
+            zorder=4,
         )
+    
+    # Professional styling
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
+    ax.set_axisbelow(True)
+    
     if title:
-        ax.set_title(title)
+        ax.set_title(title, fontsize=11, fontweight='600', pad=10)
+    
+    ax.tick_params(labelsize=9)
+    
     return ax
 
 
@@ -239,8 +272,15 @@ def plot_binned_actual_vs_pred(
     n_cols=3,
     compact_cols=True,
     close_unused=True,
+    pred_colors=None,
     **kwargs,
 ):
+    """
+    Parameters
+    ----------
+    pred_colors : list of str, optional
+        Colors for prediction lines. Defaults to ECONOMIST_LINE_COLORS.
+    """
     # 1. Get data and scaling metadata
     pred_cols = [pred_col] if isinstance(pred_col, str) else list(pred_col)
     agg, meta = prepare_binned_data(df, x_col, act_col, pred_cols, facet_col, **kwargs)
@@ -278,7 +318,6 @@ def plot_binned_actual_vs_pred(
         # Filter data if faceting, else use all
         data = agg[agg['facet'] == val] if val else agg
         
-        # Use the Worker
         draw_act_vs_pred(
             ax_obj, data,
             pred_mean_cols=meta['pred_mean_cols'],
@@ -286,6 +325,7 @@ def plot_binned_actual_vs_pred(
             show_legend=(i == 0), # Model legend on first plot
             act_label=act_col,
             pred_labels={pred: pred for pred in pred_cols},
+            pred_colors=pred_colors,
         )
     if close_unused:
         close_unused_axes(axes)

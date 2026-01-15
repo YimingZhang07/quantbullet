@@ -14,6 +14,9 @@ ECONOMIST_COLORS = [
     EconomistBrandColor.LONDON_20,    # Black/Grey
 ]
 
+# Export for external use (e.g., in binned plots)
+ECONOMIST_LINE_COLORS = ECONOMIST_COLORS
+
 _BASE_LINESTYLES = ['-', '--']
 
 # Create cycle: all colors with first style, then all colors with second style
