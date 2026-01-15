@@ -4,7 +4,7 @@ from cycler import cycler
 import matplotlib.pyplot as plt
 
 # Colors and linestyles
-_ECONOMIST_COLORS = [
+ECONOMIST_COLORS = [
     EconomistBrandColor.CHICAGO_45,   # blue
     EconomistBrandColor.SINGAPORE_55, # orange
     EconomistBrandColor.HONG_KONG_45, # green
@@ -18,8 +18,8 @@ _BASE_LINESTYLES = ['-', '--']
 
 # Create cycle: all colors with first style, then all colors with second style
 _ECONOMIST_CYCLE = cycler(
-    color=_ECONOMIST_COLORS * len(_BASE_LINESTYLES),
-    linestyle=[style for style in _BASE_LINESTYLES for _ in _ECONOMIST_COLORS]
+    color=ECONOMIST_COLORS * len(_BASE_LINESTYLES),
+    linestyle=[style for style in _BASE_LINESTYLES for _ in ECONOMIST_COLORS]
 )
 
 @contextmanager
