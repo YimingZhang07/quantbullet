@@ -170,6 +170,14 @@ def prepare_binned_data(df, x_col, act_col, pred_cols, facet_col=None, weight_co
     return agg, meta
 
 def draw_act_vs_pred(ax, agg_df, pred_mean_cols, title=None, show_legend=False, act_label="Actual", pred_labels=None):
+
+    # Drop rows where act_mean is NaN, this has nothing to do with the plot
+    # there are cases when matplotlib complains about no arrays to concatenate
+    agg_df = agg_df[agg_df["act_mean"].notna()]
+
+    if agg_df.empty:
+        return ax
+
     ax.scatter(
         agg_df['bin_val'], agg_df['act_mean'],
         color=EBC.LONDON_70, alpha=0.6,
