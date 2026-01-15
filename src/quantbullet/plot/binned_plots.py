@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 from quantbullet.plot.utils import get_grid_fig_axes, scale_scatter_sizes
 from quantbullet.plot.colors import EconomistBrandColor as EBC
 
@@ -189,18 +190,28 @@ def add_size_legend(fig, meta, color, ax_for_handles):
 
     return handles, labels
 
-def plot_binned_actual_vs_pred(df, x_col, act_col, pred_col, facet_col=None, ax=None, **kwargs):
+def plot_binned_actual_vs_pred(df, x_col, act_col, pred_col, facet_col=None, figsize=(6, 4), **kwargs):
     # 1. Get data and scaling metadata
     agg, meta = prepare_binned_data(df, x_col, act_col, pred_col, facet_col, **kwargs)
     
     # 2. Setup Layout
     if facet_col is None:
-        if ax is None: fig, ax = plt.subplots()
+        fig, ax = plt.subplots(figsize=figsize)
         axes = [ax]
         facets = [None] # Dummy for the loop
+        
+        # Single plot is usually narrower, so we reserve more percentage width for the legend
+        layout_rect = [0, 0, 0.75, 1]
+        legend_x = 0.77
     else:
-        fig, axes = get_grid_fig_axes(n_charts=len(agg['facet'].unique()))
+        # If faceting, figsize tuple is interpreted as (width per subplot, height per subplot)
+        width, height = figsize
+        fig, axes = get_grid_fig_axes(n_charts=len(agg['facet'].unique()), width=width, height=height)
         facets = agg['facet'].unique()
+        
+        # Facet grid is usually wider, so we reserve less percentage width
+        layout_rect = [0, 0, 0.85, 1]
+        legend_x = 0.87
 
     # 3. Plotting Loop
     for i, (ax_obj, val) in enumerate(zip(axes, facets)):
@@ -217,18 +228,36 @@ def plot_binned_actual_vs_pred(df, x_col, act_col, pred_col, facet_col=None, ax=
     # 4. Add Global Size Legend
     model_handles, model_labels = axes[0].get_legend_handles_labels()
     size_handles, size_labels = add_size_legend(fig, meta, color=EBC.LONDON_70, ax_for_handles=axes[0])
-    handles = model_handles + size_handles
-    labels = model_labels + size_labels
+    
+    # We use two separate legends to allow for a proper "Size" title/header
+    # that is bold and aligned correctly, which is hard to do in a single legend.
 
-    # make room on the right so the legend doesn't overlap/crop
-    fig.subplots_adjust(right=0.8)
-
+    # Legend 1: Model (Actual vs Predicted)
+    # Placed slightly above the vertical center
     fig.legend(
-        handles, labels,
-        loc="center left",
-        bbox_to_anchor=(0.82, 0.5),
+        model_handles, model_labels,
+        loc="lower left",
+        bbox_to_anchor=(legend_x, 0.53),
         frameon=False,
-        labelspacing=1.5
+        labelspacing=1.2,
     )
+
+    # Legend 2: Size (Bubble sizes)
+    # Placed slightly below the vertical center, with a Title
+    fig.legend(
+        size_handles, size_labels,
+        loc="upper left",
+        bbox_to_anchor=(legend_x, 0.47),
+        frameon=False,
+        labelspacing=1.2,
+        title="Size",
+        title_fontsize='large' # Ensure it stands out
+    )
+    # Set alignment of title to left if needed, but default center often looks okay for size circles. 
+    # If strictly left needed: title_loc='left' (requires matplotlib 3.6+)
+    
+    # make room on the right so the legend doesn't overlap/crop
+    # We use tight_layout with a rect to restrict the axes to the left side
+    fig.tight_layout(rect=layout_rect)
     
     return fig, axes
