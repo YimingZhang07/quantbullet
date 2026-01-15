@@ -145,3 +145,30 @@ class TestPlotBinnedPlots(unittest.TestCase):
         fig_path = Path(self.cache_dir) / "test_multi_pred_facets.png"
         fig.savefig(fig_path)
         self.assertTrue(fig_path.exists(), "Multi-pred faceted plot was not saved correctly.")
+
+    def test_size_legend_labels_are_unique_for_tight_ranges(self):
+        # Construct data so bin counts are very similar, which previously produced confusing
+        # legend labels like 18, 18, 19 (with different dot sizes for the two "18"s).
+        np.random.seed(777)
+        n_rows = 95
+        df = pd.DataFrame({
+            "x_col": np.random.uniform(0, 100, n_rows),
+            "act_col": np.random.normal(0, 1, n_rows),
+            "pred_col": np.random.normal(0, 1, n_rows),
+        })
+
+        fig, axes = plot_binned_actual_vs_pred(
+            df,
+            x_col="x_col",
+            act_col="act_col",
+            pred_col="pred_col",
+            n_bins=5,
+        )
+
+        # Find the legend with title "Size"
+        size_legends = [lg for lg in getattr(fig, "legends", []) if lg.get_title() and lg.get_title().get_text() == "Size"]
+        self.assertTrue(size_legends, "Expected a 'Size' legend on the figure.")
+        size_legend = size_legends[0]
+
+        labels = [t.get_text() for t in size_legend.get_texts()]
+        self.assertEqual(len(labels), len(set(labels)), f"Size legend labels should be unique. Got: {labels}")

@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-from quantbullet.plot.utils import get_grid_fig_axes, scale_scatter_sizes
+from quantbullet.plot.utils import get_grid_fig_axes, scale_scatter_sizes, pretty_int_breaks
 from quantbullet.plot.colors import EconomistBrandColor as EBC
 
 # def plot_facet_scatter(
@@ -107,7 +107,7 @@ from quantbullet.plot.colors import EconomistBrandColor as EBC
 
 
 
-def prepare_binned_data(df, x_col, act_col, pred_cols, facet_col=None, weight_col=None, n_bins=10, min_size=20, max_size=200):
+def prepare_binned_data(df, x_col, act_col, pred_cols, facet_col=None, weight_col=None, n_bins=10, min_size=20, max_size=100):
     # Setup weights
     weights = df[weight_col] if weight_col else pd.Series(1, index=df.index)
     pred_cols = list(pred_cols)
@@ -190,11 +190,19 @@ def draw_act_vs_pred(ax, agg_df, pred_mean_cols, title=None, show_legend=False, 
 
 def add_size_legend(fig, meta, color, ax_for_handles):
     """Adds the bubble size reference to the LEFT of the figure."""
-    test_values = [
-        meta['global_min'],
-        (meta['global_min'] + meta['global_max']) / 2,
-        meta['global_max']
-    ]
+    # Use "pretty" ggplot-like breaks so legend labels look clean (10/20/50/100/200...)
+    # and avoid awkward midpoints like 18.5.
+
+    legend_vals = pretty_int_breaks(meta["global_min"], meta["global_max"], n=3)
+    if not legend_vals:
+        legend_vals = [
+            int(round(meta["global_min"])),
+            int(round((meta["global_min"] + meta["global_max"]) / 2)),
+            int(round(meta["global_max"])),
+        ]
+        legend_vals = sorted(set(legend_vals))
+
+    test_values = [float(v) for v in legend_vals]
 
     size_meta = {
         "global_min": meta["global_min"],
@@ -209,7 +217,7 @@ def add_size_legend(fig, meta, color, ax_for_handles):
     for val, sz in zip(test_values, scaled_sizes):
         h = ax_for_handles.scatter([], [], s=sz, color=color, alpha=0.6)
         handles.append(h)
-        labels.append(f"{int(val)}")
+        labels.append(f"{int(round(val))}")
 
     return handles, labels
 
