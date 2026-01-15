@@ -105,6 +105,7 @@ class PdfColumnFormat( BaseColumnFormat ):
     headerbgcolor: tuple[float, float, float] | colors.Color | None = None
     vmin: Optional[float] = None
     vmax: Optional[float] = None
+    missing_label: Optional[str] = None
 
     def __post_init__(self):
         if self.named_colormap == "red_white_green":
@@ -234,18 +235,19 @@ def build_table_from_df( df: pd.DataFrame, schema: list[PdfColumnMeta], col_widt
         for col in schema:
             val = row[col.name]
 
-            if col.format.transformer:
-                val = col.format.transformer(val)
-            if col.format.formatter:
-                display_val = col.format.formatter(val)
-            elif isinstance(val, (int, float, np.number)):
-                display_val = flex_number_formatter(
-                    val, decimals=col.format.decimals, comma=col.format.comma
-                )
-            elif pd.isna(val):
-                display_val = ""
+            if pd.isna(val):
+                display_val = col.format.missing_label if col.format.missing_label is not None else ""
             else:
-                display_val = str(val)
+                # transformer always comes the first
+                if col.format.transformer:
+                    val = col.format.transformer(val)
+
+                if col.format.formatter:
+                    display_val = col.format.formatter(val)
+                elif isinstance(val, (int, float, np.number)):
+                    display_val = flex_number_formatter(val, decimals=col.format.decimals, comma=col.format.comma)
+                else:
+                    display_val = str(val)
             row_data.append(display_val)
         table_data.append(row_data)
 
