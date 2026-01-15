@@ -107,17 +107,19 @@ from quantbullet.plot.colors import EconomistBrandColor as EBC
 
 
 
-def prepare_binned_data(df, x_col, act_col, pred_col, facet_col=None, weight_col=None, n_bins=10, min_size=20, max_size=200):
+def prepare_binned_data(df, x_col, act_col, pred_cols, facet_col=None, weight_col=None, n_bins=10, min_size=20, max_size=200):
     # Setup weights
     weights = df[weight_col] if weight_col else pd.Series(1, index=df.index)
+    pred_cols = list(pred_cols)
     
     # Create working copy to avoid SettingWithCopy warnings
     tmp = pd.DataFrame({
         'x': df[x_col],
         'act': df[act_col],
-        'pred': df[pred_col],
         'weight': weights
     })
+    for pred_col in pred_cols:
+        tmp[pred_col] = df[pred_col]
     if facet_col:
         tmp['facet'] = df[facet_col]
 
@@ -127,13 +129,20 @@ def prepare_binned_data(df, x_col, act_col, pred_col, facet_col=None, weight_col
 
     # Aggregation
     group_cols = ['facet', 'bin_val'] if facet_col else ['bin_val']
+    pred_mean_cols = {pred_col: f"pred_mean__{pred_col}" for pred_col in pred_cols}
     agg = (
         tmp.groupby(group_cols, observed=False)
-        .apply(lambda g: pd.Series({
-            "act_mean": np.average(g['act'], weights=g['weight']),
-            "pred_mean": np.average(g['pred'], weights=g['weight']),
-            "count": len(g)
-        }), include_groups=False)
+        .apply(
+            lambda g: pd.Series({
+                "act_mean": np.average(g['act'], weights=g['weight']),
+                "count": len(g),
+                **{
+                    pred_mean_cols[pred_col]: np.average(g[pred_col], weights=g['weight'])
+                    for pred_col in pred_cols
+                },
+            }),
+            include_groups=False
+        )
         .reset_index()
     )
 
@@ -151,21 +160,29 @@ def prepare_binned_data(df, x_col, act_col, pred_col, facet_col=None, weight_col
     )
 
     # We return the metadata along with the data
-    meta = {'global_min': global_min, 'global_max': global_max, 'min_size': min_size, 'max_size': max_size}
+    meta = {
+        'global_min': global_min,
+        'global_max': global_max,
+        'min_size': min_size,
+        'max_size': max_size,
+        'pred_mean_cols': pred_mean_cols,
+    }
     return agg, meta
 
-def draw_act_vs_pred(ax, agg_df, title=None, show_legend=False):
+def draw_act_vs_pred(ax, agg_df, pred_mean_cols, title=None, show_legend=False, act_label="Actual", pred_labels=None):
     ax.scatter(
         agg_df['bin_val'], agg_df['act_mean'],
         color=EBC.LONDON_70, alpha=0.6,
         s=agg_df['scatter_size'],
-        label='Actual' if show_legend else None
+        label=act_label if show_legend else None
     )
-    ax.plot(
-        agg_df['bin_val'], agg_df['pred_mean'],
-        color=EBC.ECONOMIST_RED,
-        label='Predicted' if show_legend else None
-    )
+    pred_labels = pred_labels or {}
+    for pred_col, pred_mean_col in pred_mean_cols.items():
+        label = pred_labels.get(pred_col, pred_col) if show_legend else None
+        ax.plot(
+            agg_df['bin_val'], agg_df[pred_mean_col],
+            label=label
+        )
     if title:
         ax.set_title(title)
     return ax
@@ -179,7 +196,13 @@ def add_size_legend(fig, meta, color, ax_for_handles):
         meta['global_max']
     ]
 
-    scaled_sizes = scale_scatter_sizes(pd.Series(test_values), **meta)
+    size_meta = {
+        "global_min": meta["global_min"],
+        "global_max": meta["global_max"],
+        "min_size": meta["min_size"],
+        "max_size": meta["max_size"],
+    }
+    scaled_sizes = scale_scatter_sizes(pd.Series(test_values), **size_meta)
 
     handles = []
     labels = []
@@ -192,7 +215,8 @@ def add_size_legend(fig, meta, color, ax_for_handles):
 
 def plot_binned_actual_vs_pred(df, x_col, act_col, pred_col, facet_col=None, figsize=(6, 4), **kwargs):
     # 1. Get data and scaling metadata
-    agg, meta = prepare_binned_data(df, x_col, act_col, pred_col, facet_col, **kwargs)
+    pred_cols = [pred_col] if isinstance(pred_col, str) else list(pred_col)
+    agg, meta = prepare_binned_data(df, x_col, act_col, pred_cols, facet_col, **kwargs)
     
     # 2. Setup Layout
     if facet_col is None:
@@ -220,9 +244,12 @@ def plot_binned_actual_vs_pred(df, x_col, act_col, pred_col, facet_col=None, fig
         
         # Use the Worker
         draw_act_vs_pred(
-            ax_obj, data, 
-            title=str(val) if val else f"{act_col} vs {pred_col}",
-            show_legend=(i == 0) # Model legend on first plot
+            ax_obj, data,
+            pred_mean_cols=meta['pred_mean_cols'],
+            title=str(val) if val else f"{act_col} vs {', '.join(pred_cols)}",
+            show_legend=(i == 0), # Model legend on first plot
+            act_label=act_col,
+            pred_labels={pred: pred for pred in pred_cols},
         )
 
     # 4. Add Global Size Legend

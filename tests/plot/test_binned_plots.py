@@ -85,3 +85,63 @@ class TestPlotBinnedPlots(unittest.TestCase):
         fig.savefig(fig_path)
 
         self.assertTrue(fig_path.exists(), "No-facet scatter plot was not saved correctly.")
+
+    def test_multi_pred_single_plot(self):
+        # Multiple prediction columns, no faceting
+        np.random.seed(123)
+        n_rows = 150
+        data = {
+            'x_col': np.random.uniform(0, 100, n_rows),
+            'act_col': np.random.normal(50, 12, n_rows),
+            'pred_col_a': np.random.normal(50, 10, n_rows),
+            'pred_col_b': np.random.normal(52, 11, n_rows),
+            'weight_col': np.random.randint(1, 8, n_rows),
+        }
+        df = pd.DataFrame(data)
+        df['act_col'] += np.cos(df['x_col'] / 12) * 15
+        df['pred_col_a'] += np.cos(df['x_col'] / 12) * 13
+        df['pred_col_b'] += np.cos(df['x_col'] / 12) * 11
+
+        fig, axes = plot_binned_actual_vs_pred(
+            df,
+            x_col='x_col',
+            act_col='act_col',
+            pred_col=['pred_col_a', 'pred_col_b'],
+            weight_col='weight_col',
+            n_bins=8
+        )
+
+        fig_path = Path(self.cache_dir) / "test_multi_pred_single.png"
+        fig.savefig(fig_path)
+        self.assertTrue(fig_path.exists(), "Multi-pred single-plot was not saved correctly.")
+
+    def test_multi_pred_with_facets(self):
+        # Multiple prediction columns with faceting
+        np.random.seed(456)
+        n_rows = 180
+        data = {
+            'facet_col': np.random.choice(['A', 'B', 'C'], n_rows),
+            'x_col': np.random.uniform(0, 100, n_rows),
+            'act_col': np.random.normal(45, 14, n_rows),
+            'pred_col_a': np.random.normal(46, 12, n_rows),
+            'pred_col_b': np.random.normal(48, 10, n_rows),
+            'weight_col': np.random.randint(1, 10, n_rows),
+        }
+        df = pd.DataFrame(data)
+        df['act_col'] += df['x_col'] * 0.3
+        df['pred_col_a'] += df['x_col'] * 0.28
+        df['pred_col_b'] += df['x_col'] * 0.25
+
+        fig, axes = plot_binned_actual_vs_pred(
+            df,
+            facet_col='facet_col',
+            x_col='x_col',
+            act_col='act_col',
+            pred_col=['pred_col_a', 'pred_col_b'],
+            weight_col='weight_col',
+            n_bins=9
+        )
+
+        fig_path = Path(self.cache_dir) / "test_multi_pred_facets.png"
+        fig.savefig(fig_path)
+        self.assertTrue(fig_path.exists(), "Multi-pred faceted plot was not saved correctly.")
