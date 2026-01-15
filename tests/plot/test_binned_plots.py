@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 from quantbullet.plot.binned_plots import plot_binned_actual_vs_pred
 import pandas as pd
+from quantbullet.reporting.pdf_text_report import PdfTextReport
 
 DEV_MODE = True
 
@@ -145,6 +146,11 @@ class TestPlotBinnedPlots(unittest.TestCase):
         fig_path = Path(self.cache_dir) / "test_multi_pred_facets.png"
         fig.savefig(fig_path)
         self.assertTrue(fig_path.exists(), "Multi-pred faceted plot was not saved correctly.")
+
+        # test to add the figure to a pdf report
+        report = PdfTextReport( file_path=str( Path(self.cache_dir) / "test_multi_pred_facets.pdf" ), report_title="Test Multi-pred Faceted Plot" )
+        report.add_matplotlib_figure(fig, width_fraction=0.5)
+        report.save()
 
     def test_size_legend_labels_are_unique_for_tight_ranges(self):
         # Construct data so bin counts are very similar, which previously produced confusing
