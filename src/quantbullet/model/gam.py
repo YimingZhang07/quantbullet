@@ -781,6 +781,43 @@ class WrapperGAM:
 
         return f"{tname}[{ti}]"
 
+    def get_model_summary_text(self) -> str:
+        """Get a formatted text summary of the model including feature mapping and GAM summary.
+        
+        Returns
+        -------
+        str
+            Multi-line summary text with:
+            - Feature index to name mapping
+            - GAM statistical summary (from pygam)
+        """
+        if self.gam_ is None:
+            raise ValueError("Model not fit yet. Call fit() before getting summary.")
+        
+        import io
+        from contextlib import redirect_stdout
+        
+        lines = []
+        
+        # Feature mapping section
+        lines.append("=" * 60)
+        lines.append("Feature Index Mapping")
+        lines.append("=" * 60)
+        for idx, feat in enumerate(self.feature_spec.x + self.feature_spec.sec_x):
+            lines.append(f"Feature {idx}: {feat}")
+        lines.append("")
+        
+        # GAM summary section
+        lines.append("=" * 60)
+        lines.append("GAM Model Summary")
+        lines.append("=" * 60)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            self.gam_.summary()
+        lines.append(buf.getvalue())
+        
+        return "\n".join(lines)
+
 def plot_tensor(
     ax,
     X1,
