@@ -32,6 +32,7 @@ class MgcvBamWrapper:
         self._qb_pin_drop           = r.ro.globalenv["qb_pin_drop"]
         self._qb_pin_drop_all       = r.ro.globalenv["qb_pin_drop_all"]
         self._qb_pin_parquet        = r.ro.globalenv["qb_pin_put_parquet"]
+        self._qb_pin_list           = r.ro.globalenv["qb_pin_list"]
 
         _R_GET_VARS = r.ro.r("""
             function(formula_str) {
