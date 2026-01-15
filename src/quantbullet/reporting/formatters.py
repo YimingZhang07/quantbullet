@@ -76,3 +76,83 @@ def numberarray2string(values, **kwargs):
     """
     formatted = [number2string(v, **kwargs) for v in values]
     return "[" + ", ".join(formatted) + "]"
+
+
+def _strip_trailing_zeros(s: str) -> str:
+    """Strip trailing zeros and a trailing decimal point, e.g. '1.20' -> '1.2', '3.00' -> '3'."""
+    if "." not in s:
+        return s
+    s = s.rstrip("0").rstrip(".")
+    return s
+
+
+def human_number(
+    x,
+    *,
+    decimals: int = 2,
+    decimals_lt1: int = 4,
+    decimals_suffix: int = 2,
+    small_sci_threshold: float = 1e-2,
+    sci_sigfigs: int = 2,
+    use_suffixes: bool = True,
+    upper: bool = True,
+):
+    """
+    Human-friendly number formatter with deterministic rules:
+    - NaN/None -> ""
+    - 0 -> "0"
+    - |x| < small_sci_threshold -> scientific (e.g. 1.2e-4)
+    - small values:
+        - |x| < 1 -> fixed with `decimals_lt1` (trim trailing zeros)
+        - |x| < 1000 -> fixed with `decimals` (trim trailing zeros)
+    - large values (if use_suffixes=True):
+        - >= 1e3 -> K, >= 1e6 -> M, >= 1e9 -> B, >= 1e12 -> T (trim trailing zeros)
+
+    Notes
+    -----
+    - This is meant for readability (dashboard/report labels), not exact numeric round-trip.
+    - Negative numbers preserve the sign.
+    """
+    if x is None or pd.isna(x):
+        return ""
+
+    # numpy scalars -> python scalars
+    if isinstance(x, (np.generic,)):
+        x = x.item()
+
+    try:
+        x = float(x)
+    except Exception:
+        return str(x)
+
+    if x == 0.0:
+        return "0"
+
+    sign = "-" if x < 0 else ""
+    ax = abs(x)
+
+    # Very small -> scientific
+    if ax < float(small_sci_threshold):
+        return sign + f"{ax:.{int(sci_sigfigs)}e}"
+
+    # Small/moderate without suffixes
+    if not use_suffixes or ax < 1000.0:
+        d = int(decimals_lt1) if ax < 1.0 else int(decimals)
+        return sign + _strip_trailing_zeros(f"{ax:.{d}f}")
+
+    # Large with suffix
+    suffixes = [
+        (1e12, "T"),
+        (1e9, "B"),
+        (1e6, "M"),
+        (1e3, "K"),
+    ]
+    for div, suf in suffixes:
+        if ax >= div:
+            val = ax / div
+            s = _strip_trailing_zeros(f"{val:.{int(decimals_suffix)}f}")
+            suf = suf if upper else suf.lower()
+            return f"{sign}{s}{suf}"
+
+    # Fallback (shouldn't happen due to ax>=1000 check above)
+    return sign + _strip_trailing_zeros(f"{ax:.{int(decimals)}f}")
