@@ -788,6 +788,7 @@ class WrapperGAM:
         -------
         str
             Multi-line summary text with:
+            - Model formula
             - Feature index to name mapping
             - GAM statistical summary (from pygam)
         """
@@ -798,6 +799,13 @@ class WrapperGAM:
         from contextlib import redirect_stdout
         
         lines = []
+        
+        # Formula section
+        lines.append("=" * 60)
+        lines.append("Model Formula")
+        lines.append("=" * 60)
+        lines.append(self.get_formula_string(max_line_length=70, multiline=True))
+        lines.append("")
         
         # Feature mapping section
         lines.append("=" * 60)
@@ -817,6 +825,94 @@ class WrapperGAM:
         lines.append(buf.getvalue())
         
         return "\n".join(lines)
+    
+    def get_formula_string(self, max_line_length: int = 80, multiline: bool = False) -> str:
+        """Generate a human-readable formula string for the fitted GAM model.
+        
+        Returns a formula in R-style notation showing the model structure, e.g.:
+        "target ~ s(feature1) + s(feature2, by=category) + te(feature3, feature4) + f(category)"
+        
+        Parameters
+        ----------
+        max_line_length : int, optional
+            Maximum line length before wrapping to next line, by default 80.
+            Only used if multiline=True.
+        multiline : bool, optional
+            If True, wrap formula across multiple lines for better readability, by default False.
+        
+        Returns
+        -------
+        str
+            Human-readable formula string describing the model structure.
+            
+        Raises
+        ------
+        ValueError
+            If model has not been fitted yet.
+        """
+        if self.gam_ is None:
+            raise ValueError("Model not fit yet. Call fit() before getting formula string.")
+        
+        # Get target variable name directly from FeatureSpec
+        target_name = self.feature_spec.y
+        
+        # Build term strings for each feature
+        term_strings = []
+        
+        for feature_name in self.feature_spec.x:
+            feat = self.feature_spec[feature_name]
+            specs = feat.specs or {}
+            
+            if feat.dtype == DataType.FLOAT:
+                by = specs.get("by")
+                
+                if by is None:
+                    # Simple spline: s(feature)
+                    term_strings.append(f"s({feature_name})")
+                    
+                else:
+                    by_feat = self.feature_spec[by]
+                    
+                    if by_feat.dtype == DataType.FLOAT:
+                        # Tensor product: te(feature, by_feature)
+                        term_strings.append(f"te({feature_name}, {by})")
+                        
+                    elif by_feat.dtype == DataType.CATEGORY:
+                        # Spline by categorical: s(feature, by=category)
+                        term_strings.append(f"s({feature_name}, by={by})")
+                        
+            elif feat.dtype == DataType.CATEGORY:
+                # Factor term: f(category)
+                term_strings.append(f"f({feature_name})")
+        
+        if not multiline:
+            # Single line formula
+            formula = f"{target_name} ~ " + " + ".join(term_strings)
+        else:
+            # Multi-line formula with intelligent wrapping
+            lines = [f"{target_name} ~"]
+            current_line = "    "  # 4-space indent for continuation
+            
+            for i, term in enumerate(term_strings):
+                # Add " + " before term (except first)
+                prefix = " + " if i > 0 else ""
+                term_with_prefix = prefix + term
+                
+                # Check if adding this term would exceed line length
+                if len(current_line + term_with_prefix) > max_line_length and current_line.strip():
+                    # Start new line
+                    lines.append(current_line.rstrip())
+                    current_line = "    " + term
+                else:
+                    current_line += term_with_prefix
+            
+            # Add the last line
+            if current_line.strip():
+                lines.append(current_line.rstrip())
+            
+            formula = "\n".join(lines)
+        
+        return formula
 
 def plot_tensor(
     ax,
