@@ -256,15 +256,11 @@ def plot_scatter_multi_y(
     ax.legend(frameon=False)
 
     # X tick labeling in binned mode
-    if x_tick_labels != "none":
+    # Only force explicit ticks if user wants categorical labels
+    if x_tick_labels == "label" and "bin_label" in bdf.columns:
         ax.set_xticks(bdf["x_center"].to_numpy(dtype=float))
-
-        if x_tick_labels == "label" and "bin_label" in bdf.columns:
-            ax.set_xticklabels(bdf["bin_label"].tolist(), rotation=45, ha="right")
-        else:
-            # numeric labels at bin positions
-            fmt = f"{{:.{int(x_tick_decimals)}f}}"
-            ax.set_xticklabels([fmt.format(v) for v in bdf["x_center"].to_numpy(dtype=float)], rotation=0)
+        ax.set_xticklabels(bdf["bin_label"].tolist(), rotation=45, ha="right")
+    # Otherwise, let matplotlib auto-choose tick positions to avoid overlap
 
     return fig, ax
 
