@@ -368,8 +368,15 @@ class PdfTextReport:
         self.story.append(p)
         self.story.append(Spacer(1, space_after))
 
-    def add_matplotlib_figure(self, fig, width_fraction=1, space_after=12, dpi=600):
-        """Add a matplotlib figure as an image to the PDF."""
+    def add_matplotlib_figure(self, fig, width_fraction=1, space_after=12, dpi=600, reserve_height=0):
+        """Add a matplotlib figure as an image to the PDF.
+        
+        Parameters
+        ----------
+        reserve_height : float, optional
+            Additional height (in points) to reserve for other content on the same page
+            (e.g., titles, text). This is subtracted from available height before scaling.
+        """
         available_w, available_h = self.get_page_dimensions()
 
         # 1) render to PNG
@@ -388,15 +395,22 @@ class PdfTextReport:
         draw_w = available_w * width_fraction
         draw_h = draw_w * (px_h / px_w)
 
-        # 4) if too tall, scale down
-        if draw_h > available_h:
-            scale = available_h / draw_h
+        # 4) if too tall, scale down (reserve space for margin + spacer + other content)
+        max_allowed_h = available_h - space_after - reserve_height - 5  # 5pt safety margin
+        if draw_h > max_allowed_h:
+            scale = max_allowed_h / draw_h
+            draw_w *= scale
+            draw_h *= scale
+
+        # 5) double-check width constraint (edge case if aspect ratio is extreme)
+        if draw_w > available_w:
+            scale = available_w / draw_w
             draw_w *= scale
             draw_h *= scale
 
         self.story.append(Image(buf, width=draw_w, height=draw_h))
-        # self.story.append(Spacer(1, space_after))
         plt.close(fig)
+        self.story.append(Spacer(1, space_after))
         
     # -----------------
     # Page dimensions
