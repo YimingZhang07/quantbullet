@@ -108,7 +108,15 @@ from quantbullet.plot.cycles import ECONOMIST_LINE_COLORS
 
 
 
-def prepare_binned_data(df, x_col, act_col, pred_cols, facet_col=None, weight_col=None, n_bins=10, min_size=20, max_size=100):
+def prepare_binned_data(df, x_col, act_col, pred_cols, facet_col=None, weight_col=None, bins=None, n_bins=10, min_size=20, max_size=100):
+    """
+    Parameters
+    ----------
+    bins : None, False, 'discrete', or array-like
+        - None (default): Use quantile binning with n_bins
+        - False or 'discrete': Group by exact x values (no binning)
+        - array-like: Custom bin edges for pd.cut()
+    """
     # Setup weights
     weights = df[weight_col] if weight_col else pd.Series(1, index=df.index)
     pred_cols = list(pred_cols)
@@ -125,8 +133,18 @@ def prepare_binned_data(df, x_col, act_col, pred_cols, facet_col=None, weight_co
         tmp['facet'] = df[facet_col]
 
     # Binning logic
-    tmp['bin'] = pd.qcut(tmp['x'], q=n_bins, duplicates='drop')
-    tmp['bin_val'] = tmp['bin'].apply(lambda x: x.right)
+    if bins is False or bins == 'discrete':
+        # Discrete mode: group by exact x values (no binning)
+        tmp['bin'] = tmp['x']
+        tmp['bin_val'] = tmp['x']
+    elif bins is None:
+        # Quantile binning (default)
+        tmp['bin'] = pd.qcut(tmp['x'], q=n_bins, duplicates='drop')
+        tmp['bin_val'] = tmp['bin'].apply(lambda x: x.right)
+    else:
+        # Custom bins
+        tmp['bin'] = pd.cut(tmp['x'], bins=bins, duplicates='drop')
+        tmp['bin_val'] = tmp['bin'].apply(lambda x: x.right)
 
     # Aggregation
     group_cols = ['facet', 'bin_val'] if facet_col else ['bin_val']
@@ -179,6 +197,7 @@ def draw_act_vs_pred(
     act_label="Actual", 
     pred_labels=None,
     pred_colors=None,
+    y_transform=None,
 ):
     # Drop rows where act_mean is NaN
     agg_df = agg_df[agg_df["act_mean"].notna()]
@@ -190,10 +209,15 @@ def draw_act_vs_pred(
     if pred_colors is None:
         pred_colors = ECONOMIST_LINE_COLORS
 
+    # Apply y-transform if provided
+    act_values = agg_df['act_mean']
+    if y_transform is not None:
+        act_values = y_transform(act_values)
+
     # Scatter for actuals (gray)
     ax.scatter(
         agg_df['bin_val'], 
-        agg_df['act_mean'],
+        act_values,
         color=EBC.LONDON_70, 
         alpha=0.6,
         s=agg_df['scatter_size'],
@@ -206,9 +230,14 @@ def draw_act_vs_pred(
     for idx, (pred_col, pred_mean_col) in enumerate(pred_mean_cols.items()):
         label = pred_labels.get(pred_col, pred_col) if show_legend else None
         color = pred_colors[idx % len(pred_colors)]
+        
+        pred_values = agg_df[pred_mean_col]
+        if y_transform is not None:
+            pred_values = y_transform(pred_values)
+        
         ax.plot(
             agg_df['bin_val'], 
-            agg_df[pred_mean_col],
+            pred_values,
             label=label,
             color=color,
             linewidth=2,
@@ -268,22 +297,36 @@ def plot_binned_actual_vs_pred(
     act_col,
     pred_col,
     facet_col=None,
+    bins=None,
     figsize=(6, 4),
     n_cols=3,
     compact_cols=True,
     close_unused=True,
     pred_colors=None,
+    y_transform=None,
     **kwargs,
 ):
     """
     Parameters
     ----------
+    bins : None, False, 'discrete', or array-like, optional
+        Binning strategy for x_col:
+        - None (default): Quantile binning using n_bins parameter
+        - False or 'discrete': Group by exact x values (no binning).
+          Use this for discrete variables like age in months, year, etc.
+        - array-like: Custom bin edges for pd.cut()
+        Example: bins=False for age=[12,13,14,...] to get one point per age
+        Example: bins=[0, 12, 24, 36, 60, 120, 360] for custom age bands
     pred_colors : list of str, optional
         Colors for prediction lines. Defaults to ECONOMIST_LINE_COLORS.
+    y_transform : callable, optional
+        Function to transform y-values (both actual and predicted) before plotting.
+        Useful for unit conversions (e.g., monthly to annualized).
+        Example: `lambda x: x * 12` to annualize monthly values.
     """
     # 1. Get data and scaling metadata
     pred_cols = [pred_col] if isinstance(pred_col, str) else list(pred_col)
-    agg, meta = prepare_binned_data(df, x_col, act_col, pred_cols, facet_col, **kwargs)
+    agg, meta = prepare_binned_data(df, x_col, act_col, pred_cols, facet_col, bins=bins, **kwargs)
     
     # 2. Setup Layout
     if facet_col is None:
@@ -326,6 +369,7 @@ def plot_binned_actual_vs_pred(
             act_label=act_col,
             pred_labels={pred: pred for pred in pred_cols},
             pred_colors=pred_colors,
+            y_transform=y_transform,
         )
     if close_unused:
         close_unused_axes(axes)
