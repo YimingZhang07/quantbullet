@@ -154,37 +154,10 @@ class MgcvBamWrapper:
         if self.model_r_ is None:
             raise ValueError("Model is not fitted yet. Call fit() or fit_pinned_data() first.")
 
-    def select_columns_for_formula(self, df: pd.DataFrame, formula: str, extra_cols: Optional[list] = None) -> pd.DataFrame:
-        """
-        Extract only the columns needed for a formula from a DataFrame.
-        
-        Args:
-            df: Input DataFrame
-            formula: R-style formula string (e.g., 'y ~ s(x1) + s(x2)')
-            extra_cols: Additional columns to include (e.g., ['weight'])
-            
-        Returns:
-            DataFrame with only the necessary columns
-            
-        Raises:
-            ValueError: If formula is invalid or required columns are missing
-        """
-        if not formula or not isinstance(formula, str):
-            raise ValueError("formula must be a non-empty string")
-            
+    def select_columns_for_formula(self, df, formula: str, extra_cols=None):
         extra_cols = extra_cols or []
-        try:
-            formula_vars = self._get_formula_vars(formula)
-        except Exception as e:
-            raise ValueError(f"Invalid formula '{formula}': {e}") from e
-            
-        cols = set(formula_vars) | set(extra_cols)
+        cols = set(self._get_formula_vars(formula)) | set(extra_cols)
         cols = [c for c in cols if c in df.columns]
-        
-        missing = set(formula_vars) - set(df.columns)
-        if missing:
-            raise ValueError(f"Formula requires columns not in DataFrame: {missing}")
-            
         return df.loc[:, cols]
     
     def pin_df_to_parquet(self, df: pd.DataFrame, name: str, formula: Optional[str] = None, fpath: Optional[Union[str, Path]] = None) -> None:
