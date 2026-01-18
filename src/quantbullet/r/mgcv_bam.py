@@ -45,7 +45,6 @@ class MgcvBamWrapper:
         self._bam_fit_pinned_data   = r.ro.globalenv["fit_gam_pinned_data_api"]
 
         self._bam_predict           = r.ro.globalenv["predict_gam_chunked_api"]
-        # self._bam_predict_pinned_data   = r.ro.globalenv["predict_gam_parallel_pinned_data_api"]
         self._bam_predict_pinned_data   = r.ro.globalenv["predict_gam_chunked_pinned_data_api"]
         
         self._plot_fn               = r.ro.globalenv["plot_gam_smooth_api"]
@@ -135,11 +134,6 @@ class MgcvBamWrapper:
             raise ValueError(f"num_cores must be >= 1, got {num_cores}")
         if nthreads < 1:
             raise ValueError(f"nthreads must be >= 1, got {nthreads}")
-    
-    def _validate_predict_params(self, num_split: int) -> None:
-        """Validate common prediction parameters."""
-        if num_split < 1:
-            raise ValueError(f"num_split must be >= 1, got {num_split}")
     
     def _handle_fit_result(self, res, data_source: str, timing: dict) -> None:
         """Process fit result and update model state."""
@@ -376,8 +370,7 @@ class MgcvBamWrapper:
         *,
         data_name: Optional[str] = None,
         type: str = "response", 
-        num_cores_predict: int = 20, 
-        num_split: int = 8
+        chunk_size: int = 250000
     ) -> np.ndarray:
         """
         Make predictions on new data using the fitted model.
@@ -391,8 +384,7 @@ class MgcvBamWrapper:
             data_name: Name of pinned data (use either df or data_name, not both).
                 Must be passed as keyword argument.
             type: Prediction type ('response', 'link', or 'terms')
-            num_cores_predict: Number of cores for parallel prediction (currently unused)
-            num_split: Number of chunks for memory-efficient prediction
+            chunk_size: Size of chunks for memory-efficient prediction (default: 250000)
             
         Returns:
             Array of predictions
@@ -420,9 +412,6 @@ class MgcvBamWrapper:
         if df is None and data_name is None:
             raise ValueError("Must provide either 'df' or 'data_name'")
         
-        # Common parameter validation
-        self._validate_predict_params(num_split)
-        
         # Initialize timing dict
         timing = {}
         
@@ -448,8 +437,7 @@ class MgcvBamWrapper:
                 self.model_r_,
                 df_r,
                 type=type,
-                num_cores_predict=num_cores_predict,
-                num_split=num_split
+                chunk_size=chunk_size
             )
             timing['r_predict'] = time.perf_counter() - t0
             
@@ -465,8 +453,7 @@ class MgcvBamWrapper:
                 self.model_r_,
                 data_name,
                 type=type,
-                num_cores_predict=num_cores_predict,
-                num_split=num_split
+                chunk_size=chunk_size
             )
             timing['r_predict'] = time.perf_counter() - t0
             
@@ -490,8 +477,7 @@ class MgcvBamWrapper:
         self, 
         data_name: str, 
         type: str = "response", 
-        num_cores_predict: int = 20, 
-        num_split: int = 8
+        chunk_size: int = 250000
     ) -> np.ndarray:
         """
         Make predictions using previously pinned data.
@@ -502,8 +488,7 @@ class MgcvBamWrapper:
         Args:
             data_name: Name of the pinned data (from pin_put or pin_df_to_parquet)
             type: Prediction type ('response', 'link', or 'terms')
-            num_cores_predict: Number of cores for parallel prediction (currently unused)
-            num_split: Number of chunks for memory-efficient prediction
+            chunk_size: Size of chunks for memory-efficient prediction (default: 250000)
             
         Returns:
             Array of predictions
@@ -514,8 +499,7 @@ class MgcvBamWrapper:
         return self.predict(
             data_name=data_name,
             type=type,
-            num_cores_predict=num_cores_predict,
-            num_split=num_split
+            chunk_size=chunk_size
         )
     
     def plot_to_file(

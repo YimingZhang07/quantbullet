@@ -179,11 +179,21 @@ sanitize_factor_levels <- function(fit, data, set_level = FALSE, verbose = TRUE)
 
   # only check columns that exist in both fit$model and data
   common_cols <- intersect(names(fit_model), names(data))
-
+  
+  # Pre-identify factor columns only (avoid checking every column)
+  factor_cols <- character(0)
   for (colname in common_cols) {
-    x_fit <- fit_model[[colname]]
-    if (!is.factor(x_fit)) next
+    if (is.factor(fit_model[[colname]])) {
+      factor_cols <- c(factor_cols, colname)
+    }
+  }
+  
+  # Early return if no factors to sanitize
+  if (length(factor_cols) == 0L) return(data)
 
+  # Process only factor columns
+  for (colname in factor_cols) {
+    x_fit <- fit_model[[colname]]
     lvls <- levels(x_fit)
 
     # data col might not be factor; compare as character safely
@@ -211,7 +221,12 @@ sanitize_factor_levels <- function(fit, data, set_level = FALSE, verbose = TRUE)
   data
 }
 
-strip_gam_object <- function(cm) {
+strip_gam_object <- function(cm, force = FALSE) {
+  # Check if already stripped (avoid re-stripping)
+  if (!force && !is.null(attr(cm, "qb_stripped"))) {
+    return(cm)
+  }
+  
   if (!is.null(cm$offset) && any(cm$offset != 0, na.rm = TRUE)) {
     warning("offset is not zero (make sure this is intended).")
   }
@@ -265,17 +280,34 @@ strip_gam_object <- function(cm) {
   if (!is.null(cm$terms))   attr(cm$terms,   ".Environment") <- emptyenv()
   if (!is.null(cm$formula)) attr(cm$formula, ".Environment") <- emptyenv()
 
+  # Mark as stripped
+  attr(cm, "qb_stripped") <- TRUE
+  
   stripped_size <- mb(cm)
-  message(sprintf("from size %d MB to %d MB", orig_size, stripped_size))
+  cat(sprintf("[strip_gam_object] %d MB → %d MB\n", orig_size, stripped_size))
   cm
 }
 
 predict_gam_chunked_api <- function(gam_fit, X, set_level = FALSE, type = "response",
-                                    chunk_size = 250000L, num_cores_predict = NULL, num_split = NULL) {
-  if (!inherits(X, "data.frame")) X <- as.data.frame(X)
+                                    chunk_size = 250000L) {
+  time_total_begin <- Sys.time()
+  
+  # Avoid unnecessary conversions - keep data.table if it is
+  time_convert_begin <- Sys.time()
+  if (!inherits(X, "data.frame")) {
+    X <- as.data.frame(X)
+  }
+  time_convert <- as.numeric(Sys.time() - time_convert_begin)
 
-  X <- sanitize_factor_levels(gam_fit, X, set_level = set_level)
+  # Sanitize factor levels
+  time_sanitize_begin <- Sys.time()
+  X <- sanitize_factor_levels(gam_fit, X, set_level = set_level, verbose = FALSE)
+  time_sanitize <- as.numeric(Sys.time() - time_sanitize_begin)
+  
+  # Strip model (this can be slow)
+  time_strip_begin <- Sys.time()
   gam_fit <- strip_gam_object(gam_fit)
+  time_strip <- as.numeric(Sys.time() - time_strip_begin)
 
   n <- nrow(X)
   if (n == 0L) return(numeric(0))
@@ -283,22 +315,38 @@ predict_gam_chunked_api <- function(gam_fit, X, set_level = FALSE, type = "respo
   chunk_size <- as.integer(chunk_size)
   if (is.na(chunk_size) || chunk_size <= 0L) chunk_size <- n
 
-  # preallocate
-  out <- numeric(n)
-
-  for (s in seq.int(1L, n, by = chunk_size)) {
-    e <- min(n, s + chunk_size - 1L)
-    out[s:e] <- predict.gam(gam_fit, newdata = X[s:e, , drop = FALSE], type = type)
+  # Actual prediction
+  time_predict_begin <- Sys.time()
+  
+  # Fast path: no chunking needed
+  if (n <= chunk_size) {
+    out <- predict.gam(gam_fit, newdata = X, type = type)
+    num_chunks <- 1L
+  } else {
+    # Chunked prediction for large datasets
+    out <- numeric(n)
+    num_chunks <- ceiling(n / chunk_size)
+    
+    for (s in seq.int(1L, n, by = chunk_size)) {
+      e <- min(n, s + chunk_size - 1L)
+      out[s:e] <- predict.gam(gam_fit, newdata = X[s:e, , drop = FALSE], type = type)
+    }
   }
+  
+  time_predict <- as.numeric(Sys.time() - time_predict_begin)
+  
+  time_total <- as.numeric(Sys.time() - time_total_begin)
+  
+  # Detailed timing breakdown
+  cat(sprintf("[R predict_gam_chunked] n=%d chunks=%d | convert=%.3fs sanitize=%.3fs strip=%.3fs predict=%.3fs | total=%.3fs\n", 
+                  n, num_chunks, time_convert, time_sanitize, time_strip, time_predict, time_total))
 
   out
 }
 
 predict_gam_chunked_pinned_data_api <- function(gam_fit, data_name,
                                       set_level = FALSE, type = "response",
-                                      chunk_size = 250000L,
-                                      num_cores_predict = NULL,
-                                      num_split = NULL)
+                                      chunk_size = 250000L)
 {
   X <- qb_pin_get(data_name)  # will error if missing
 
@@ -307,9 +355,7 @@ predict_gam_chunked_pinned_data_api <- function(gam_fit, data_name,
     X           = X,
     set_level   = set_level,
     type        = type,
-    chunk_size  = chunk_size,
-    num_cores_predict = num_cores_predict,
-    num_split         = num_split
+    chunk_size  = chunk_size
   )
 }
 
@@ -360,7 +406,7 @@ predict_gam_parallel_api <- function(gam_fit, X, set_level = FALSE, type = "resp
   idx <- split(seq_len(n), cut(seq_len(n), breaks = num_split, labels = FALSE))
 
   time_cluster_begin <- Sys.time()
-  message(sprintf("Predict with %d cores.", num_cores_predict))
+  cat(sprintf("[R parallel] Predict with %d cores.\n", num_cores_predict))
 
   cl <- qb_get_cluster(num_cores_predict)
 

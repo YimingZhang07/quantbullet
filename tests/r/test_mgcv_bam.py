@@ -67,7 +67,7 @@ class TestMgcvBam(unittest.TestCase):
         print(f"**********MgcvBamWrapper fit time**********: {time_fit:.2f}s")
         
         time_begin = time.perf_counter()
-        predictions = mgcv_wrapper.predict(df, type='response', num_cores_predict=8, num_split=8)
+        predictions = mgcv_wrapper.predict(df, type='response', chunk_size=500000)
         time_predict = time.perf_counter() - time_begin
         print(f"**********MgcvBamWrapper predict time**********: {time_predict:.2f}s")
 
@@ -114,7 +114,7 @@ class TestMgcvBam(unittest.TestCase):
 
         
         time_begin = time.perf_counter()
-        predictions = mgcv_wrapper.predict_pinned_data( data_name = "test_data", type='response', num_cores_predict=8, num_split=8)
+        predictions = mgcv_wrapper.predict_pinned_data( data_name = "test_data", type='response', chunk_size=500000)
         time_predict = time.perf_counter() - time_begin
         print(f"**********MgcvBamWrapper predict_pinned_data time**********: {time_predict:.2f}s")
 
