@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Optional, Union, Literal
 import pandas as pd
 import numpy as np
+from rpy2.rinterface import NULL as R_NULL
 
 from .r_session import get_r
 from .rpy_convert import py_df_to_r, r_array_to_py, r_generic_types_to_py
@@ -441,21 +442,15 @@ class MgcvBamWrapper:
             
             # Time: R prediction (includes internal R timing)
             t0 = time.perf_counter()
-            predict_kwargs = {
-                "type": type,
-                "chunk_size": chunk_size,
-                "newdata_guaranteed": newdata_guaranteed,
-                "gc_level": gc_level,
-            }
-            if discrete is not None:
-                predict_kwargs["discrete"] = discrete
-            if n_threads is not None:
-                predict_kwargs["n_threads"] = n_threads
-
             pred_r = self._bam_predict(
                 self.model_r_,
                 df_r,
-                **predict_kwargs
+                type=type,
+                chunk_size=chunk_size,
+                newdata_guaranteed=newdata_guaranteed,
+                discrete=R_NULL if discrete is None else discrete,
+                n_threads=R_NULL if n_threads is None else n_threads,
+                gc_level=gc_level
             )
             timing['r_predict'] = time.perf_counter() - t0
             
@@ -467,21 +462,15 @@ class MgcvBamWrapper:
             
             # Time: R prediction with pinned data (includes internal R timing)
             t0 = time.perf_counter()
-            predict_kwargs = {
-                "type": type,
-                "chunk_size": chunk_size,
-                "newdata_guaranteed": newdata_guaranteed,
-                "gc_level": gc_level,
-            }
-            if discrete is not None:
-                predict_kwargs["discrete"] = discrete
-            if n_threads is not None:
-                predict_kwargs["n_threads"] = n_threads
-
             pred_r = self._bam_predict_pinned_data(
                 self.model_r_,
                 data_name,
-                **predict_kwargs
+                type=type,
+                chunk_size=chunk_size,
+                newdata_guaranteed=newdata_guaranteed,
+                discrete=R_NULL if discrete is None else discrete,
+                n_threads=R_NULL if n_threads is None else n_threads,
+                gc_level=gc_level
             )
             timing['r_predict'] = time.perf_counter() - t0
             
