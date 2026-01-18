@@ -288,8 +288,12 @@ strip_gam_object <- function(cm, force = FALSE) {
   cm
 }
 
-predict_gam_chunked_api <- function(gam_fit, X, set_level = FALSE, type = "response",
-                                    chunk_size = 250000L) {
+predict_bam_api <- function(gam_fit, X, set_level = FALSE, type = "response",
+                            chunk_size = 250000L,
+                            newdata_guaranteed = FALSE,
+                            discrete = TRUE,
+                            n_threads = NULL,
+                            gc_level = 0) {
   time_total_begin <- Sys.time()
   
   # Avoid unnecessary conversions - keep data.table if it is
@@ -315,47 +319,54 @@ predict_gam_chunked_api <- function(gam_fit, X, set_level = FALSE, type = "respo
   chunk_size <- as.integer(chunk_size)
   if (is.na(chunk_size) || chunk_size <= 0L) chunk_size <- n
 
-  # Actual prediction
+  # Actual prediction (predict.bam does its own internal blocking)
   time_predict_begin <- Sys.time()
   
-  # Fast path: no chunking needed
-  if (n <= chunk_size) {
-    out <- predict.gam(gam_fit, newdata = X, type = type)
-    num_chunks <- 1L
-  } else {
-    # Chunked prediction for large datasets
-    out <- numeric(n)
-    num_chunks <- ceiling(n / chunk_size)
-    
-    for (s in seq.int(1L, n, by = chunk_size)) {
-      e <- min(n, s + chunk_size - 1L)
-      out[s:e] <- predict.gam(gam_fit, newdata = X[s:e, , drop = FALSE], type = type)
-    }
-  }
+  discrete_val <- if (is.null(discrete)) TRUE else isTRUE(discrete)
+  n_threads_val <- if (is.null(n_threads)) 1L else as.integer(n_threads)
+
+  out <- predict.bam(
+    gam_fit,
+    newdata = X,
+    type = type,
+    block.size = as.integer(chunk_size),
+    newdata.guaranteed = isTRUE(newdata_guaranteed),
+    discrete = discrete_val,
+    n.threads = n_threads_val,
+    gc.level = as.integer(gc_level)
+  )
   
   time_predict <- as.numeric(Sys.time() - time_predict_begin)
   
   time_total <- as.numeric(Sys.time() - time_total_begin)
   
   # Detailed timing breakdown
-  cat(sprintf("[R predict_gam_chunked] n=%d chunks=%d | convert=%.3fs sanitize=%.3fs strip=%.3fs predict=%.3fs | total=%.3fs\n", 
-                  n, num_chunks, time_convert, time_sanitize, time_strip, time_predict, time_total))
+  cat(sprintf("[R predict_bam] n=%d | convert=%.3fs sanitize=%.3fs strip=%.3fs predict=%.3fs | total=%.3fs\n", 
+                  n, time_convert, time_sanitize, time_strip, time_predict, time_total))
 
   out
 }
 
-predict_gam_chunked_pinned_data_api <- function(gam_fit, data_name,
-                                      set_level = FALSE, type = "response",
-                                      chunk_size = 250000L)
+predict_bam_pinned_data_api <- function(gam_fit, data_name,
+                                        set_level = FALSE, type = "response",
+                                        chunk_size = 250000L,
+                                        newdata_guaranteed = FALSE,
+                                        discrete = TRUE,
+                                        n_threads = NULL,
+                                        gc_level = 0)
 {
   X <- qb_pin_get(data_name)  # will error if missing
 
-  predict_gam_chunked_api(
+  predict_bam_api(
     gam_fit     = gam_fit,
     X           = X,
     set_level   = set_level,
     type        = type,
-    chunk_size  = chunk_size
+    chunk_size  = chunk_size,
+    newdata_guaranteed = newdata_guaranteed,
+    discrete    = discrete,
+    n_threads   = n_threads,
+    gc_level    = gc_level
   )
 }
 

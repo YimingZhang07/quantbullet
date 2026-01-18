@@ -79,7 +79,9 @@ pred <- predict_gam_chunked_api(
   gam_fit = model,
   X = dt,
   type = "response",
-  chunk_size = 500000L
+  newdata_guaranteed = T,
+  chunk_size = 1000000L,
+  discrete=T
 )
 t_pred <- time_now() - t0
 cat(sprintf("[R benchmark] Predict time: %.2fs\n", t_pred))

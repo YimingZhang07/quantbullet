@@ -44,8 +44,8 @@ class MgcvBamWrapper:
         self._bam_fit               = r.ro.globalenv["fit_gam_api"]
         self._bam_fit_pinned_data   = r.ro.globalenv["fit_gam_pinned_data_api"]
 
-        self._bam_predict           = r.ro.globalenv["predict_gam_chunked_api"]
-        self._bam_predict_pinned_data   = r.ro.globalenv["predict_gam_chunked_pinned_data_api"]
+        self._bam_predict           = r.ro.globalenv["predict_bam_api"]
+        self._bam_predict_pinned_data   = r.ro.globalenv["predict_bam_pinned_data_api"]
         
         self._plot_fn               = r.ro.globalenv["plot_gam_smooth_api"]
         self._stop_cluster          = r.ro.globalenv["qb_stop_cluster"]
@@ -370,7 +370,11 @@ class MgcvBamWrapper:
         *,
         data_name: Optional[str] = None,
         type: str = "response", 
-        chunk_size: int = 250000
+        chunk_size: int = 1_000_000,
+        newdata_guaranteed: bool = False,
+        discrete: Optional[bool] = True,
+        n_threads: Optional[int] = None,
+        gc_level: int = 0
     ) -> np.ndarray:
         """
         Make predictions on new data using the fitted model.
@@ -384,7 +388,11 @@ class MgcvBamWrapper:
             data_name: Name of pinned data (use either df or data_name, not both).
                 Must be passed as keyword argument.
             type: Prediction type ('response', 'link', or 'terms')
-            chunk_size: Size of chunks for memory-efficient prediction (default: 250000)
+            chunk_size: Size of chunks for memory-efficient prediction (default: 1_000_000)
+            newdata_guaranteed: If True, skip checks of newdata (faster, but must be valid)
+            discrete: If set, override bam discrete prediction (True/False). None uses mgcv default.
+            n_threads: If set, override number of threads used by predict.bam (discrete only).
+            gc_level: Garbage collection level for predict.bam (0 = default)
             
         Returns:
             Array of predictions
@@ -433,11 +441,21 @@ class MgcvBamWrapper:
             
             # Time: R prediction (includes internal R timing)
             t0 = time.perf_counter()
+            predict_kwargs = {
+                "type": type,
+                "chunk_size": chunk_size,
+                "newdata_guaranteed": newdata_guaranteed,
+                "gc_level": gc_level,
+            }
+            if discrete is not None:
+                predict_kwargs["discrete"] = discrete
+            if n_threads is not None:
+                predict_kwargs["n_threads"] = n_threads
+
             pred_r = self._bam_predict(
                 self.model_r_,
                 df_r,
-                type=type,
-                chunk_size=chunk_size
+                **predict_kwargs
             )
             timing['r_predict'] = time.perf_counter() - t0
             
@@ -449,11 +467,21 @@ class MgcvBamWrapper:
             
             # Time: R prediction with pinned data (includes internal R timing)
             t0 = time.perf_counter()
+            predict_kwargs = {
+                "type": type,
+                "chunk_size": chunk_size,
+                "newdata_guaranteed": newdata_guaranteed,
+                "gc_level": gc_level,
+            }
+            if discrete is not None:
+                predict_kwargs["discrete"] = discrete
+            if n_threads is not None:
+                predict_kwargs["n_threads"] = n_threads
+
             pred_r = self._bam_predict_pinned_data(
                 self.model_r_,
                 data_name,
-                type=type,
-                chunk_size=chunk_size
+                **predict_kwargs
             )
             timing['r_predict'] = time.perf_counter() - t0
             
@@ -477,7 +505,11 @@ class MgcvBamWrapper:
         self, 
         data_name: str, 
         type: str = "response", 
-        chunk_size: int = 250000
+        chunk_size: int = 1_000_000,
+        newdata_guaranteed: bool = False,
+        discrete: Optional[bool] = True,
+        n_threads: Optional[int] = None,
+        gc_level: int = 0
     ) -> np.ndarray:
         """
         Make predictions using previously pinned data.
@@ -488,7 +520,11 @@ class MgcvBamWrapper:
         Args:
             data_name: Name of the pinned data (from pin_put or pin_df_to_parquet)
             type: Prediction type ('response', 'link', or 'terms')
-            chunk_size: Size of chunks for memory-efficient prediction (default: 250000)
+            chunk_size: Size of chunks for memory-efficient prediction (default: 1_000_000)
+            newdata_guaranteed: If True, skip checks of newdata (faster, but must be valid)
+            discrete: If set, override bam discrete prediction (True/False). None uses mgcv default.
+            n_threads: If set, override number of threads used by predict.bam (discrete only).
+            gc_level: Garbage collection level for predict.bam (0 = default)
             
         Returns:
             Array of predictions
@@ -499,7 +535,11 @@ class MgcvBamWrapper:
         return self.predict(
             data_name=data_name,
             type=type,
-            chunk_size=chunk_size
+            chunk_size=chunk_size,
+            newdata_guaranteed=newdata_guaranteed,
+            discrete=discrete,
+            n_threads=n_threads,
+            gc_level=gc_level
         )
     
     def plot_to_file(
