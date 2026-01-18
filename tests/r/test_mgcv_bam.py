@@ -124,3 +124,34 @@ class TestMgcvBam(unittest.TestCase):
         mgcv_wrapper.stop_cluster()
         self.assertEqual(len(predictions), n)
         self.assertTrue(isinstance(predictions, (list, np.ndarray)))
+
+    def test_prepare_r_benchmark_files(self):
+        """
+        Prepare parquet input for R-side benchmarking.
+
+        This test writes a parquet file to the cache directory that can be
+        consumed by tests/r/run_mgcv_benchmark.R in RStudio.
+        """
+        if not DEV_MODE:
+            self.skipTest("R benchmark prep is for DEV_MODE only.")
+
+        import pandas as pd
+        import numpy as np
+
+        n = 1_000_000
+        df = pd.DataFrame({
+            'x1': np.random.rand(n),
+            'x2': np.random.rand(n),
+            'y': np.random.rand(n)
+        })
+
+        cache_dir = Path(self.cache_dir)
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        parquet_path = cache_dir / "mgcv_benchmark.parquet"
+
+        try:
+            df.to_parquet(parquet_path, index=False)
+        except Exception as e:
+            self.skipTest(f"Skipping parquet write; install pyarrow or fastparquet. Error: {e}")
+
+        print(f"Parquet written for R benchmark: {parquet_path}")
