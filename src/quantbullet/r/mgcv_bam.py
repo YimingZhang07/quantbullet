@@ -152,7 +152,7 @@ class MgcvBamWrapper:
         
         # Log timing info
         timing_str = " | ".join(f"{k}={v:.2f}s" for k, v in timing.items())
-        logger.info(f"Model fitted from {data_source}: {timing_str}")
+        print(f"Model fitted from {data_source}: {timing_str}")
     
     def _ensure_fitted(self) -> None:
         """Ensure model is fitted before prediction/plotting."""
@@ -409,6 +409,8 @@ class MgcvBamWrapper:
             >>> wrapper.pin_put('test', test_df)
             >>> predictions = wrapper.predict(data_name='test')
         """
+        t_total_begin = time.perf_counter()
+        
         # Ensure model is fitted
         self._ensure_fitted()
         
@@ -421,14 +423,27 @@ class MgcvBamWrapper:
         # Common parameter validation
         self._validate_predict_params(num_split)
         
+        # Initialize timing dict
+        timing = {}
+        
         # Route to appropriate implementation
         if df is not None:
             # Direct DataFrame path
             if len(df) == 0:
                 raise ValueError("df must be a non-empty DataFrame")
             
+            # Time: column selection
+            t0 = time.perf_counter()
             df_sub = self.select_columns_for_formula(df, self.formula_, extra_cols=["weight"])
+            timing['select_cols'] = time.perf_counter() - t0
+            
+            # Time: Python -> R conversion
+            t0 = time.perf_counter()
             df_r = py_df_to_r(df_sub)
+            timing['py_to_r'] = time.perf_counter() - t0
+            
+            # Time: R prediction (includes internal R timing)
+            t0 = time.perf_counter()
             pred_r = self._bam_predict(
                 self.model_r_,
                 df_r,
@@ -436,11 +451,16 @@ class MgcvBamWrapper:
                 num_cores_predict=num_cores_predict,
                 num_split=num_split
             )
+            timing['r_predict'] = time.perf_counter() - t0
+            
+            data_source = f"DataFrame[{len(df)}]"
         else:
             # Pinned data path
             if not isinstance(data_name, str) or not data_name:
                 raise ValueError("data_name must be a non-empty string")
             
+            # Time: R prediction with pinned data (includes internal R timing)
+            t0 = time.perf_counter()
             pred_r = self._bam_predict_pinned_data(
                 self.model_r_,
                 data_name,
@@ -448,8 +468,22 @@ class MgcvBamWrapper:
                 num_cores_predict=num_cores_predict,
                 num_split=num_split
             )
+            timing['r_predict'] = time.perf_counter() - t0
+            
+            data_source = f"pinned '{data_name}'"
         
+        # Time: R -> Python conversion
+        t0 = time.perf_counter()
         pred = r_array_to_py(pred_r)
+        timing['r_to_py'] = time.perf_counter() - t0
+        
+        # Total time
+        timing['total'] = time.perf_counter() - t_total_begin
+        
+        # Log detailed timing
+        timing_str = " | ".join(f"{k}={v:.2f}s" for k, v in timing.items())
+        print(f"Predictions made from {data_source}: {timing_str}")
+        
         return pred
     
     def predict_pinned_data(
