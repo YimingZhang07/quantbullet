@@ -1,10 +1,34 @@
 import time
+import logging
 from pathlib import Path
+from typing import Optional, Union, Literal
+import pandas as pd
+import numpy as np
+
 from .r_session import get_r
 from .rpy_convert import py_df_to_r, r_array_to_py, r_generic_types_to_py
 
+logger = logging.getLogger(__name__)
+
+
 class MgcvBamWrapper:
+    """
+    Python wrapper for R's mgcv::bam() function for fitting Generalized Additive Models.
+    
+    Provides a Pythonic interface to R's mgcv package with support for:
+    - Large-scale GAM fitting with parallel processing
+    - Data pinning to avoid repeated Python-R conversions
+    - Chunked prediction for memory efficiency
+    - Model visualization
+    
+    Example:
+        >>> wrapper = MgcvBamWrapper()
+        >>> wrapper.fit(df, formula='y ~ s(x1) + s(x2)', num_cores=8)
+        >>> predictions = wrapper.predict(df_new)
+    """
+    
     def __init__(self):
+        """Initialize the wrapper and source R backend functions."""
         r = get_r()
         self.r_ = r
 
@@ -50,20 +74,114 @@ class MgcvBamWrapper:
         self.model_r_ = None
         self.formula_ = None
 
-    def pin_put( self, name: str, df, as_datatable: bool = True, lock: bool = True ):
+    def pin_put(self, name: str, df: pd.DataFrame, as_datatable: bool = True, lock: bool = True) -> None:
+        """
+        Pin a DataFrame to R's memory to avoid repeated Python-R conversions.
+        
+        Args:
+            name: Unique identifier for the pinned data
+            df: DataFrame to pin
+            as_datatable: Convert to data.table in R (recommended for performance)
+            lock: Prevent accidental overwrite of pinned data
+            
+        Raises:
+            ValueError: If name is invalid or df is empty
+        """
+        if not name or not isinstance(name, str):
+            raise ValueError("name must be a non-empty string")
+        if df is None or len(df) == 0:
+            raise ValueError("df must be a non-empty DataFrame")
+            
         df_r = py_df_to_r(df, r=self.r_)
-        self._qb_pin_put( name = name, df = df_r, as_datatable = as_datatable, lock = lock )
+        self._qb_pin_put(name=name, df=df_r, as_datatable=as_datatable, lock=lock)
+        logger.debug(f"Pinned data '{name}' with shape {df.shape}")
 
-    def pin_drop_all( self ):
-        self._qb_pin_drop_all( )
+    def pin_drop(self, name: str) -> bool:
+        """
+        Remove a pinned DataFrame from R's memory.
+        
+        Args:
+            name: Name of the pinned data to remove
+            
+        Returns:
+            True if data was removed, False if it didn't exist
+        """
+        result = self._qb_pin_drop(name)
+        removed = r_generic_types_to_py(result) if result is not None else False
+        if removed:
+            logger.debug(f"Dropped pinned data '{name}'")
+        return bool(removed)
 
-    def select_columns_for_formula(self, df, formula: str, extra_cols=None):
+    def pin_drop_all(self) -> None:
+        """Remove all pinned DataFrames from R's memory."""
+        self._qb_pin_drop_all()
+        logger.debug("Dropped all pinned data")
+    
+    def pin_list(self) -> list:
+        """
+        List all currently pinned data names.
+        
+        Returns:
+            List of pinned data names
+        """
+        result = self._qb_pin_list()
+        return list(result) if result is not None else []
+
+    def select_columns_for_formula(self, df: pd.DataFrame, formula: str, extra_cols: Optional[list] = None) -> pd.DataFrame:
+        """
+        Extract only the columns needed for a formula from a DataFrame.
+        
+        Args:
+            df: Input DataFrame
+            formula: R-style formula string (e.g., 'y ~ s(x1) + s(x2)')
+            extra_cols: Additional columns to include (e.g., ['weight'])
+            
+        Returns:
+            DataFrame with only the necessary columns
+            
+        Raises:
+            ValueError: If formula is invalid or required columns are missing
+        """
+        if not formula or not isinstance(formula, str):
+            raise ValueError("formula must be a non-empty string")
+            
         extra_cols = extra_cols or []
-        cols = set(self._get_formula_vars(formula)) | set(extra_cols)
+        try:
+            formula_vars = self._get_formula_vars(formula)
+        except Exception as e:
+            raise ValueError(f"Invalid formula '{formula}': {e}") from e
+            
+        cols = set(formula_vars) | set(extra_cols)
         cols = [c for c in cols if c in df.columns]
+        
+        missing = set(formula_vars) - set(df.columns)
+        if missing:
+            raise ValueError(f"Formula requires columns not in DataFrame: {missing}")
+            
         return df.loc[:, cols]
     
-    def pin_df_to_parquet( self, df, name, formula=None, fpath=None ):
+    def pin_df_to_parquet(self, df: pd.DataFrame, name: str, formula: Optional[str] = None, fpath: Optional[Union[str, Path]] = None) -> None:
+        """
+        Save DataFrame to Parquet and pin it to R's memory.
+        
+        This is more efficient than pin_put() for large datasets as it:
+        1. Writes to disk first (avoiding full in-memory copy)
+        2. Loads directly in R using Arrow
+        
+        Args:
+            df: DataFrame to pin
+            name: Unique identifier for the pinned data
+            formula: Optional formula to select only necessary columns
+            fpath: Path to save parquet file (default: ./{name}.parquet)
+            
+        Raises:
+            ValueError: If inputs are invalid
+        """
+        if not name or not isinstance(name, str):
+            raise ValueError("name must be a non-empty string")
+        if df is None or len(df) == 0:
+            raise ValueError("df must be a non-empty DataFrame")
+            
         # if fpath is None, just save in the current directory with the name
         if fpath is None:
             fpath = f"./{name}.parquet"
@@ -71,26 +189,68 @@ class MgcvBamWrapper:
         if formula is None:
             df_sub = df
         else:
-            df_sub = self.select_columns_for_formula(df, formula, extra_cols=("weight",))
+            df_sub = self.select_columns_for_formula(df, formula, extra_cols=["weight"])
+            
         df_sub.to_parquet(fpath, index=False)
         r_fpath = str(Path(fpath).as_posix())  # Use forward slashes for R on Windows
-        self._qb_pin_parquet( data_name = name, parquet_path = r_fpath, lock = True )
+        self._qb_pin_parquet(data_name=name, parquet_path=r_fpath, lock=True)
+        logger.debug(f"Pinned parquet '{name}' from {fpath} with shape {df_sub.shape}")
 
-    def fit( self, df, formula: str, family: str = "gaussian", num_cores: int = 20, discrete: bool = True, nthreads: int = 1):
+    def fit(
+        self, 
+        df: pd.DataFrame, 
+        formula: str, 
+        family: Literal["gaussian", "binomial"] = "gaussian", 
+        num_cores: int = 20, 
+        discrete: bool = True, 
+        nthreads: int = 1
+    ) -> "MgcvBamWrapper":
+        """
+        Fit a GAM model using R's mgcv::bam().
+        
+        Args:
+            df: Training data DataFrame
+            formula: R-style formula (e.g., 'y ~ s(x1, k=10) + s(x2)')
+            family: Distribution family ('gaussian' or 'binomial')
+            num_cores: Number of cores for fitting (ignored if discrete=True)
+            discrete: Use discrete fitting (faster for large data, recommended)
+            nthreads: Number of threads when discrete=True
+            
+        Returns:
+            self for method chaining
+            
+        Raises:
+            ValueError: If inputs are invalid or fitting fails
+            
+        Note:
+            For large datasets (>100k rows), use discrete=True with nthreads > 1
+            For smaller datasets, use discrete=False with num_cores > 1
+        """
+        if df is None or len(df) == 0:
+            raise ValueError("df must be a non-empty DataFrame")
+        if family not in ["gaussian", "binomial"]:
+            raise ValueError(f"family must be 'gaussian' or 'binomial', got '{family}'")
+        if num_cores < 1:
+            raise ValueError(f"num_cores must be >= 1, got {num_cores}")
+        if nthreads < 1:
+            raise ValueError(f"nthreads must be >= 1, got {nthreads}")
+            
         self.formula_ = formula
-        df_sub = self.select_columns_for_formula(df, formula, extra_cols=("weight",))
+        df_sub = self.select_columns_for_formula(df, formula, extra_cols=["weight"])
 
         t0 = time.perf_counter()
         df_r = py_df_to_r(df_sub, r=self.r_)
         t_py_to_r = time.perf_counter() - t0
         
         t0 = time.perf_counter()
-        res = self._bam_fit( data_train = df_r, 
-                             model_formula = formula, 
-                             family_str = family, 
-                             num_cores = num_cores,
-                             discrete = discrete,
-                             nthreads = nthreads )
+        res = self._bam_fit(
+            data_train=df_r, 
+            model_formula=formula, 
+            family_str=family, 
+            num_cores=num_cores,
+            discrete=discrete,
+            nthreads=nthreads
+        )
         t_bam_fit = time.perf_counter() - t0
 
         ok = r_generic_types_to_py(res.rx2('ok'))
@@ -100,19 +260,58 @@ class MgcvBamWrapper:
         model_r = res.rx2('model')
         self.model_r_ = model_r
 
-        print(f"[mgcv.fit] py_df_to_r={t_py_to_r:.2f}s | bam_fit={t_bam_fit:.2f}s")
+        logger.info(f"Model fitted: py_df_to_r={t_py_to_r:.2f}s | bam_fit={t_bam_fit:.2f}s")
         return self
     
-    def fit_pinned_data( self, data_name: str, formula: str, family: str = "gaussian", num_cores: int = 20, discrete: bool = True, nthreads: int = 1):
+    def fit_pinned_data(
+        self, 
+        data_name: str, 
+        formula: str, 
+        family: Literal["gaussian", "binomial"] = "gaussian", 
+        num_cores: int = 20, 
+        discrete: bool = True, 
+        nthreads: int = 1
+    ) -> "MgcvBamWrapper":
+        """
+        Fit a GAM model using previously pinned data.
+        
+        This is more efficient than fit() for large datasets as it avoids
+        the Python-to-R data conversion overhead.
+        
+        Args:
+            data_name: Name of the pinned data (from pin_put or pin_df_to_parquet)
+            formula: R-style formula (e.g., 'y ~ s(x1, k=10) + s(x2)')
+            family: Distribution family ('gaussian' or 'binomial')
+            num_cores: Number of cores for fitting (ignored if discrete=True)
+            discrete: Use discrete fitting (faster for large data, recommended)
+            nthreads: Number of threads when discrete=True
+            
+        Returns:
+            self for method chaining
+            
+        Raises:
+            ValueError: If data_name doesn't exist or fitting fails
+        """
+        if not data_name or not isinstance(data_name, str):
+            raise ValueError("data_name must be a non-empty string")
+        if family not in ["gaussian", "binomial"]:
+            raise ValueError(f"family must be 'gaussian' or 'binomial', got '{family}'")
+        if num_cores < 1:
+            raise ValueError(f"num_cores must be >= 1, got {num_cores}")
+        if nthreads < 1:
+            raise ValueError(f"nthreads must be >= 1, got {nthreads}")
+            
         self.formula_ = formula
 
         t0 = time.perf_counter()
-        res = self._bam_fit_pinned_data( data_name = data_name, 
-                                         model_formula = formula, 
-                                         family_str = family, 
-                                         num_cores = num_cores,
-                                         discrete = discrete,
-                                         nthreads = nthreads )
+        res = self._bam_fit_pinned_data(
+            data_name=data_name, 
+            model_formula=formula, 
+            family_str=family, 
+            num_cores=num_cores,
+            discrete=discrete,
+            nthreads=nthreads
+        )
         t_bam_fit = time.perf_counter() - t0
 
         ok = r_generic_types_to_py(res.rx2('ok'))
@@ -122,46 +321,122 @@ class MgcvBamWrapper:
         model_r = res.rx2('model')
         self.model_r_ = model_r
 
-        print(f"[mgcv.fit_pinned_data] bam_fit={t_bam_fit:.2f}s")
+        logger.info(f"Model fitted from pinned data '{data_name}': bam_fit={t_bam_fit:.2f}s")
         return self
         
-    def predict( self, df, type: str = "response", num_cores_predict: int = 20, num_split: int = 8):
-        if self.model_r_ is None:
-            raise ValueError("Model is not fitted yet. Call fit() before predict().")
+    def predict(
+        self, 
+        df: pd.DataFrame, 
+        type: str = "response", 
+        num_cores_predict: int = 20, 
+        num_split: int = 8
+    ) -> np.ndarray:
+        """
+        Make predictions on new data using the fitted model.
         
-        df_sub = self.select_columns_for_formula(df, self.formula_, extra_cols=("weight",))
+        Args:
+            df: DataFrame to predict on
+            type: Prediction type ('response', 'link', or 'terms')
+            num_cores_predict: Number of cores for parallel prediction (currently unused)
+            num_split: Number of chunks for memory-efficient prediction
+            
+        Returns:
+            Array of predictions
+            
+        Raises:
+            ValueError: If model is not fitted or inputs are invalid
+        """
+        if self.model_r_ is None:
+            raise ValueError("Model is not fitted yet. Call fit() or fit_pinned_data() first.")
+        if df is None or len(df) == 0:
+            raise ValueError("df must be a non-empty DataFrame")
+        if num_split < 1:
+            raise ValueError(f"num_split must be >= 1, got {num_split}")
+        
+        df_sub = self.select_columns_for_formula(df, self.formula_, extra_cols=["weight"])
         df_r = py_df_to_r(df_sub)
-        pred_r = self._bam_predict( self.model_r_,
-                                    df_r,
-                                    type = type,
-                                    num_cores_predict = num_cores_predict,
-                                    num_split = num_split)
+        pred_r = self._bam_predict(
+            self.model_r_,
+            df_r,
+            type=type,
+            num_cores_predict=num_cores_predict,
+            num_split=num_split
+        )
         pred = r_array_to_py(pred_r)
         return pred
     
-    def predict_pinned_data( self, data_name: str, type: str = "response", num_cores_predict: int = 20, num_split: int = 8):
-        if self.model_r_ is None:
-            raise ValueError("Model is not fitted yet. Call fit() before predict().")
+    def predict_pinned_data(
+        self, 
+        data_name: str, 
+        type: str = "response", 
+        num_cores_predict: int = 20, 
+        num_split: int = 8
+    ) -> np.ndarray:
+        """
+        Make predictions using previously pinned data.
         
-        pred_r = self._bam_predict_pinned_data( self.model_r_,
-                                    data_name,
-                                    type = type,
-                                    num_cores_predict = num_cores_predict,
-                                    num_split = num_split)
+        This is more efficient than predict() for large datasets as it avoids
+        the Python-to-R data conversion overhead.
+        
+        Args:
+            data_name: Name of the pinned data (from pin_put or pin_df_to_parquet)
+            type: Prediction type ('response', 'link', or 'terms')
+            num_cores_predict: Number of cores for parallel prediction (currently unused)
+            num_split: Number of chunks for memory-efficient prediction
+            
+        Returns:
+            Array of predictions
+            
+        Raises:
+            ValueError: If model is not fitted or data_name doesn't exist
+        """
+        if self.model_r_ is None:
+            raise ValueError("Model is not fitted yet. Call fit() or fit_pinned_data() first.")
+        if not data_name or not isinstance(data_name, str):
+            raise ValueError("data_name must be a non-empty string")
+        if num_split < 1:
+            raise ValueError(f"num_split must be >= 1, got {num_split}")
+        
+        pred_r = self._bam_predict_pinned_data(
+            self.model_r_,
+            data_name,
+            type=type,
+            num_cores_predict=num_cores_predict,
+            num_split=num_split
+        )
         pred = r_array_to_py(pred_r)
         return pred
     
     def plot_to_file(
         self,
-        out_fpath: str | Path,
+        out_fpath: Union[str, Path],
         pages: int = 1,
         width: int = 3200,
         height: int = 2400,
         dpi: int = 300,
-    ):
+    ) -> str:
+        """
+        Plot model's smooth terms and save to file.
         
+        Args:
+            out_fpath: Output file path (supports .png, .pdf, .svg)
+            pages: Number of pages for multi-page plots (1 for single page)
+            width: Width in pixels (for raster) or device units (for vector)
+            height: Height in pixels (for raster) or device units (for vector)
+            dpi: Resolution for raster formats
+            
+        Returns:
+            Path to the saved plot
+            
+        Raises:
+            ValueError: If model is not fitted or parameters are invalid
+        """
         if self.model_r_ is None:
-            raise ValueError("Model is not fitted yet. Call fit() before plot().")
+            raise ValueError("Model is not fitted yet. Call fit() or fit_pinned_data() first.")
+        if pages < 1:
+            raise ValueError(f"pages must be >= 1, got {pages}")
+        if width < 100 or height < 100:
+            raise ValueError(f"width and height must be >= 100, got {width}x{height}")
 
         out_fpath = str(out_fpath)
 
@@ -174,6 +449,7 @@ class MgcvBamWrapper:
             dpi=dpi,
         )
 
+        logger.debug(f"Saved plot to {out_fpath}")
         return out_fpath
     
     def plot(
@@ -181,35 +457,72 @@ class MgcvBamWrapper:
         width: int = 3200,
         height: int = 2400,
         dpi: int = 300,
-    ):
+    ) -> None:
         """
-        This function should plot the model's smooth terms in png and show inline in Jupyter.
-        Uses a temporary file for the png output.
+        Plot model's smooth terms inline in Jupyter notebook.
+        
+        Creates a temporary PNG file for display. The temp file is automatically
+        cleaned up after display.
+        
+        Args:
+            width: Width in pixels
+            height: Height in pixels
+            dpi: Resolution
+            
+        Raises:
+            ValueError: If model is not fitted
+            ImportError: If IPython is not available
         """
-        import tempfile
-        from IPython.display import Image, display
+        try:
+            from IPython.display import Image, display
+        except ImportError as e:
+            raise ImportError("IPython is required for inline plotting. Use plot_to_file() instead.") from e
 
         if self.model_r_ is None:
-            raise ValueError("Model is not fitted yet. Call fit() before plot().")
+            raise ValueError("Model is not fitted yet. Call fit() or fit_pinned_data() first.")
 
-
-        with tempfile.NamedTemporaryFile(
-            suffix=".png", delete= False
-        ) as tmpfile:
+        import tempfile
+        import os
+        
+        # Create temp file with automatic cleanup
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmpfile:
             tmp_path = Path(tmpfile.name)
 
-        # Since we are doing an inline display, can only use 1 page
+        try:
+            # Since we are doing an inline display, can only use 1 page
+            self.plot_to_file(
+                out_fpath=tmp_path,
+                pages=1,
+                width=width,
+                height=height,
+                dpi=dpi,
+            )
 
-        self.plot_to_file(
-            out_fpath=tmp_path,
-            pages=1,
-            width=width,
-            height=height,
-            dpi=dpi,
-        )
+            # Display inline in Jupyter
+            display(Image(filename=str(tmp_path)))
+        finally:
+            # Clean up temp file
+            try:
+                os.unlink(tmp_path)
+            except Exception as e:
+                logger.warning(f"Failed to clean up temporary plot file {tmp_path}: {e}")
 
-        # Display inline in Jupyter
-        display(Image(filename=str(tmp_path)))
-
-    def stop_cluster(self):
+    def stop_cluster(self) -> None:
+        """
+        Stop the R parallel cluster and free resources.
+        
+        Should be called when done with parallel operations to clean up properly.
+        """
         self._stop_cluster()
+        logger.debug("Stopped R cluster")
+    
+    @property
+    def is_fitted(self) -> bool:
+        """Check if a model has been fitted."""
+        return self.model_r_ is not None
+    
+    def __repr__(self) -> str:
+        """String representation for debugging."""
+        status = "fitted" if self.is_fitted else "not fitted"
+        formula = f", formula='{self.formula_}'" if self.formula_ else ""
+        return f"MgcvBamWrapper({status}{formula})"
