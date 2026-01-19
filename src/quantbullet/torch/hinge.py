@@ -106,24 +106,31 @@ class ConcaveHinge(nn.Module):
     """
     Concave version of GenericHinge:
       enforce slope-change c_k <= 0  via c_k = -softplus(u_k)
-    Optionally enforce a >= 0 via softplus.
+    Optionally enforce monotonicity via softplus transformations.
 
     f(x)=b + a*x + sum_k c_k relu(x-t_k), with c_k <= 0 => slope decreases => concave.
     
     Args:
         K: Number of knots (required only if fixed_knots is not provided)
-        monotone_increasing: If True, enforce a >= 0 (monotone increasing globally)
+        monotone_increasing: If True, enforce slope >= 0 everywhere
+        monotone_decreasing: If True, enforce slope <= 0 everywhere
         fixed_knots: Optional array of fixed knot positions in [0,1]. If provided,
                      K is inferred from length. Should be sorted and in [0,1].
     """
     def __init__(
         self, 
         K: Optional[int] = None, 
-        monotone_increasing: bool = True,
+        monotone_increasing: bool = False,
+        monotone_decreasing: bool = False,
         fixed_knots: Optional[np.ndarray | torch.Tensor] = None
     ):
         super().__init__()
+        
+        if monotone_increasing and monotone_decreasing:
+            raise ValueError("Cannot be both monotone increasing and decreasing")
+        
         self.monotone_increasing = monotone_increasing
+        self.monotone_decreasing = monotone_decreasing
         
         # Handle knots (same pattern as GenericHinge)
         if fixed_knots is not None:
@@ -159,16 +166,24 @@ class ConcaveHinge(nn.Module):
         x = _as_col(x)
         t = self.knots().view(1, -1)
         
+        c_raw_softplus = F.softplus(self.c_raw)
+        c = -c_raw_softplus  # Always negative for concave
+        
         if self.monotone_increasing:
-            # Enforce slope never goes negative: a + sum(c_k) >= 0
-            c_raw_softplus = F.softplus(self.c_raw)
+            # Enforce slope >= 0: a + sum(c_k) >= 0
+            # Since c_k < 0, need a >= sum|c_k|
             c_sum = c_raw_softplus.sum()
-            # Ensure a >= sum|c_k| + small epsilon for strict monotonicity
             a = F.softplus(self.a_raw) + c_sum + 1e-3
-            c = -c_raw_softplus
+            
+        elif self.monotone_decreasing:
+            # Enforce slope <= 0: a + sum(c_k) <= 0
+            # Since c_k < 0, this is already easier to satisfy
+            # Just force a <= 0
+            a = -F.softplus(self.a_raw) - 1e-3
+            
         else:
+            # No monotonicity constraint
             a = self.a_raw
-            c = -F.softplus(self.c_raw)
         
         relu_terms = torch.relu(x - t)
         y = self.b + a * x + (relu_terms * c.view(1, -1)).sum(dim=1, keepdim=True)
@@ -178,17 +193,128 @@ class ConcaveHinge(nn.Module):
     def export_params(self) -> HingeExport:
         t = self.knots().detach().cpu().numpy().astype(np.float32)
         
+        c_raw_softplus = F.softplus(self.c_raw)
+        c = (-c_raw_softplus).detach().cpu().numpy().astype(np.float32)
+        
         if self.monotone_increasing:
-            c_raw_softplus = F.softplus(self.c_raw)
             c_sum = c_raw_softplus.sum()
             a = F.softplus(self.a_raw) + c_sum + 1e-3
-            c = (-c_raw_softplus).detach().cpu().numpy().astype(np.float32)
+        elif self.monotone_decreasing:
+            a = -F.softplus(self.a_raw) - 1e-3
         else:
             a = self.a_raw
-            c = (-F.softplus(self.c_raw)).detach().cpu().numpy().astype(np.float32)
         
         return HingeExport(
             kind="concave",
+            b=float(self.b.detach().cpu().item()),
+            a=float(a.detach().cpu().item()),
+            t=t,
+            c=c,
+        )
+
+
+class ConvexHinge(nn.Module):
+    """
+    Convex version of GenericHinge:
+      enforce slope-change c_k >= 0 via c_k = softplus(u_k)
+    Optionally enforce monotonicity.
+
+    f(x)=b + a*x + sum_k c_k relu(x-t_k), with c_k >= 0 => slope increases => convex.
+    
+    Args:
+        K: Number of knots (required only if fixed_knots is not provided)
+        monotone_increasing: If True, enforce slope >= 0 everywhere
+        monotone_decreasing: If True, enforce slope <= 0 everywhere
+        fixed_knots: Optional array of fixed knot positions in [0,1]. If provided,
+                     K is inferred from length. Should be sorted and in [0,1].
+    """
+    def __init__(
+        self, 
+        K: Optional[int] = None, 
+        monotone_increasing: bool = False,
+        monotone_decreasing: bool = False,
+        fixed_knots: Optional[np.ndarray | torch.Tensor] = None
+    ):
+        super().__init__()
+        
+        if monotone_increasing and monotone_decreasing:
+            raise ValueError("Cannot be both monotone increasing and decreasing")
+        
+        self.monotone_increasing = monotone_increasing
+        self.monotone_decreasing = monotone_decreasing
+        
+        # Handle knots (same pattern as ConcaveHinge)
+        if fixed_knots is not None:
+            if not np.all(np.diff(fixed_knots) > 0):
+                raise ValueError("fixed_knots must be sorted and in [0,1]")
+            if not np.all(fixed_knots >= 0) or not np.all(fixed_knots <= 1):
+                raise ValueError("fixed_knots must be in [0,1]")
+            knots_tensor = torch.as_tensor(fixed_knots, dtype=torch.float32)
+            self.K = knots_tensor.shape[0]
+            self.register_buffer('t_fixed', knots_tensor)
+            self._fixed_knots = True
+        else:
+            if K is None:
+                raise ValueError("K must be provided when fixed_knots is not given")
+            self.K = K
+            self.t_incr_raw = nn.Parameter(torch.zeros(K))
+            self._fixed_knots = False
+        
+        # Parameters
+        self.b = nn.Parameter(torch.tensor(0.0))
+        self.a_raw = nn.Parameter(torch.tensor(0.0))
+        self.c_raw = nn.Parameter(torch.zeros(self.K))  # -> positive
+
+    def knots(self) -> torch.Tensor:
+        if self._fixed_knots:
+            return self.t_fixed
+        incr = F.softplus(self.t_incr_raw) + 1e-6
+        t = torch.cumsum(incr, dim=0)
+        t = t / (t[-1] + 1e-12)
+        return t.clamp(0.0, 1.0)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = _as_col(x)
+        t = self.knots().view(1, -1)
+        
+        c = F.softplus(self.c_raw)  # >= 0 for convex
+        
+        if self.monotone_increasing:
+            # Slope = a + sum(c_k) >= 0
+            # Since c_k >= 0, just need a >= 0
+            a = F.softplus(self.a_raw)
+            
+        elif self.monotone_decreasing:
+            # Slope = a + sum(c_k) <= 0
+            # Since c_k >= 0, need a <= -sum(c_k)
+            c_sum = c.sum()
+            a = -F.softplus(self.a_raw) - c_sum - 1e-3
+            
+        else:
+            # No monotonicity constraint
+            a = self.a_raw
+        
+        relu_terms = torch.relu(x - t)
+        y = self.b + a * x + (relu_terms * c.view(1, -1)).sum(dim=1, keepdim=True)
+        return y
+
+    @torch.no_grad()
+    def export_params(self) -> HingeExport:
+        t = self.knots().detach().cpu().numpy().astype(np.float32)
+        
+        c_raw_softplus = F.softplus(self.c_raw)
+        c = c_raw_softplus.detach().cpu().numpy().astype(np.float32)
+        
+        if self.monotone_increasing:
+            a = F.softplus(self.a_raw)
+        elif self.monotone_decreasing:
+            c_sum = c_raw_softplus.sum()
+            a = -F.softplus(self.a_raw) - c_sum - 1e-3
+        else:
+            a = self.a_raw
+        
+        return HingeExport(
+            kind="convex",
             b=float(self.b.detach().cpu().item()),
             a=float(a.detach().cpu().item()),
             t=t,
@@ -285,7 +411,8 @@ class MinMaxScaledConcaveHinge(_MinMaxScalerMixin, nn.Module):
     def __init__(
         self,
         K: Optional[int] = None,
-        monotone_increasing: bool = True,
+        monotone_increasing: bool = False,
+        monotone_decreasing: bool = False,
         x_min: float | None = None,
         x_max: float | None = None,
         clip_lo: float | None = None,
@@ -293,7 +420,54 @@ class MinMaxScaledConcaveHinge(_MinMaxScalerMixin, nn.Module):
         fixed_knots: Optional[np.ndarray | torch.Tensor] = None,
     ):
         super().__init__()
-        self.hinge = ConcaveHinge(K=K, monotone_increasing=monotone_increasing, fixed_knots=fixed_knots)
+        self.hinge = ConcaveHinge(
+            K=K, 
+            monotone_increasing=monotone_increasing,
+            monotone_decreasing=monotone_decreasing,
+            fixed_knots=fixed_knots
+        )
+        self._init_scaler(x_min=x_min, x_max=x_max, clip_lo=clip_lo, clip_hi=clip_hi)
+
+    def forward(self, x_raw: torch.Tensor) -> torch.Tensor:
+        x01 = self.scale(x_raw)
+        return self.hinge(x01)
+
+    @torch.no_grad()
+    def export_params(self):
+        exp = self.hinge.export_params()
+        return {
+            "hinge": {
+                "kind": exp.kind,
+                "b": exp.b,
+                "a": exp.a,
+                "t": exp.t.tolist(),
+                "c": exp.c.tolist(),
+            },
+            "scaler": self._export_scaler_params(),
+        }
+
+
+class MinMaxScaledConvexHinge(_MinMaxScalerMixin, nn.Module):
+    """ConvexHinge with automatic min-max scaling and optional clipping."""
+    
+    def __init__(
+        self,
+        K: Optional[int] = None,
+        monotone_increasing: bool = False,
+        monotone_decreasing: bool = False,
+        x_min: float | None = None,
+        x_max: float | None = None,
+        clip_lo: float | None = None,
+        clip_hi: float | None = None,
+        fixed_knots: Optional[np.ndarray | torch.Tensor] = None,
+    ):
+        super().__init__()
+        self.hinge = ConvexHinge(
+            K=K, 
+            monotone_increasing=monotone_increasing,
+            monotone_decreasing=monotone_decreasing,
+            fixed_knots=fixed_knots
+        )
         self._init_scaler(x_min=x_min, x_max=x_max, clip_lo=clip_lo, clip_hi=clip_hi)
 
     def forward(self, x_raw: torch.Tensor) -> torch.Tensor:
