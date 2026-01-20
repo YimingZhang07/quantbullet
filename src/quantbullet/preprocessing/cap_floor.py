@@ -72,32 +72,3 @@ def cap_floor_scalar_by_rules(
     dims: Mapping[str, Any] | None = None,
 ) -> Optional[float]:
     return cap_floor_scalar(x, get_bounds(rules, feature, dims=dims))
-
-def cap_floor_df(
-    df: pd.DataFrame,
-    rules: Rules,
-    feature: str,
-    value_col: str,
-    *,
-    dims: Tuple[str, ...] = (),               # which df columns drive the rule
-    dim_cols: Mapping[str, str] | None = None, # map dim name -> df column (optional)
-    out_col: Optional[str] = None,
-) -> pd.DataFrame:
-    out_col = out_col or value_col
-    df = df.copy()
-    dim_cols = dim_cols or {d: d for d in dims}
-
-    if not dims:
-        b = get_bounds(rules, feature, dims=None)
-        df[out_col] = df[value_col].clip(lower=b.floor, upper=b.cap)
-        return df
-
-    group_cols = [dim_cols[d] for d in dims]
-
-    def _apply_group(g: pd.DataFrame) -> pd.DataFrame:
-        dim_values = {d: g[dim_cols[d]].iloc[0] for d in dims}
-        b = get_bounds(rules, feature, dims=dim_values)
-        g[out_col] = g[value_col].clip(lower=b.floor, upper=b.cap)
-        return g
-
-    return df.groupby(group_cols, dropna=False, sort=False, group_keys=False).apply(_apply_group)
