@@ -219,11 +219,11 @@ class WrapperGAM:
         self.formula_ = formula
         return formula
     
-    def fit(self, X, y, weights=None):
+    def fit(self, X, y, weights=None, fit_intercept=True):
         Xd = self._prepare_design_matrix_fit(X)
         formula = self._build_formula_from_design(list(Xd.columns))
 
-        self.gam_ = LinearGAM(formula).fit(np.asarray(Xd), np.asarray(y), weights=weights)
+        self.gam_ = LinearGAM(formula, fit_intercept=fit_intercept).fit(np.asarray(Xd), np.asarray(y), weights=weights)
         return self
 
     def predict(self, X):
