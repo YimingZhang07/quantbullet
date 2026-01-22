@@ -9,7 +9,7 @@ import torch
 
 from quantbullet.torch.gate import BoundedWindowGate
 
-DEV_MODE = True
+DEV_MODE = False
 
 class TestBoundedWindowGate(unittest.TestCase):
 
@@ -73,8 +73,7 @@ class TestBoundedWindowGate(unittest.TestCase):
             
             if i == 0:
                 # Check gradients on first iteration
-                print(f"Gradients: center={gate.center_raw.grad}, log_width={gate.log_width.grad}, "
-                      f"log_range={gate.log_range.grad}, log_s={gate.log_s.grad}")
+                print(f"Gradients: center={gate.center_raw.grad}, lower={gate.lower_raw.grad}, upper={gate.upper_raw.grad}, s={gate.log_s.grad}")
             
             optimizer.step()
             

@@ -8,9 +8,15 @@ class BoundedWindowBump(nn.Module):
       w(x) = sigmoid((x-a)/s1) - sigmoid((x-b)/s2), with b>a
       y(x) = lower + (upper-lower) * w(x)
     
-    Creates a bump: flat(0) → rise → flat(1) → fall → flat(0)
+    Creates a bump: flat(lower) → rise → flat(upper) → fall → flat(lower)
+    
+    Parameters:
+      - a, b: transition boundaries (b > a)
+      - lower, upper: asymptotic values (can be in any order: upper > lower for bump up,
+                      upper < lower for bump down)
+      - s1, s2: smoothness parameters (smaller = sharper transitions)
 
-    Rule:
+    Trainability rule:
       - if param is provided (not None) => fixed by default
       - if param is None => trainable by default
     """
@@ -40,12 +46,12 @@ class BoundedWindowBump(nn.Module):
         self.a_raw = nn.Parameter(torch.tensor(a0))
         self.delta_raw = nn.Parameter(torch.tensor(0.0))    # b = a + softplus(delta)
         self.lower_raw = nn.Parameter(torch.tensor(lo0))
-        self.range_raw = nn.Parameter(torch.tensor(0.0))    # upper = lower + softplus(range)
+        self.upper_raw = nn.Parameter(torch.tensor(hi0))    # Unconstrained! Can be > or < lower
         self.log_s1 = nn.Parameter(torch.tensor(float(torch.log(torch.tensor(max(s10, 1e-6))))))
         self.log_s2 = nn.Parameter(torch.tensor(float(torch.log(torch.tensor(max(s20, 1e-6))))))
 
-        # set b, upper consistently
-        self.set_params(b=b0, upper=hi0)
+        # set b consistently
+        self.set_params(b=b0)
 
         # trainability: None => trainable, provided => fixed
         self.set_trainable(
@@ -61,7 +67,7 @@ class BoundedWindowBump(nn.Module):
     def a(self): return self.a_raw
     def b(self): return self.a_raw + F.softplus(self.delta_raw) + 1e-6
     def lower(self): return self.lower_raw
-    def upper(self): return self.lower_raw + F.softplus(self.range_raw) + 1e-6
+    def upper(self): return self.upper_raw  # Unconstrained - can be > or < lower!
     def s1(self): return torch.exp(self.log_s1).clamp(1e-6, 1e3)
     def s2(self): return torch.exp(self.log_s2).clamp(1e-6, 1e3)
 
@@ -85,9 +91,7 @@ class BoundedWindowBump(nn.Module):
             self.lower_raw.copy_(torch.tensor(float(lower), dtype=self.lower_raw.dtype))
 
         if upper is not None:
-            lo = float(self.lower_raw.item()) if lower is None else float(lower)
-            rng = max(float(upper) - lo, 1e-6)
-            self.range_raw.copy_(torch.log(torch.exp(torch.tensor(rng)) - 1.0))
+            self.upper_raw.copy_(torch.tensor(float(upper), dtype=self.upper_raw.dtype))
 
         if s1 is not None:
             self.log_s1.copy_(torch.log(torch.tensor(max(float(s1), 1e-6))))
@@ -99,7 +103,7 @@ class BoundedWindowBump(nn.Module):
             "a": self.a_raw,
             "b": self.delta_raw,
             "lower": self.lower_raw,
-            "upper": self.range_raw,
+            "upper": self.upper_raw,
             "s1": self.log_s1,
             "s2": self.log_s2,
         }
@@ -115,17 +119,32 @@ class BoundedWindowBump(nn.Module):
 
 class BoundedWindowGate(nn.Module):
     """
-    Monotonic sigmoid gate transitioning smoothly between a and b:
+    Monotonic sigmoid gate with smooth transition:
       w(x) = sigmoid((x - center) / s)
       y(x) = lower + (upper-lower) * w(x)
     
-    Creates S-curve: flat(lower) → smooth rise → flat(upper)
-    - center = (a+b)/2 is the inflection point
-    - s controls smoothness (smaller = sharper)
-
-    Rule:
+    Creates S-curve transitioning from one asymptote to another:
+      - If upper > lower: increasing sigmoid (lower → upper)
+      - If upper < lower: decreasing sigmoid (lower → upper, going down)
+    
+    Parameters:
+      - a, b: define transition region; center = (a+b)/2 is the inflection point
+      - lower, upper: asymptotic values (naming is for convention; either can be larger)
+      - s: smoothness (smaller = sharper transition)
+    
+    Trainability rule:
       - if param is provided (not None) => fixed by default
       - if param is None => trainable by default
+    
+    Example:
+      >>> # Increasing sigmoid: 0 → 10
+      >>> gate = BoundedWindowGate(lower=0, upper=10)
+      >>> 
+      >>> # Decreasing sigmoid: 10 → 0
+      >>> gate = BoundedWindowGate(lower=10, upper=0)
+      >>> 
+      >>> # Fully trainable - learns direction from data
+      >>> gate = BoundedWindowGate()
     """
     def __init__(
         self,
@@ -153,7 +172,7 @@ class BoundedWindowGate(nn.Module):
         self.center_raw = nn.Parameter(torch.tensor(center0))
         self.log_width = nn.Parameter(torch.tensor(float(torch.log(torch.tensor(width0)))))
         self.lower_raw = nn.Parameter(torch.tensor(lo0))
-        self.log_range = nn.Parameter(torch.tensor(float(torch.log(torch.tensor(max(hi0 - lo0, 1e-6))))))
+        self.upper_raw = nn.Parameter(torch.tensor(hi0))  # Unconstrained! Can be > or < lower
         self.log_s = nn.Parameter(torch.tensor(float(torch.log(torch.tensor(max(s0, 1e-6))))))
 
         # trainability: None => trainable, provided => fixed
@@ -171,7 +190,7 @@ class BoundedWindowGate(nn.Module):
     def a(self): return self.center() - self.width() / 2.0
     def b(self): return self.center() + self.width() / 2.0
     def lower(self): return self.lower_raw
-    def upper(self): return self.lower_raw + torch.exp(self.log_range).clamp(1e-6, 1e3)
+    def upper(self): return self.upper_raw  # Unconstrained - can be > or < lower!
     def s(self): return torch.exp(self.log_s).clamp(1e-6, 1e3)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -243,9 +262,7 @@ class BoundedWindowGate(nn.Module):
             self.lower_raw.copy_(torch.tensor(float(lower), dtype=self.lower_raw.dtype))
 
         if upper is not None:
-            lo = float(self.lower_raw.item()) if lower is None else float(lower)
-            rng = max(float(upper) - lo, 1e-6)
-            self.log_range.copy_(torch.log(torch.tensor(rng)))
+            self.upper_raw.copy_(torch.tensor(float(upper), dtype=self.upper_raw.dtype))
 
         if s is not None:
             self.log_s.copy_(torch.log(torch.tensor(max(float(s), 1e-6))))
@@ -255,7 +272,7 @@ class BoundedWindowGate(nn.Module):
             "a": self.center_raw,      # training 'a' affects center
             "b": self.log_width,       # training 'b' affects width
             "lower": self.lower_raw,
-            "upper": self.log_range,
+            "upper": self.upper_raw,
             "s": self.log_s,
         }
         for k, v in flags.items():
