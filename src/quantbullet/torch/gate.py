@@ -195,8 +195,10 @@ class BoundedWindowGate(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         w = torch.sigmoid((x - self.center()) / self.s())
-        return self.lower() + (self.upper() - self.lower()) * w
-    
+        res = self.lower() + (self.upper() - self.lower()) * w
+        # return a coolumn vector of shape (len(x), 1)
+        return res.unsqueeze(-1)
+
     def compute_loss(self, x: torch.Tensor, y_target: torch.Tensor, 
                      roi_mask: torch.Tensor | None = None,
                      auto_mask: bool = False) -> torch.Tensor:
@@ -283,3 +285,21 @@ class BoundedWindowGate(nn.Module):
 
     def unfreeze_params(self, *names: str):
         self.set_trainable(**{n: True for n in names})
+
+    def plot( self ):
+        import matplotlib.pyplot as plt
+        import numpy as np
+        import torch
+        # Detach tensors before converting to numpy/float
+        a_val = float(self.a().detach().cpu().item())
+        b_val = float(self.b().detach().cpu().item())
+        x = np.linspace(a_val, b_val, 100)
+        # Convert numpy to tensor for forward pass
+        x_tensor = torch.tensor(x, dtype=torch.float32, device=self.center_raw.device)
+        y = self.forward(x_tensor).detach().cpu().numpy()
+        plt.plot(x, y)
+        plt.xlabel("x")
+        plt.ylabel("y")
+        plt.title("BoundedWindowGate")
+        plt.show()
+        return plt

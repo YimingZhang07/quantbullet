@@ -14,6 +14,15 @@ def _as_col(x: torch.Tensor) -> torch.Tensor:
     return x.view(-1, 1) if x.ndim == 1 else x
 
 
+class _PlotMixin:
+    """Mixin providing plot functionality for all hinge models."""
+    
+    def plot(self, n_points: int = 200, ax=None, show_knots: bool = True):
+        """Plot the hinge function. See quantbullet.torch.plot.plot_hinge for details."""
+        from .plot import plot_hinge
+        return plot_hinge(self, n_points=n_points, ax=ax, show_knots=show_knots)
+
+
 @dataclass
 class HingeExport:
     kind: str
@@ -26,7 +35,7 @@ class HingeExport:
     w: Optional[np.ndarray] = None
 
 
-class GenericHinge(nn.Module):
+class GenericHinge(_PlotMixin, nn.Module):
     """
     f(x)=b + a*x + sum_k c_k * relu(x - t_k)
 
@@ -102,7 +111,7 @@ class GenericHinge(nn.Module):
         )
 
 
-class ConcaveHinge(nn.Module):
+class ConcaveHinge(_PlotMixin, nn.Module):
     """
     Concave version of GenericHinge:
       enforce slope-change c_k <= 0  via c_k = -softplus(u_k)
@@ -213,7 +222,7 @@ class ConcaveHinge(nn.Module):
         )
 
 
-class ConvexHinge(nn.Module):
+class ConvexHinge(_PlotMixin, nn.Module):
     """
     Convex version of GenericHinge:
       enforce slope-change c_k >= 0 via c_k = softplus(u_k)
@@ -370,7 +379,7 @@ class _MinMaxScalerMixin:
         }
 
 
-class MinMaxScaledGenericHinge(_MinMaxScalerMixin, nn.Module):
+class MinMaxScaledGenericHinge(_PlotMixin, _MinMaxScalerMixin, nn.Module):
     """GenericHinge with automatic min-max scaling and optional clipping."""
     
     def __init__(
@@ -405,7 +414,7 @@ class MinMaxScaledGenericHinge(_MinMaxScalerMixin, nn.Module):
         }
 
 
-class MinMaxScaledConcaveHinge(_MinMaxScalerMixin, nn.Module):
+class MinMaxScaledConcaveHinge(_PlotMixin, _MinMaxScalerMixin, nn.Module):
     """ConcaveHinge with automatic min-max scaling and optional clipping."""
     
     def __init__(
@@ -447,7 +456,7 @@ class MinMaxScaledConcaveHinge(_MinMaxScalerMixin, nn.Module):
         }
 
 
-class MinMaxScaledConvexHinge(_MinMaxScalerMixin, nn.Module):
+class MinMaxScaledConvexHinge(_PlotMixin, _MinMaxScalerMixin, nn.Module):
     """ConvexHinge with automatic min-max scaling and optional clipping."""
     
     def __init__(
