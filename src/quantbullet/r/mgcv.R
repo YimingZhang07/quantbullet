@@ -567,6 +567,31 @@ fit_gam_api <- function(
   })
 }
 
+plot_gam_smooth_pages_api <- function(
+  model,
+  pages  = 1,
+  rug    = FALSE,
+  scheme = 1,
+  scale  = FALSE,
+  ...
+) {
+  scale_val <- if (is.logical(scale)) {
+    ifelse(scale, 0, -1)
+  } else {
+    as.numeric(scale)
+  }
+
+  plot.gam(
+    model,
+    pages = pages,
+    rug = rug,
+    scheme = scheme,
+    scale = scale_val,
+    ...
+  )
+  invisible(TRUE)
+}
+
 plot_gam_smooth_api <- function(
   model,
   fpath,
@@ -574,6 +599,9 @@ plot_gam_smooth_api <- function(
   height = 800,
   dpi    = 150,
   pages  = 1,
+  rug    = FALSE,
+  scheme = 1,
+  scale  = FALSE,
   ...
 ) {
   ext <- tolower(tools::file_ext(fpath))
@@ -617,6 +645,62 @@ plot_gam_smooth_api <- function(
 
   on.exit(grDevices::dev.off(), add = TRUE)
 
-  plot.gam(model, pages = pages, ...)
+  plot_gam_smooth_pages_api(
+    model = model,
+    pages = pages,
+    rug = rug,
+    scheme = scheme,
+    scale = scale,
+    ...
+  )
+  invisible(TRUE)
+}
+
+model_summary_text_api <- function(model, include_header = TRUE) {
+  smy <- capture.output(summary(model))
+  if (isTRUE(include_header)) {
+    smy <- c("Model Summary", "", smy)
+  }
+  smy
+}
+
+model_report_pdf_api <- function(
+  model,
+  fpath,
+  width  = 1200,
+  height = 800,
+  dpi    = 150,
+  pages  = 1,
+  rug    = FALSE,
+  scheme = 1,
+  scale  = FALSE,
+  include_header = TRUE
+) {
+  ext <- tolower(tools::file_ext(fpath))
+  if (ext != "pdf") {
+    stop("model_report_pdf_api only supports .pdf output.")
+  }
+
+  grDevices::pdf(
+    file = fpath,
+    width  = width  / dpi,
+    height = height / dpi,
+    onefile = TRUE
+  )
+  on.exit(grDevices::dev.off(), add = TRUE)
+
+  # Smooth pages first
+  plot_gam_smooth_pages_api(
+    model = model,
+    pages = pages,
+    rug = rug,
+    scheme = scheme,
+    scale = scale
+  )
+
+  # Summary page last
+  smy <- model_summary_text_api(model, include_header = include_header)
+  gplots::textplot(smy, valign = "top", cex = 0.8)
+
   invisible(TRUE)
 }

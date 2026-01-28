@@ -49,6 +49,8 @@ class MgcvBamWrapper:
         self._bam_predict_pinned_data   = r.ro.globalenv["predict_bam_pinned_data_api"]
         
         self._plot_fn               = r.ro.globalenv["plot_gam_smooth_api"]
+        self._summary_text_fn       = r.ro.globalenv["model_summary_text_api"]
+        self._report_pdf_fn         = r.ro.globalenv["model_report_pdf_api"]
         self._stop_cluster          = r.ro.globalenv["qb_stop_cluster"]
 
         # Pinning functions
@@ -154,6 +156,13 @@ class MgcvBamWrapper:
         if self.model_r_ is None:
             raise ValueError("Model is not fitted yet. Call fit() or fit_pinned_data() first.")
 
+    def _coerce_string_cols_to_category(self, df: pd.DataFrame) -> pd.DataFrame:
+        df = df.copy()
+        for col in df.columns:
+            if pd.api.types.is_string_dtype(df[col]):
+                df[col] = df[col].astype("category")
+        return df
+
     def select_columns_for_formula(self, df, formula: str, extra_cols=None):
         extra_cols = extra_cols or []
         cols = set(self._get_formula_vars(formula)) | set(extra_cols)
@@ -190,6 +199,7 @@ class MgcvBamWrapper:
             df_sub = df
         else:
             df_sub = self.select_columns_for_formula(df, formula, extra_cols=["weight"])
+            df_sub = self._coerce_string_cols_to_category(df_sub)
             
         df_sub.to_parquet(fpath, index=False)
         r_fpath = str(Path(fpath).as_posix())  # Use forward slashes for R on Windows
@@ -263,6 +273,7 @@ class MgcvBamWrapper:
                 raise ValueError("df must be a non-empty DataFrame")
             
             df_sub = self.select_columns_for_formula(df, formula, extra_cols=["weight"])
+            df_sub = self._coerce_string_cols_to_category(df_sub)
             
             t0 = time.perf_counter()
             df_r = py_df_to_r(df_sub, r=self.r_)
@@ -511,6 +522,7 @@ class MgcvBamWrapper:
         width: int = 3200,
         height: int = 2400,
         dpi: int = 300,
+        scale: bool = False,
     ) -> str:
         """
         Plot model's smooth terms and save to file.
@@ -544,9 +556,50 @@ class MgcvBamWrapper:
             width=width,
             height=height,
             dpi=dpi,
+            scale=scale,
         )
 
         logger.debug(f"Saved plot to {out_fpath}")
+        return out_fpath
+
+    def report_to_pdf(
+        self,
+        out_fpath: Union[str, Path],
+        pages: int = 1,
+        width: int = 3200,
+        height: int = 2400,
+        dpi: int = 300,
+        include_header: bool = True,
+        rug: bool = False,
+        scheme: int = 1,
+        scale: bool = False,
+    ) -> str:
+        """
+        Save a PDF report with smooth pages first, then model summary text.
+        """
+        self._ensure_fitted()
+
+        if pages < 1:
+            raise ValueError(f"pages must be >= 1, got {pages}")
+        if width < 100 or height < 100:
+            raise ValueError(f"width and height must be >= 100, got {width}x{height}")
+
+        out_fpath = str(out_fpath)
+
+        self._report_pdf_fn(
+            self.model_r_,
+            fpath=out_fpath,
+            pages=pages,
+            width=width,
+            height=height,
+            dpi=dpi,
+            include_header=include_header,
+            rug=rug,
+            scheme=scheme,
+            scale=scale,
+        )
+
+        logger.debug(f"Saved report to {out_fpath}")
         return out_fpath
     
     def plot(
@@ -554,6 +607,7 @@ class MgcvBamWrapper:
         width: int = 3200,
         height: int = 2400,
         dpi: int = 300,
+        scale: bool = False,
     ) -> None:
         """
         Plot model's smooth terms inline in Jupyter notebook.
@@ -592,6 +646,7 @@ class MgcvBamWrapper:
                 width=width,
                 height=height,
                 dpi=dpi,
+                scale=scale,
             )
 
             # Display inline in Jupyter
@@ -602,6 +657,24 @@ class MgcvBamWrapper:
                 os.unlink(tmp_path)
             except Exception as e:
                 logger.warning(f"Failed to clean up temporary plot file {tmp_path}: {e}")
+
+    def summary_text(self, include_header: bool = True) -> str:
+        """
+        Return the model summary as a plain text string.
+        
+        Args:
+            include_header: Whether to add a short header line.
+        """
+        self._ensure_fitted()
+
+        smy_r = self._summary_text_fn(self.model_r_, include_header=include_header)
+        smy = r_generic_types_to_py(smy_r)
+
+        if smy is None:
+            return ""
+        if isinstance(smy, list):
+            return "\n".join(str(x) for x in smy)
+        return str(smy)
 
     def stop_cluster(self) -> None:
         """
