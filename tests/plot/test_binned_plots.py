@@ -2,7 +2,11 @@ import unittest
 import shutil
 from pathlib import Path
 import numpy as np
-from quantbullet.plot.binned_plots import plot_binned_actual_vs_pred
+from quantbullet.plot.binned_plots import (
+    plot_binned_actual_vs_pred,
+    plot_binned_actual_vs_pred_plotnine,
+    plot_binned_actual_vs_pred_overlay_plotnine,
+)
 import pandas as pd
 from quantbullet.reporting.pdf_text_report import PdfTextReport
 
@@ -255,3 +259,95 @@ class TestPlotBinnedPlots(unittest.TestCase):
 
         labels = [t.get_text() for t in size_legend.get_texts()]
         self.assertEqual(len(labels), len(set(labels)), f"Size legend labels should be unique. Got: {labels}")
+
+
+class TestPlotBinnedPlotsPlotnine(unittest.TestCase):
+    def setUp(self):
+        self.cache_dir = "./tests/_cache_dir"
+        if DEV_MODE:
+            Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
+        else:
+            shutil.rmtree(self.cache_dir, ignore_errors=True)
+            Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self):
+        if not DEV_MODE:
+            shutil.rmtree(self.cache_dir, ignore_errors=True)
+
+    def test_basic_functionality_plotnine(self):
+        try:
+            from plotnine import ggplot
+        except ImportError:
+            self.skipTest("plotnine is not installed")
+
+        np.random.seed(42)
+        n_rows = 120
+        df = pd.DataFrame({
+            "facet_col": np.random.choice(["A", "B", "C"], n_rows),
+            "x_col": np.random.uniform(0, 100, n_rows),
+            "act_col": np.random.normal(50, 15, n_rows),
+            "pred_col": np.random.normal(52, 10, n_rows),
+        })
+        df["act_col"] += df["x_col"] * 0.5
+        df["pred_col"] += df["x_col"] * 0.5
+
+        p = plot_binned_actual_vs_pred_plotnine(
+            df,
+            facet_col="facet_col",
+            x_col="x_col",
+            act_col="act_col",
+            pred_col="pred_col",
+            n_bins=8,
+        )
+
+        fig_path = Path(self.cache_dir) / "test_plotnine_basic.png"
+        p.save(fig_path, verbose=False, dpi=300)
+
+        self.assertIsInstance(p, ggplot, "Expected a plotnine ggplot object.")
+        self.assertTrue(fig_path.exists(), "Plotnine plot was not saved correctly.")
+
+
+class TestPlotBinnedPlotsOverlayPlotnine(unittest.TestCase):
+    def setUp(self):
+        self.cache_dir = "./tests/_cache_dir"
+        if DEV_MODE:
+            Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
+        else:
+            shutil.rmtree(self.cache_dir, ignore_errors=True)
+            Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self):
+        if not DEV_MODE:
+            shutil.rmtree(self.cache_dir, ignore_errors=True)
+
+    def test_basic_functionality_overlay_plotnine(self):
+        try:
+            from plotnine import ggplot
+        except ImportError:
+            self.skipTest("plotnine is not installed")
+
+        np.random.seed(1234)
+        n_rows = 150
+        df = pd.DataFrame({
+            "segment": np.random.choice(["S1", "S2", "S3"], n_rows),
+            "x_col": np.random.uniform(0, 100, n_rows),
+            "act_col": np.random.normal(50, 12, n_rows),
+            "pred_col": np.random.normal(52, 10, n_rows),
+        })
+        df["act_col"] += df["x_col"] * 0.4
+        df["pred_col"] += df["x_col"] * 0.4
+
+        p = plot_binned_actual_vs_pred_overlay_plotnine(
+            df,
+            facet_col="segment",
+            x_col="x_col",
+            act_col="act_col",
+            pred_col="pred_col",
+            n_bins=8,
+        )
+
+        fig_path = Path(self.cache_dir) / "test_plotnine_overlay_basic.png"
+        p.save(fig_path, verbose=False, dpi=300)
+
+        self.assertIsInstance(p, ggplot, "Expected a plotnine ggplot object.")
+        self.assertTrue(fig_path.exists(), "Overlay plotnine plot was not saved correctly.")

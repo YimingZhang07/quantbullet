@@ -309,3 +309,331 @@ def plot_binned_actual_vs_pred(
     fig.tight_layout(rect=layout_rect)
     
     return fig, axes
+
+
+def plot_binned_actual_vs_pred_plotnine(
+    df,
+    x_col,
+    act_col,
+    pred_col,
+    facet_col=None,
+    bins=None,
+    figsize=(6, 4),
+    n_cols=3,
+    compact_cols=True,
+    pred_colors=None,
+    y_transform=None,
+    **kwargs,
+):
+    """
+    Plot binned actual vs predicted using plotnine (ggplot-style).
+
+    Parameters
+    ----------
+    bins : None, False, 'discrete', or array-like, optional
+        Binning strategy for x_col:
+        - None (default): Quantile binning using n_bins parameter
+        - False or 'discrete': Group by exact x values (no binning).
+        - array-like: Custom bin edges for pd.cut()
+    pred_colors : list of str, optional
+        Colors for prediction lines. Defaults to ECONOMIST_LINE_COLORS.
+    y_transform : callable, optional
+        Function to transform y-values (both actual and predicted) before plotting.
+        Example: `lambda x: x * 12` to annualize monthly values.
+    """
+    try:
+        from plotnine import (
+            ggplot,
+            aes,
+            geom_point,
+            geom_line,
+            facet_wrap,
+            scale_color_manual,
+            scale_size,
+            scale_x_continuous,
+            labs,
+            theme_bw,
+            theme,
+            element_text,
+            element_rect,
+            element_line,
+        )
+    except ImportError as e:
+        raise ImportError("plotnine is required for plot_binned_actual_vs_pred_plotnine()") from e
+
+    try:
+        from mizani.breaks import pretty_breaks
+    except ImportError:
+        pretty_breaks = None
+
+    try:
+        from mizani.formatters import label_number
+    except ImportError:
+        label_number = None
+
+    pred_cols = [pred_col] if isinstance(pred_col, str) else list(pred_col)
+    agg, meta = prepare_binned_data(df, x_col, act_col, pred_cols, facet_col, bins=bins, **kwargs)
+
+    if agg.empty:
+        return ggplot()
+
+    if y_transform is not None:
+        agg = agg.copy()
+        agg["act_mean"] = y_transform(agg["act_mean"])
+        for pred_mean_col in meta["pred_mean_cols"].values():
+            agg[pred_mean_col] = y_transform(agg[pred_mean_col])
+
+    pred_mean_cols = meta["pred_mean_cols"]
+    reverse_map = {v: k for k, v in pred_mean_cols.items()}
+
+    id_vars = ["bin_val", "count"]
+    if facet_col:
+        id_vars.append("facet")
+
+    lines_df = agg.melt(
+        id_vars=id_vars,
+        value_vars=list(pred_mean_cols.values()),
+        var_name="pred_mean_col",
+        value_name="pred_mean",
+    )
+    lines_df["pred_col"] = lines_df["pred_mean_col"].map(reverse_map)
+    lines_df = lines_df[lines_df["pred_mean"].notna()].sort_values("bin_val")
+
+    if pred_colors is None:
+        pred_colors = ECONOMIST_LINE_COLORS
+
+    n_charts = agg["facet"].nunique() if facet_col else 1
+    if compact_cols and facet_col:
+        n_cols = min(n_cols, n_charts)
+    n_rows = int(np.ceil(n_charts / n_cols)) if facet_col else 1
+
+    p = (
+        ggplot()
+        + geom_point(
+            agg,
+            aes(x="bin_val", y="act_mean", size="count"),
+            color=EBC.LONDON_70,
+            alpha=0.6,
+        )
+        + geom_line(
+            lines_df,
+            aes(x="bin_val", y="pred_mean", color="pred_col", group="pred_col"),
+            size=1.2,
+        )
+        + scale_size(range=(1.5, 6), name="Count")
+        + scale_color_manual(values=pred_colors, name="Model")
+        + labs(
+            title=f"{act_col} vs {', '.join(pred_cols)}",
+            x=x_col,
+            y=act_col,
+        )
+        + theme_bw(base_size=11)
+        + theme(
+            axis_text_x=element_text(rotation=0, ha="center"),
+            axis_title_x=element_text(size=10, weight="bold"),
+            axis_title_y=element_text(size=10, weight="bold"),
+            axis_text_y=element_text(size=9),
+            panel_grid_major=element_line(color="#e0e0e0", size=0.3),
+            panel_grid_minor=element_line(color="#f0f0f0", size=0.2),
+            panel_border=element_rect(color="#4d4d4d", fill="none", size=0.7),
+            strip_background=element_rect(fill="white", color="#4d4d4d", size=0.4),
+            strip_text=element_text(size=9, weight="bold", color="#333333"),
+            legend_position="right",
+            legend_title=element_text(size=9, weight="bold"),
+            legend_text=element_text(size=8),
+            plot_title=element_text(size=11, weight="bold", ha="left"),
+            plot_background=element_rect(fill="white"),
+        )
+    )
+
+    if pretty_breaks is not None and label_number is not None:
+        p = p + scale_x_continuous(
+            breaks=pretty_breaks(n=6),
+            labels=label_number(accuracy=0.01, trim=False),
+        )
+    else:
+        x_vals = agg["bin_val"].to_numpy()
+        x_vals = x_vals[np.isfinite(x_vals)]
+        if x_vals.size:
+            x_min = float(x_vals.min())
+            x_max = float(x_vals.max())
+            if x_min == x_max:
+                breaks = [x_min]
+            else:
+                breaks = np.linspace(x_min, x_max, num=6)
+            labels = [f"{b:.2f}" for b in breaks]
+            p = p + scale_x_continuous(breaks=breaks, labels=labels)
+
+    if facet_col:
+        p = p + facet_wrap("~facet", ncol=n_cols)
+
+    # figure size (in inches)
+    if figsize is not None:
+        if facet_col:
+            width_per, height_per = figsize
+            p = p + theme(figure_size=(width_per * n_cols, height_per * n_rows))
+        else:
+            p = p + theme(figure_size=figsize)
+
+    return p
+
+
+def plot_binned_actual_vs_pred_overlay_plotnine(
+    df,
+    x_col,
+    act_col,
+    pred_col,
+    facet_col=None,
+    bins=None,
+    figsize=(8, 5),
+    pred_colors=None,
+    y_transform=None,
+    **kwargs,
+):
+    """
+    Plot binned actual vs predicted on a single panel (no faceting),
+    with points and lines sharing colors by group.
+    """
+    try:
+        from plotnine import (
+            ggplot,
+            aes,
+            geom_point,
+            geom_line,
+            scale_color_manual,
+            scale_size,
+            scale_x_continuous,
+            scale_linetype_discrete,
+            labs,
+            theme_bw,
+            theme,
+            element_text,
+            element_rect,
+            element_line,
+        )
+    except ImportError as e:
+        raise ImportError("plotnine is required for plot_binned_actual_vs_pred_overlay_plotnine()") from e
+
+    try:
+        from mizani.breaks import pretty_breaks
+    except ImportError:
+        pretty_breaks = None
+
+    try:
+        from mizani.formatters import label_number
+    except ImportError:
+        label_number = None
+
+    pred_cols = [pred_col] if isinstance(pred_col, str) else list(pred_col)
+
+    if facet_col is None:
+        df = df.copy()
+        facet_col = "_all_group"
+        df[facet_col] = "All"
+
+    agg, meta = prepare_binned_data(df, x_col, act_col, pred_cols, facet_col, bins=bins, **kwargs)
+    if agg.empty:
+        return ggplot()
+
+    if y_transform is not None:
+        agg = agg.copy()
+        agg["act_mean"] = y_transform(agg["act_mean"])
+        for pred_mean_col in meta["pred_mean_cols"].values():
+            agg[pred_mean_col] = y_transform(agg[pred_mean_col])
+
+    pred_mean_cols = meta["pred_mean_cols"]
+    reverse_map = {v: k for k, v in pred_mean_cols.items()}
+
+    id_vars = ["bin_val", "count", "facet"]
+    lines_df = agg.melt(
+        id_vars=id_vars,
+        value_vars=list(pred_mean_cols.values()),
+        var_name="pred_mean_col",
+        value_name="pred_mean",
+    )
+    lines_df["pred_col"] = lines_df["pred_mean_col"].map(reverse_map)
+    lines_df = lines_df[lines_df["pred_mean"].notna()].sort_values(["facet", "bin_val"])
+
+    if pred_colors is None:
+        pred_colors = ECONOMIST_LINE_COLORS
+
+    facet_levels = list(pd.unique(agg["facet"]))
+    color_map = {
+        level: pred_colors[i % len(pred_colors)]
+        for i, level in enumerate(facet_levels)
+    }
+
+    p = (
+        ggplot()
+        + geom_point(
+            agg,
+            aes(x="bin_val", y="act_mean", size="count", color="facet"),
+            alpha=0.6,
+        )
+        + geom_line(
+            lines_df,
+            aes(
+                **({
+                    "x": "bin_val",
+                    "y": "pred_mean",
+                    "color": "facet",
+                    "linetype": "pred_col",
+                    "group": "interaction(facet, pred_col)",
+                } if len(pred_cols) > 1 else {
+                    "x": "bin_val",
+                    "y": "pred_mean",
+                    "color": "facet",
+                    "group": "facet",
+                })
+            ),
+            size=1.2,
+        )
+        + scale_size(range=(1.5, 6), name="Count")
+        + scale_color_manual(values=color_map, name=facet_col)
+        + labs(
+            title=f"{act_col} vs {', '.join(pred_cols)}",
+            x=x_col,
+            y=act_col,
+        )
+        + theme_bw(base_size=11)
+        + theme(
+            axis_text_x=element_text(rotation=0, ha="center"),
+            axis_title_x=element_text(size=10, weight="bold"),
+            axis_title_y=element_text(size=10, weight="bold"),
+            axis_text_y=element_text(size=9),
+            panel_grid_major=element_line(color="#e0e0e0", size=0.3),
+            panel_grid_minor=element_line(color="#f0f0f0", size=0.2),
+            panel_border=element_rect(color="#4d4d4d", fill="none", size=0.7),
+            legend_position="right",
+            legend_title=element_text(size=9, weight="bold"),
+            legend_text=element_text(size=8),
+            plot_title=element_text(size=11, weight="bold", ha="left"),
+            plot_background=element_rect(fill="white"),
+        )
+    )
+
+    if len(pred_cols) > 1:
+        p = p + scale_linetype_discrete(name="Model")
+
+    if pretty_breaks is not None and label_number is not None:
+        p = p + scale_x_continuous(
+            breaks=pretty_breaks(n=6),
+            labels=label_number(accuracy=0.01, trim=False),
+        )
+    else:
+        x_vals = agg["bin_val"].to_numpy()
+        x_vals = x_vals[np.isfinite(x_vals)]
+        if x_vals.size:
+            x_min = float(x_vals.min())
+            x_max = float(x_vals.max())
+            if x_min == x_max:
+                breaks = [x_min]
+            else:
+                breaks = np.linspace(x_min, x_max, num=6)
+            labels = [f"{b:.2f}" for b in breaks]
+            p = p + scale_x_continuous(breaks=breaks, labels=labels)
+
+    if figsize is not None:
+        p = p + theme(figure_size=figsize)
+
+    return p
