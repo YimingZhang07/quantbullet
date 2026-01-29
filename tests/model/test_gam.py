@@ -1,5 +1,6 @@
 import os
 import tempfile
+from pathlib import Path
 import unittest
 import numpy as np
 import pandas as pd
@@ -12,6 +13,8 @@ from quantbullet.model.feature import FeatureSpec, FeatureRole, Feature
 from quantbullet.core.enums import DataType
 from quantbullet.model.gam import SplineTermData, SplineByGroupTermData, TensorTermData, FactorTermData
 
+DEV_MODE = True
+CACHE_DIR = "./tests/_cache_dir"
 
 class TestWrapperGAM(unittest.TestCase):
     """Test cases for WrapperGAM based on pygam-example.ipynb"""
@@ -151,13 +154,18 @@ class TestWrapperGAM(unittest.TestCase):
         wgam = WrapperGAM(self.features)
         wgam.fit(self.data, self.data['happiness'])
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = os.path.join(tmpdir, "pdep.json")
+        if DEV_MODE:
+            Path(CACHE_DIR).mkdir(parents=True, exist_ok=True)
+            path = os.path.join(CACHE_DIR, "test_gam_pdep.json")
             wgam.export_partial_dependence_json(path)
+        else:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                path = os.path.join(tmpdir, "pdep.json")
+                wgam.export_partial_dependence_json(path)
 
-            replay = GAMReplayModel.from_partial_dependence_json(path)
-            replay_preds = replay.predict(self.data)
-            original_preds = wgam.predict(self.data)
+        replay = GAMReplayModel.from_partial_dependence_json(path)
+        replay_preds = replay.predict(self.data)
+        original_preds = wgam.predict(self.data)
 
         np.testing.assert_allclose(original_preds, replay_preds, rtol=0.01, atol=0.05)
 
