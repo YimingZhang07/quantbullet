@@ -275,6 +275,66 @@ def _snap_y_to_original(x_orig, y_orig, anchors_df):
     return df
 
 
+def _anchor_editor(x, y, anchor_state_key, key_prefix):
+    if anchor_state_key not in st.session_state:
+        st.session_state[anchor_state_key] = _default_anchors(x, y)
+
+    ctrl1, ctrl2, ctrl3, ctrl4 = st.columns([1, 1, 1, 1])
+    n_anchors = ctrl1.slider(
+        "Auto anchors",
+        min_value=2,
+        max_value=40,
+        value=12,
+        step=1,
+        key=f"{key_prefix}::n_anchors",
+    )
+    if ctrl2.button("Generate evenly spaced", key=f"{key_prefix}::gen"):
+        st.session_state[anchor_state_key] = _generate_anchors(x, y, n_anchors)
+        st.rerun()
+    if ctrl3.button("Reset to min/max", key=f"{key_prefix}::reset"):
+        st.session_state[anchor_state_key] = _default_anchors(x, y)
+        st.rerun()
+    if ctrl4.button("Snap Y to original", key=f"{key_prefix}::snap"):
+        st.session_state[anchor_state_key] = _snap_y_to_original(
+            x, y, st.session_state[anchor_state_key]
+        )
+        st.rerun()
+
+    add_col1, add_col2 = st.columns([3, 1])
+    x_min = float(np.min(x)) if len(x) else 0.0
+    x_max = float(np.max(x)) if len(x) else 1.0
+    step = (x_max - x_min) / 100 if x_max > x_min else 1.0
+    add_x = add_col1.number_input(
+        "Add anchor at x",
+        min_value=x_min,
+        max_value=x_max,
+        value=x_min,
+        step=step,
+        key=f"{key_prefix}::add_x",
+    )
+    if add_col2.button("Add anchor", key=f"{key_prefix}::add_btn"):
+        y_add = float(_interp_on_curve(x, y, [add_x])[0])
+        st.session_state[anchor_state_key] = _add_anchor_row(
+            st.session_state[anchor_state_key], add_x, y_add
+        )
+        st.rerun()
+
+    table_col, plot_col = st.columns([1, 1])
+    with table_col:
+        with st.form(key=f"{key_prefix}::form"):
+            anchors_df = st.data_editor(
+                st.session_state[anchor_state_key],
+                width="stretch",
+                num_rows="dynamic",
+            )
+            if st.form_submit_button("Apply edits"):
+                anchors_df = _clean_anchor_df(anchors_df)
+                st.session_state[anchor_state_key] = anchors_df
+                st.rerun()
+
+    return st.session_state[anchor_state_key], plot_col
+
+
 def main():
     st.set_page_config(page_title="GAM Partial Dependence Editor", layout="wide")
     st.title("GAM Partial Dependence Editor")
@@ -338,64 +398,12 @@ def main():
         x = selected_term.x
         y = selected_term.y
         anchor_state_key = f"anchors::{selected_id}"
-
-        if anchor_state_key not in st.session_state:
-            st.session_state[anchor_state_key] = _default_anchors(x, y)
-
-        ctrl1, ctrl2, ctrl3, ctrl4 = st.columns([1, 1, 1, 1])
-        n_anchors = ctrl1.slider(
-            "Auto anchors",
-            min_value=2,
-            max_value=40,
-            value=12,
-            step=1,
-            key=f"n_anchors::{selected_id}",
+        anchors_df, plot_col = _anchor_editor(
+            x,
+            y,
+            anchor_state_key,
+            key_prefix=selected_id,
         )
-        if ctrl2.button("Generate evenly spaced", key=f"gen::{selected_id}"):
-            st.session_state[anchor_state_key] = _generate_anchors(x, y, n_anchors)
-            st.rerun()
-        if ctrl3.button("Reset to min/max", key=f"reset::{selected_id}"):
-            st.session_state[anchor_state_key] = _default_anchors(x, y)
-            st.rerun()
-        if ctrl4.button("Snap Y to original", key=f"snap::{selected_id}"):
-            st.session_state[anchor_state_key] = _snap_y_to_original(
-                x, y, st.session_state[anchor_state_key]
-            )
-            st.rerun()
-
-        add_col1, add_col2 = st.columns([3, 1])
-        x_min = float(np.min(x)) if len(x) else 0.0
-        x_max = float(np.max(x)) if len(x) else 1.0
-        step = (x_max - x_min) / 100 if x_max > x_min else 1.0
-        add_x = add_col1.number_input(
-            "Add anchor at x",
-            min_value=x_min,
-            max_value=x_max,
-            value=x_min,
-            step=step,
-            key=f"add_x::{selected_id}",
-        )
-        if add_col2.button("Add anchor", key=f"add_btn::{selected_id}"):
-            y_add = float(_interp_on_curve(x, y, [add_x])[0])
-            st.session_state[anchor_state_key] = _add_anchor_row(
-                st.session_state[anchor_state_key], add_x, y_add
-            )
-            st.rerun()
-
-        table_col, plot_col = st.columns([1, 1])
-        with table_col:
-            with st.form(key=f"form::{selected_id}"):
-                anchors_df = st.data_editor(
-                    st.session_state[anchor_state_key],
-                    width="stretch",
-                    num_rows="dynamic",
-                )
-                if st.form_submit_button("Apply edits"):
-                    anchors_df = _clean_anchor_df(anchors_df)
-                    st.session_state[anchor_state_key] = anchors_df
-                    st.rerun()
-
-        anchors_df = st.session_state[anchor_state_key]
         x_grid = _build_output_grid(x, anchors_df, n_points=len(x))
         y_orig = _interp_on_curve(x, y, x_grid)
         y_new = _interp_curve(x_grid, anchors_df)
@@ -442,64 +450,12 @@ def main():
         x = curve["x"]
         y = curve["y"]
         anchor_state_key = f"anchors::{selected_id}::{group_label}"
-
-        if anchor_state_key not in st.session_state:
-            st.session_state[anchor_state_key] = _default_anchors(x, y)
-
-        ctrl1, ctrl2, ctrl3, ctrl4 = st.columns([1, 1, 1, 1])
-        n_anchors = ctrl1.slider(
-            "Auto anchors",
-            min_value=2,
-            max_value=40,
-            value=12,
-            step=1,
-            key=f"n_anchors::{selected_id}::{group_label}",
+        anchors_df, plot_col = _anchor_editor(
+            x,
+            y,
+            anchor_state_key,
+            key_prefix=f"{selected_id}::{group_label}",
         )
-        if ctrl2.button("Generate evenly spaced", key=f"gen::{selected_id}::{group_label}"):
-            st.session_state[anchor_state_key] = _generate_anchors(x, y, n_anchors)
-            st.rerun()
-        if ctrl3.button("Reset to min/max", key=f"reset::{selected_id}::{group_label}"):
-            st.session_state[anchor_state_key] = _default_anchors(x, y)
-            st.rerun()
-        if ctrl4.button("Snap Y to original", key=f"snap::{selected_id}::{group_label}"):
-            st.session_state[anchor_state_key] = _snap_y_to_original(
-                x, y, st.session_state[anchor_state_key]
-            )
-            st.rerun()
-
-        add_col1, add_col2 = st.columns([3, 1])
-        x_min = float(np.min(x)) if len(x) else 0.0
-        x_max = float(np.max(x)) if len(x) else 1.0
-        step = (x_max - x_min) / 100 if x_max > x_min else 1.0
-        add_x = add_col1.number_input(
-            "Add anchor at x",
-            min_value=x_min,
-            max_value=x_max,
-            value=x_min,
-            step=step,
-            key=f"add_x::{selected_id}::{group_label}",
-        )
-        if add_col2.button("Add anchor", key=f"add_btn::{selected_id}::{group_label}"):
-            y_add = float(_interp_on_curve(x, y, [add_x])[0])
-            st.session_state[anchor_state_key] = _add_anchor_row(
-                st.session_state[anchor_state_key], add_x, y_add
-            )
-            st.rerun()
-
-        table_col, plot_col = st.columns([1, 1])
-        with table_col:
-            with st.form(key=f"form::{selected_id}::{group_label}"):
-                anchors_df = st.data_editor(
-                    st.session_state[anchor_state_key],
-                    width="stretch",
-                    num_rows="dynamic",
-                )
-                if st.form_submit_button("Apply edits"):
-                    anchors_df = _clean_anchor_df(anchors_df)
-                    st.session_state[anchor_state_key] = anchors_df
-                    st.rerun()
-
-        anchors_df = st.session_state[anchor_state_key]
         x_grid = _build_output_grid(x, anchors_df, n_points=len(x))
         y_orig = _interp_on_curve(x, y, x_grid)
         y_new = _interp_curve(x_grid, anchors_df)
