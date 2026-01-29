@@ -5,7 +5,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from scipy.interpolate import PchipInterpolator
 
 from quantbullet.model.gam import (
     load_partial_dependence_json,
@@ -168,11 +167,6 @@ def _build_modified_terms(term_data, modified_terms, term_key_map):
     return updated
 
 
-def _reset_editor_state(editor_key):
-    if editor_key in st.session_state:
-        del st.session_state[editor_key]
-
-
 def _add_anchor_row(anchors_df, x_val, y_val):
     new_row = pd.DataFrame({"x": [float(x_val)], "y": [float(y_val)]})
     if anchors_df is None or anchors_df.empty:
@@ -250,7 +244,7 @@ def main():
         x = selected_term.x
         y = selected_term.y
         anchor_state_key = f"anchors::{selected_id}"
-        editor_key = f"{anchor_state_key}::editor"
+
         if anchor_state_key not in st.session_state:
             st.session_state[anchor_state_key] = _default_anchors(x, y)
 
@@ -265,15 +259,15 @@ def main():
         )
         if ctrl2.button("Generate evenly spaced", key=f"gen::{selected_id}"):
             st.session_state[anchor_state_key] = _generate_anchors(x, y, n_anchors)
-            _reset_editor_state(editor_key)
+            st.rerun()
         if ctrl3.button("Reset to min/max", key=f"reset::{selected_id}"):
             st.session_state[anchor_state_key] = _default_anchors(x, y)
-            _reset_editor_state(editor_key)
+            st.rerun()
         if ctrl4.button("Snap Y to original", key=f"snap::{selected_id}"):
             st.session_state[anchor_state_key] = _snap_y_to_original(
                 x, y, st.session_state[anchor_state_key]
             )
-            _reset_editor_state(editor_key)
+            st.rerun()
 
         add_col1, add_col2 = st.columns([3, 1])
         x_min = float(np.min(x)) if len(x) else 0.0
@@ -292,19 +286,22 @@ def main():
             st.session_state[anchor_state_key] = _add_anchor_row(
                 st.session_state[anchor_state_key], add_x, y_add
             )
-            _reset_editor_state(editor_key)
+            st.rerun()
 
         table_col, plot_col = st.columns([1, 1])
         with table_col:
-            anchors_df = st.data_editor(
-                st.session_state[anchor_state_key],
-                width="stretch",
-                num_rows="dynamic",
-                key=editor_key,
-            )
-            anchors_df = _clean_anchor_df(anchors_df)
-            st.session_state[anchor_state_key] = anchors_df
+            with st.form(key=f"form::{selected_id}"):
+                anchors_df = st.data_editor(
+                    st.session_state[anchor_state_key],
+                    width="stretch",
+                    num_rows="dynamic",
+                )
+                if st.form_submit_button("Apply edits"):
+                    anchors_df = _clean_anchor_df(anchors_df)
+                    st.session_state[anchor_state_key] = anchors_df
+                    st.rerun()
 
+        anchors_df = st.session_state[anchor_state_key]
         y_new = _interp_curve(x, anchors_df)
         modified_terms[selected_id] = {"type": "spline", "y": y_new}
         with plot_col:
@@ -318,7 +315,7 @@ def main():
         x = curve["x"]
         y = curve["y"]
         anchor_state_key = f"anchors::{selected_id}::{group_label}"
-        editor_key = f"{anchor_state_key}::editor"
+
         if anchor_state_key not in st.session_state:
             st.session_state[anchor_state_key] = _default_anchors(x, y)
 
@@ -333,15 +330,15 @@ def main():
         )
         if ctrl2.button("Generate evenly spaced", key=f"gen::{selected_id}::{group_label}"):
             st.session_state[anchor_state_key] = _generate_anchors(x, y, n_anchors)
-            _reset_editor_state(editor_key)
+            st.rerun()
         if ctrl3.button("Reset to min/max", key=f"reset::{selected_id}::{group_label}"):
             st.session_state[anchor_state_key] = _default_anchors(x, y)
-            _reset_editor_state(editor_key)
+            st.rerun()
         if ctrl4.button("Snap Y to original", key=f"snap::{selected_id}::{group_label}"):
             st.session_state[anchor_state_key] = _snap_y_to_original(
                 x, y, st.session_state[anchor_state_key]
             )
-            _reset_editor_state(editor_key)
+            st.rerun()
 
         add_col1, add_col2 = st.columns([3, 1])
         x_min = float(np.min(x)) if len(x) else 0.0
@@ -360,19 +357,22 @@ def main():
             st.session_state[anchor_state_key] = _add_anchor_row(
                 st.session_state[anchor_state_key], add_x, y_add
             )
-            _reset_editor_state(editor_key)
+            st.rerun()
 
         table_col, plot_col = st.columns([1, 1])
         with table_col:
-            anchors_df = st.data_editor(
-                st.session_state[anchor_state_key],
-                width="stretch",
-                num_rows="dynamic",
-                key=editor_key,
-            )
-            anchors_df = _clean_anchor_df(anchors_df)
-            st.session_state[anchor_state_key] = anchors_df
+            with st.form(key=f"form::{selected_id}::{group_label}"):
+                anchors_df = st.data_editor(
+                    st.session_state[anchor_state_key],
+                    width="stretch",
+                    num_rows="dynamic",
+                )
+                if st.form_submit_button("Apply edits"):
+                    anchors_df = _clean_anchor_df(anchors_df)
+                    st.session_state[anchor_state_key] = anchors_df
+                    st.rerun()
 
+        anchors_df = st.session_state[anchor_state_key]
         y_new = _interp_curve(x, anchors_df)
         if selected_id not in modified_terms:
             modified_terms[selected_id] = {"type": "spline_by_category", "group_curves": {}}
@@ -383,18 +383,25 @@ def main():
     elif isinstance(selected_term, FactorTermData):
         categories = selected_term.categories
         values = selected_term.values
-        df = pd.DataFrame({"category": categories, "value": values})
-        editor_key = f"factor::{selected_id}::editor"
+        factor_state_key = f"factor::{selected_id}"
+
+        if factor_state_key not in st.session_state:
+            st.session_state[factor_state_key] = pd.DataFrame({"category": categories, "value": values})
+
         table_col, plot_col = st.columns([1, 1])
         with table_col:
-            df_edit = st.data_editor(
-                df,
-                width="stretch",
-                num_rows="fixed",
-                disabled=["category"],
-                key=editor_key,
-            )
-            df_edit = st.session_state.get(editor_key, df_edit)
+            with st.form(key=f"form::{selected_id}"):
+                df_edit = st.data_editor(
+                    st.session_state[factor_state_key],
+                    width="stretch",
+                    num_rows="fixed",
+                    disabled=["category"],
+                )
+                if st.form_submit_button("Apply edits"):
+                    st.session_state[factor_state_key] = df_edit
+                    st.rerun()
+
+        df_edit = st.session_state[factor_state_key]
         modified_terms[selected_id] = {"type": "factor", "values": df_edit["value"].to_numpy()}
         with plot_col:
             _plot_bar(df_edit["category"].tolist(), df_edit["value"].to_numpy(), selected_label)
@@ -428,4 +435,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
