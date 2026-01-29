@@ -124,10 +124,82 @@ def _interp_curve(x_full, anchors_df):
     return predictor(x_full)
 
 
-def _plot_curve(x, y_orig, y_new, title, anchors_df=None):
+def _build_output_grid(x_base, anchors_df, n_points=None):
+    x_base = np.asarray(x_base, dtype=float) if x_base is not None else np.asarray([])
+    df = _clean_anchor_df(anchors_df)
+    if not df.empty:
+        x_min = float(df["x"].min())
+        x_max = float(df["x"].max())
+    elif len(x_base):
+        x_min = float(np.min(x_base))
+        x_max = float(np.max(x_base))
+    else:
+        return np.asarray([], dtype=float)
+
+    if x_min == x_max:
+        return np.asarray([x_min], dtype=float)
+
+    if n_points is None or n_points <= 0:
+        n_points = len(x_base) if len(x_base) else 200
+
+    n_points = max(2, int(n_points))
+    return np.linspace(x_min, x_max, n_points)
+
+
+def _interp_optional(x_orig, y_orig, x_grid):
+    if y_orig is None:
+        return None
+    return _interp_on_curve(x_orig, y_orig, x_grid)
+
+
+def _shift_confidence_bands(x_orig, y_orig, conf_lower, conf_upper, x_grid, y_new):
+    if conf_lower is None and conf_upper is None:
+        return None, None
+    y_orig_grid = _interp_on_curve(x_orig, y_orig, x_grid)
+    delta = y_new - y_orig_grid
+    lower = _interp_optional(x_orig, conf_lower, x_grid)
+    upper = _interp_optional(x_orig, conf_upper, x_grid)
+    if lower is not None:
+        lower = lower + delta
+    if upper is not None:
+        upper = upper + delta
+    return lower, upper
+
+
+def _plot_curve(
+    x,
+    y_orig,
+    y_new,
+    title,
+    anchors_df=None,
+    conf_orig=None,
+    conf_new=None,
+):
     fig, ax = plt.subplots()
-    ax.plot(x, y_orig, label="original", alpha=0.7)
-    ax.plot(x, y_new, label="edited", alpha=0.9)
+    line_orig = ax.plot(x, y_orig, label="original", alpha=0.7)[0]
+    line_new = ax.plot(x, y_new, label="edited", alpha=0.9)[0]
+    if conf_orig is not None:
+        lower, upper = conf_orig
+        if lower is not None and upper is not None:
+            ax.fill_between(
+                x,
+                lower,
+                upper,
+                color=line_orig.get_color(),
+                alpha=0.12,
+                label="orig band",
+            )
+    if conf_new is not None:
+        lower, upper = conf_new
+        if lower is not None and upper is not None:
+            ax.fill_between(
+                x,
+                lower,
+                upper,
+                color=line_new.get_color(),
+                alpha=0.18,
+                label="edited band",
+            )
     if anchors_df is not None:
         df = _clean_anchor_df(anchors_df)
         if not df.empty:
@@ -158,10 +230,29 @@ def _build_modified_terms(term_data, modified_terms, term_key_map):
         key = term_key_map[term_id]
         term = updated[key]
         if mod["type"] == "spline":
+            if "x" in mod:
+                term.x = np.asarray(mod["x"])
             term.y = np.asarray(mod["y"])
+            if "conf_lower" in mod:
+                term.conf_lower = None if mod["conf_lower"] is None else np.asarray(mod["conf_lower"])
+            if "conf_upper" in mod:
+                term.conf_upper = None if mod["conf_upper"] is None else np.asarray(mod["conf_upper"])
         elif mod["type"] == "spline_by_category":
             for label, y in mod["group_curves"].items():
-                term.group_curves[label]["y"] = np.asarray(y)
+                if isinstance(y, dict):
+                    if "x" in y:
+                        term.group_curves[label]["x"] = np.asarray(y["x"])
+                    term.group_curves[label]["y"] = np.asarray(y["y"])
+                    if "conf_lower" in y:
+                        term.group_curves[label]["conf_lower"] = (
+                            None if y["conf_lower"] is None else np.asarray(y["conf_lower"])
+                        )
+                    if "conf_upper" in y:
+                        term.group_curves[label]["conf_upper"] = (
+                            None if y["conf_upper"] is None else np.asarray(y["conf_upper"])
+                        )
+                else:
+                    term.group_curves[label]["y"] = np.asarray(y)
         elif mod["type"] == "factor":
             term.values = np.asarray(mod["values"])
     return updated
@@ -197,6 +288,9 @@ def main():
         st.header("Export")
         output_path = st.text_input("Output path", value=str(DEFAULT_OUTPUT))
         st.caption("Output JSON will keep intercept/tensor terms unchanged.")
+        st.divider()
+        st.header("Plot Options")
+        show_conf_bands = st.checkbox("Show confidence bands", value=False)
 
     if "term_data" not in st.session_state:
         st.session_state.term_data = None
@@ -302,10 +396,43 @@ def main():
                     st.rerun()
 
         anchors_df = st.session_state[anchor_state_key]
-        y_new = _interp_curve(x, anchors_df)
-        modified_terms[selected_id] = {"type": "spline", "y": y_new}
+        x_grid = _build_output_grid(x, anchors_df, n_points=len(x))
+        y_orig = _interp_on_curve(x, y, x_grid)
+        y_new = _interp_curve(x_grid, anchors_df)
+
+        mod = {"type": "spline", "x": x_grid, "y": y_new}
+        conf_lower_orig = None
+        conf_upper_orig = None
+        conf_lower_new = None
+        conf_upper_new = None
+        if selected_term.conf_lower is not None or selected_term.conf_upper is not None:
+            conf_lower_new, conf_upper_new = _shift_confidence_bands(
+                x,
+                y,
+                selected_term.conf_lower,
+                selected_term.conf_upper,
+                x_grid,
+                y_new,
+            )
+            if conf_lower_new is not None:
+                mod["conf_lower"] = conf_lower_new
+            if conf_upper_new is not None:
+                mod["conf_upper"] = conf_upper_new
+            if show_conf_bands:
+                conf_lower_orig = _interp_optional(x, selected_term.conf_lower, x_grid)
+                conf_upper_orig = _interp_optional(x, selected_term.conf_upper, x_grid)
+        modified_terms[selected_id] = mod
+
         with plot_col:
-            _plot_curve(x, y, y_new, selected_label, anchors_df=anchors_df)
+            _plot_curve(
+                x_grid,
+                y_orig,
+                y_new,
+                selected_label,
+                anchors_df=anchors_df,
+                conf_orig=(conf_lower_orig, conf_upper_orig) if show_conf_bands else None,
+                conf_new=(conf_lower_new, conf_upper_new) if show_conf_bands else None,
+            )
 
     elif isinstance(selected_term, SplineByGroupTermData):
         group_labels = list(selected_term.group_curves.keys())
@@ -373,12 +500,47 @@ def main():
                     st.rerun()
 
         anchors_df = st.session_state[anchor_state_key]
-        y_new = _interp_curve(x, anchors_df)
+        x_grid = _build_output_grid(x, anchors_df, n_points=len(x))
+        y_orig = _interp_on_curve(x, y, x_grid)
+        y_new = _interp_curve(x_grid, anchors_df)
+
         if selected_id not in modified_terms:
             modified_terms[selected_id] = {"type": "spline_by_category", "group_curves": {}}
-        modified_terms[selected_id]["group_curves"][group_label] = y_new
+        mod_curve = {"x": x_grid, "y": y_new}
+        conf_lower = curve.get("conf_lower")
+        conf_upper = curve.get("conf_upper")
+        conf_lower_orig = None
+        conf_upper_orig = None
+        conf_lower_new = None
+        conf_upper_new = None
+        if conf_lower is not None or conf_upper is not None:
+            conf_lower_new, conf_upper_new = _shift_confidence_bands(
+                x,
+                y,
+                conf_lower,
+                conf_upper,
+                x_grid,
+                y_new,
+            )
+            if conf_lower_new is not None:
+                mod_curve["conf_lower"] = conf_lower_new
+            if conf_upper_new is not None:
+                mod_curve["conf_upper"] = conf_upper_new
+            if show_conf_bands:
+                conf_lower_orig = _interp_optional(x, conf_lower, x_grid)
+                conf_upper_orig = _interp_optional(x, conf_upper, x_grid)
+        modified_terms[selected_id]["group_curves"][group_label] = mod_curve
+
         with plot_col:
-            _plot_curve(x, y, y_new, f"{selected_label} - {group_label}", anchors_df=anchors_df)
+            _plot_curve(
+                x_grid,
+                y_orig,
+                y_new,
+                f"{selected_label} - {group_label}",
+                anchors_df=anchors_df,
+                conf_orig=(conf_lower_orig, conf_upper_orig) if show_conf_bands else None,
+                conf_new=(conf_lower_new, conf_upper_new) if show_conf_bands else None,
+            )
 
     elif isinstance(selected_term, FactorTermData):
         categories = selected_term.categories
@@ -406,10 +568,10 @@ def main():
         with plot_col:
             _plot_bar(df_edit["category"].tolist(), df_edit["value"].to_numpy(), selected_label)
 
-    col1, col2 = st.columns(2)
-    with col1:
+    with st.sidebar:
+        st.header("Export Actions")
+        updated_terms = _build_modified_terms(term_data, modified_terms, term_key_map)
         if st.button("Save JSON to path"):
-            updated_terms = _build_modified_terms(term_data, modified_terms, term_key_map)
             dump_partial_dependence_json(
                 term_data=updated_terms,
                 path=output_path,
@@ -418,8 +580,6 @@ def main():
             )
             st.success(f"Saved to {output_path}")
 
-    with col2:
-        updated_terms = _build_modified_terms(term_data, modified_terms, term_key_map)
         payload = export_partial_dependence_payload(
             term_data=updated_terms,
             intercept=st.session_state.intercept,
