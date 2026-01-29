@@ -1,3 +1,4 @@
+import json
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -10,13 +11,60 @@ from quantbullet.plot import (
 from quantbullet.plot.utils import close_unused_axes
 from quantbullet.plot.cycles import use_economist_cycle
 from scipy.interpolate import RegularGridInterpolator
-from dataclasses import dataclass
-from typing import List, Dict, Union, Tuple, Optional
+from dataclasses import dataclass, fields
+from typing import List, Dict, Union, Tuple, Optional, Any
+
+def _maybe_array(value: Optional[Any]) -> Optional[np.ndarray]:
+    if value is None:
+        return None
+    return np.asarray(value)
+
+def _serialize_value(value: Any) -> Any:
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, (np.floating, np.integer)):
+        return value.item()
+    if isinstance(value, dict):
+        return {k: _serialize_value(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_serialize_value(v) for v in value]
+    return value
+
+def _serialize_term_key(key: Union[str, Tuple[str, str]]) -> Dict[str, Any]:
+    if isinstance(key, tuple):
+        return {"type": "interaction", "name": list(key)}
+    return {"type": "feature", "name": key}
+
+def _deserialize_term_key(data: Dict[str, Any]) -> Union[str, Tuple[str, str]]:
+    key_type = data.get("type")
+    if key_type == "interaction":
+        name = data.get("name", [])
+        return (name[0], name[1]) if len(name) == 2 else tuple(name)
+    if key_type == "feature":
+        return data.get("name")
+    raise ValueError(f"Unknown term key type: {key_type}")
 
 @dataclass
 class GAMTermData:
     """Base class for GAM term partial dependence data."""
     term_type: str = "base"
+
+    def to_dict(self) -> Dict[str, Any]:
+        raw = {f.name: getattr(self, f.name) for f in fields(self)}
+        return {k: _serialize_value(v) for k, v in raw.items()}
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "GAMTermData":
+        term_type = data.get("term_type")
+        if term_type == "spline":
+            return SplineTermData.from_dict(data)
+        if term_type == "spline_by_category":
+            return SplineByGroupTermData.from_dict(data)
+        if term_type == "tensor":
+            return TensorTermData.from_dict(data)
+        if term_type == "factor":
+            return FactorTermData.from_dict(data)
+        raise ValueError(f"Unknown term_type: {term_type}")
 
 @dataclass
 class SplineTermData(GAMTermData):
@@ -28,6 +76,17 @@ class SplineTermData(GAMTermData):
     conf_upper: np.ndarray = None
     term_type: str = "spline"
 
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "SplineTermData":
+        return cls(
+            feature=data.get("feature", ""),
+            x=_maybe_array(data.get("x")),
+            y=_maybe_array(data.get("y")),
+            conf_lower=_maybe_array(data.get("conf_lower")),
+            conf_upper=_maybe_array(data.get("conf_upper")),
+            term_type=data.get("term_type", "spline"),
+        )
+
 @dataclass
 class SplineByGroupTermData(GAMTermData):
     """Data for a spline term interacted with a categorical s(x, by=cat)."""
@@ -36,6 +95,21 @@ class SplineByGroupTermData(GAMTermData):
     # map group_label -> {'x': np.ndarray, 'y': np.ndarray, 'conf_lower': np.ndarray, 'conf_upper': np.ndarray}
     group_curves: Dict[str, Dict[str, np.ndarray]] = None
     term_type: str = "spline_by_category"
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "SplineByGroupTermData":
+        group_curves = data.get("group_curves")
+        if group_curves is not None:
+            group_curves = {
+                label: {k: _maybe_array(v) for k, v in curves.items()}
+                for label, curves in group_curves.items()
+            }
+        return cls(
+            feature=data.get("feature", ""),
+            by_feature=data.get("by_feature", ""),
+            group_curves=group_curves,
+            term_type=data.get("term_type", "spline_by_category"),
+        )
 
 @dataclass
 class TensorTermData(GAMTermData):
@@ -48,6 +122,17 @@ class TensorTermData(GAMTermData):
     # Tensor terms usually just return surface Z in pygam, no CI by default for meshgrid
     term_type: str = "tensor"
 
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "TensorTermData":
+        return cls(
+            feature_x=data.get("feature_x", ""),
+            feature_y=data.get("feature_y", ""),
+            x=_maybe_array(data.get("x")),
+            y=_maybe_array(data.get("y")),
+            z=_maybe_array(data.get("z")),
+            term_type=data.get("term_type", "tensor"),
+        )
+
 @dataclass
 class FactorTermData(GAMTermData):
     """Data for a categorical factor term f(cat)."""
@@ -57,6 +142,75 @@ class FactorTermData(GAMTermData):
     conf_lower: np.ndarray = None
     conf_upper: np.ndarray = None
     term_type: str = "factor"
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "FactorTermData":
+        categories = data.get("categories")
+        if categories is not None:
+            categories = list(categories)
+        return cls(
+            feature=data.get("feature", ""),
+            categories=categories,
+            values=_maybe_array(data.get("values")),
+            conf_lower=_maybe_array(data.get("conf_lower")),
+            conf_upper=_maybe_array(data.get("conf_upper")),
+            term_type=data.get("term_type", "factor"),
+        )
+
+def export_partial_dependence_payload(
+    term_data: Dict[Union[str, Tuple[str, str]], GAMTermData],
+    intercept: float = 0.0,
+    metadata: Optional[Dict[str, Any]] = None,
+    schema_version: int = 1,
+) -> Dict[str, Any]:
+    terms = [
+        {"key": _serialize_term_key(key), "data": value.to_dict()}
+        for key, value in term_data.items()
+    ]
+    payload = {
+        "schema_version": schema_version,
+        "intercept": float(intercept),
+        "terms": terms,
+    }
+    if metadata is not None:
+        payload["metadata"] = _serialize_value(metadata)
+    return payload
+
+def dump_partial_dependence_json(
+    term_data: Dict[Union[str, Tuple[str, str]], GAMTermData],
+    path: str,
+    intercept: float = 0.0,
+    metadata: Optional[Dict[str, Any]] = None,
+    schema_version: int = 1,
+    indent: int = 2,
+) -> Dict[str, Any]:
+    payload = export_partial_dependence_payload(
+        term_data=term_data,
+        intercept=intercept,
+        metadata=metadata,
+        schema_version=schema_version,
+    )
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=indent, ensure_ascii=True)
+    return payload
+
+def load_partial_dependence_json(
+    path: str,
+) -> Tuple[Dict[Union[str, Tuple[str, str]], GAMTermData], float, Optional[Dict[str, Any]]]:
+    with open(path, "r", encoding="utf-8") as f:
+        payload = json.load(f)
+    schema_version = payload.get("schema_version", 1)
+    if schema_version != 1:
+        raise ValueError(f"Unsupported schema_version: {schema_version}")
+
+    term_data = {}
+    for entry in payload.get("terms", []):
+        key = _deserialize_term_key(entry.get("key", {}))
+        term_data[key] = GAMTermData.from_dict(entry.get("data", {}))
+
+    intercept = float(payload.get("intercept", 0.0))
+    metadata = payload.get("metadata")
+    return term_data, intercept, metadata
 
 class WrapperGAM:
     """A wrapper around pygam's LinearGAM to integrate with FeatureSpec and provide additional functionality.
@@ -427,6 +581,23 @@ class WrapperGAM:
                 )
 
         return data
+
+    def export_partial_dependence_json(
+        self,
+        path: str,
+        grid_size: int = 200,
+        width: float = 0.95,
+        include_intercept: bool = True,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        term_data = self.get_partial_dependence_data(grid_size=grid_size, width=width)
+        intercept = self.intercept_ if include_intercept else 0.0
+        return dump_partial_dependence_json(
+            term_data=term_data,
+            path=path,
+            intercept=intercept,
+            metadata=metadata,
+        )
 
     def plot_partial_dependence(self, n_cols=3, suptitle=None, scale_y_axis=True, te_plot_style="heatmap"):
         """

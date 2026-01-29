@@ -8,7 +8,8 @@ from quantbullet.model.gam import (
     SplineTermData, 
     SplineByGroupTermData, 
     TensorTermData, 
-    FactorTermData
+    FactorTermData,
+    load_partial_dependence_json
 )
 from quantbullet.model.smooth_fit import make_monotone_predictor_pchip
 
@@ -36,6 +37,11 @@ class GAMReplayModel:
         self.intercept = intercept
         self._predictors = {}
         self._build_predictors()
+
+    @classmethod
+    def from_partial_dependence_json(cls, path: str) -> "GAMReplayModel":
+        term_data, intercept, _ = load_partial_dependence_json(path)
+        return cls(term_data=term_data, intercept=intercept)
 
     def _build_predictors(self):
         """Build callable predictors/interpolators for each term."""

@@ -1,3 +1,5 @@
+import os
+import tempfile
 import unittest
 import numpy as np
 import pandas as pd
@@ -143,6 +145,21 @@ class TestWrapperGAM(unittest.TestCase):
         self.assertEqual(len(oob_preds), 5)
         self.assertFalse(np.any(np.isnan(oob_preds)))
         self.assertFalse(np.any(np.isinf(oob_preds)))
+
+    def test_partial_dependence_json_roundtrip(self):
+        """Test JSON export/import for partial dependence data."""
+        wgam = WrapperGAM(self.features)
+        wgam.fit(self.data, self.data['happiness'])
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "pdep.json")
+            wgam.export_partial_dependence_json(path)
+
+            replay = GAMReplayModel.from_partial_dependence_json(path)
+            replay_preds = replay.predict(self.data)
+            original_preds = wgam.predict(self.data)
+
+        np.testing.assert_allclose(original_preds, replay_preds, rtol=0.01, atol=0.05)
 
     def test_replay_decompose(self):
         """Test that GAMReplayModel.decompose matches WrapperGAM.decompose output structure and values."""
