@@ -30,19 +30,16 @@ def _serialize_value(value: Any) -> Any:
         return [_serialize_value(v) for v in value]
     return value
 
-def _serialize_term_key(key: Union[str, Tuple[str, str]]) -> Dict[str, Any]:
-    if isinstance(key, tuple):
-        return {"type": "interaction", "name": list(key)}
-    return {"type": "feature", "name": key}
-
-def _deserialize_term_key(data: Dict[str, Any]) -> Union[str, Tuple[str, str]]:
-    key_type = data.get("type")
-    if key_type == "interaction":
-        name = data.get("name", [])
-        return (name[0], name[1]) if len(name) == 2 else tuple(name)
-    if key_type == "feature":
-        return data.get("name")
-    raise ValueError(f"Unknown term key type: {key_type}")
+def _term_key_from_data(data: "GAMTermData") -> Union[str, Tuple[str, str]]:
+    if isinstance(data, SplineTermData):
+        return data.feature
+    if isinstance(data, FactorTermData):
+        return data.feature
+    if isinstance(data, SplineByGroupTermData):
+        return (data.feature, data.by_feature)
+    if isinstance(data, TensorTermData):
+        return (data.feature_x, data.feature_y)
+    raise ValueError(f"Unknown term data type: {type(data)}")
 
 @dataclass
 class GAMTermData:
@@ -161,14 +158,9 @@ def export_partial_dependence_payload(
     term_data: Dict[Union[str, Tuple[str, str]], GAMTermData],
     intercept: float = 0.0,
     metadata: Optional[Dict[str, Any]] = None,
-    schema_version: int = 1,
 ) -> Dict[str, Any]:
-    terms = [
-        {"key": _serialize_term_key(key), "data": value.to_dict()}
-        for key, value in term_data.items()
-    ]
+    terms = [value.to_dict() for value in term_data.values()]
     payload = {
-        "schema_version": schema_version,
         "intercept": float(intercept),
         "terms": terms,
     }
@@ -181,14 +173,12 @@ def dump_partial_dependence_json(
     path: str,
     intercept: float = 0.0,
     metadata: Optional[Dict[str, Any]] = None,
-    schema_version: int = 1,
     indent: int = 2,
 ) -> Dict[str, Any]:
     payload = export_partial_dependence_payload(
         term_data=term_data,
         intercept=intercept,
         metadata=metadata,
-        schema_version=schema_version,
     )
     with open(path, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=indent, ensure_ascii=True)
@@ -199,14 +189,11 @@ def load_partial_dependence_json(
 ) -> Tuple[Dict[Union[str, Tuple[str, str]], GAMTermData], float, Optional[Dict[str, Any]]]:
     with open(path, "r", encoding="utf-8") as f:
         payload = json.load(f)
-    schema_version = payload.get("schema_version", 1)
-    if schema_version != 1:
-        raise ValueError(f"Unsupported schema_version: {schema_version}")
-
     term_data = {}
     for entry in payload.get("terms", []):
-        key = _deserialize_term_key(entry.get("key", {}))
-        term_data[key] = GAMTermData.from_dict(entry.get("data", {}))
+        data = GAMTermData.from_dict(entry)
+        key = _term_key_from_data(data)
+        term_data[key] = data
 
     intercept = float(payload.get("intercept", 0.0))
     metadata = payload.get("metadata")
