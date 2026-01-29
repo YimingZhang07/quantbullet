@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import Any, Dict
 from dataclasses import dataclass, field
 from quantbullet.core.enums import DataType
+from quantbullet.utils.serialize import to_json_value
     
 class FeatureRole(Enum):
     MODEL_INPUT         = "model_input"
@@ -20,6 +21,23 @@ class Feature:
     dtype   : DataType
     role    : FeatureRole
     specs   : Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "dtype": self.dtype.value if isinstance(self.dtype, Enum) else self.dtype,
+            "role": self.role.value if isinstance(self.role, Enum) else self.role,
+            "specs": to_json_value(self.specs),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Feature":
+        return cls(
+            name=data["name"],
+            dtype=DataType(data["dtype"]),
+            role=FeatureRole(data["role"]),
+            specs=data.get("specs") or {},
+        )
 
 class FeatureSpec:
     def __init__(self, features: list[Feature]):
@@ -149,3 +167,11 @@ class FeatureSpec:
             f"  sec_x  : {self.sec_x}\n"
             ")"
         )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"features": [f.to_dict() for f in self._features]}
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "FeatureSpec":
+        features = [Feature.from_dict(entry) for entry in data.get("features", [])]
+        return cls(features=features)

@@ -13,22 +13,12 @@ from quantbullet.plot.cycles import use_economist_cycle
 from scipy.interpolate import RegularGridInterpolator
 from dataclasses import dataclass, fields
 from typing import List, Dict, Union, Tuple, Optional, Any
+from quantbullet.utils.serialize import to_json_value
 
 def _maybe_array(value: Optional[Any]) -> Optional[np.ndarray]:
     if value is None:
         return None
     return np.asarray(value)
-
-def _serialize_value(value: Any) -> Any:
-    if isinstance(value, np.ndarray):
-        return value.tolist()
-    if isinstance(value, (np.floating, np.integer)):
-        return value.item()
-    if isinstance(value, dict):
-        return {k: _serialize_value(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_serialize_value(v) for v in value]
-    return value
 
 def _term_key_from_data(data: "GAMTermData") -> Union[str, Tuple[str, str]]:
     if isinstance(data, SplineTermData):
@@ -48,7 +38,7 @@ class GAMTermData:
 
     def to_dict(self) -> Dict[str, Any]:
         raw = {f.name: getattr(self, f.name) for f in fields(self)}
-        return {k: _serialize_value(v) for k, v in raw.items()}
+        return {k: to_json_value(v) for k, v in raw.items()}
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "GAMTermData":
@@ -165,7 +155,7 @@ def export_partial_dependence_payload(
         "terms": terms,
     }
     if metadata is not None:
-        payload["metadata"] = _serialize_value(metadata)
+        payload["metadata"] = to_json_value(metadata)
     return payload
 
 def dump_partial_dependence_json(
@@ -772,6 +762,8 @@ class WrapperGAM:
         """Get the intercept term of the fitted GAM model."""
         if self.gam_ is None:
             raise ValueError("Model not fit yet. Call fit() before accessing intercept.")
+        if not getattr(self.gam_, "fit_intercept", True):
+            return 0.0
         return self.gam_.coef_[-1]
     
     # ##########Below codes are for tensor term surface extraction and plotting ##########
