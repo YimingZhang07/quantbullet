@@ -786,10 +786,14 @@ extract_gam_components_api <- function(gam_fit, curve_length = 200L, include_se 
     rownames(param_tbl) <- NULL
   }
   
+  # Extract factor levels for categorical variables (needed for FactorTermData)
+  xlevels <- gam_fit$xlevels
+  
   list(
     intercept = unname(coef(gam_fit)["(Intercept)"]),
     parametric = param_tbl,
     smooths = curves,
+    xlevels = xlevels,
     link = gam_fit$family$link
   )
 }

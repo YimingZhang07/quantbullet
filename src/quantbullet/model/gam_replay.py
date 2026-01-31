@@ -40,8 +40,65 @@ class GAMReplayModel:
 
     @classmethod
     def from_partial_dependence_json(cls, path: str) -> "GAMReplayModel":
+        """Load a GAMReplayModel from a JSON file."""
         term_data, intercept, _ = load_partial_dependence_json(path)
         return cls(term_data=term_data, intercept=intercept)
+
+    @classmethod
+    def from_fitted_model(
+        cls, 
+        model: Any, 
+        curve_length: int = 200,
+        width: float = 0.95,
+    ) -> "GAMReplayModel":
+        """
+        Construct a GAMReplayModel from any fitted GAM that exports to JSON format.
+        
+        Communication happens through the unified JSON payload format - no model
+        type inspection required. The model must have `export_partial_dependence_payload()`
+        or `get_partial_dependence_data()` method.
+        
+        Parameters
+        ----------
+        model : WrapperGAM | MgcvBamWrapper | Any
+            A fitted GAM model that can export partial dependence data.
+        curve_length : int
+            Number of points per smooth curve (default: 200).
+        width : float
+            Confidence interval width (default: 0.95 for 95% CI).
+            
+        Returns
+        -------
+        GAMReplayModel
+            A replay model that can predict without the original fitting library.
+            
+        Examples
+        --------
+        >>> # Works with any model that exports to JSON format
+        >>> replay = GAMReplayModel.from_fitted_model(fitted_gam)
+        >>> predictions = replay.predict(new_df)
+        """
+        import tempfile
+        import os
+        
+        # Use the unified JSON interface - write to temp file, read back
+        # This ensures we go through the exact same serialization path
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            temp_path = f.name
+        
+        try:
+            # Model exports to JSON (unified interface)
+            model.export_partial_dependence_json(
+                path=temp_path,
+                curve_length=curve_length,
+                width=width,
+            )
+            # Load from JSON (unified interface)
+            return cls.from_partial_dependence_json(temp_path)
+        finally:
+            # Clean up temp file
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
 
     def _build_predictors(self):
         """Build callable predictors/interpolators for each term."""
@@ -121,20 +178,24 @@ class GAMReplayModel:
         res = self.decompose(X)
         return res['pred']
 
-    def _format_term_name(self, data: GAMTermData) -> str:
-        """Helper to format term names to match WrapperGAM convention."""
-        # WrapperGAM convention:
-        # spline: s(feat)
-        # spline by group: s(feat)*by(group)
-        # tensor: te(feat1,feat2)
-        # factor: f(feat)
+    def _format_term_name(self, data: GAMTermData, group_label: Optional[str] = None) -> str:
+        """
+        Format term names for decomposition output.
         
+        Naming convention:
+            - spline: s(feature)
+            - spline by group: s(feature):by_feature=level
+            - tensor: te(feature_x, feature_y)
+            - factor: f(feature)
+        """
         if isinstance(data, SplineTermData):
             return f"s({data.feature})"
         elif isinstance(data, SplineByGroupTermData):
-            return f"s({data.feature})*by({data.by_feature})"
+            if group_label is not None:
+                return f"s({data.feature}):{data.by_feature}={group_label}"
+            return f"s({data.feature}, by={data.by_feature})"
         elif isinstance(data, TensorTermData):
-            return f"te({data.feature_x},{data.feature_y})"
+            return f"te({data.feature_x}, {data.feature_y})"
         elif isinstance(data, FactorTermData):
             return f"f({data.feature})"
         return "unknown"
@@ -197,25 +258,9 @@ class GAMReplayModel:
                 x_vals = X[feat_name].values
                 by_vals = X[by_name].astype(str).values 
                 
-                # WrapperGAM explodes this into multiple columns: s(feat)*by(level_A), s(feat)*by(level_B)...
-                # We need to match that.
-                
                 for group_label, group_func in predictor.items():
-                    # Construct column name for this specific group interaction
-                    # WrapperGAM usually formats as s(feat)*by(dummy_col_name)
-                    # We need to approximate the dummy column name.
-                    # Usually it is just the level name if we are lucky, or has a prefix.
-                    # But WrapperGAM _format_term_name uses design_columns_.
-                    # Let's assume the standard naming: s(feat)*by(level)
-                    # Since we don't have the exact original dummy column name, we construct best effort.
-                    # Wait, WrapperGAM decompose uses: s({feat})*by({by_name})
-                    # But for categorical interactions, pygam has multiple terms, each with a different 'by' column (dummy).
-                    # The dummy column is named like "{by_feat}___{level}".
-                    # So the term name in WrapperGAM will be "s(feat)*by({by_feat}___{level})"
-                    
-                    # We should match this convention: "{by_name}___{group_label}"
-                    dummy_col_name = f"{by_name}___{group_label}"
-                    term_col_name = f"s({feat_name})*by({dummy_col_name})"
+                    # Use consistent naming: s(feature):by_feature=level
+                    term_col_name = self._format_term_name(data, group_label=group_label)
                     
                     contrib = np.zeros(n_samples, dtype=float)
                     mask = (by_vals == group_label)
