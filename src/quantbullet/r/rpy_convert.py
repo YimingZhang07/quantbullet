@@ -33,10 +33,16 @@ def r_generic_types_to_py(obj):
     # NULL -> None
     from rpy2.rinterface_lib.sexp import NULLType
     from rpy2.robjects.vectors import (
-        BoolVector, IntVector, FloatVector, StrVector, ListVector
+        BoolVector, IntVector, FloatVector, StrVector, ListVector, DataFrame, Matrix
     )
     if isinstance(obj, NULLType):
         return None
+
+    if isinstance(obj, DataFrame):
+        return r_df_to_py(obj)
+
+    if isinstance(obj, Matrix):
+        return r_array_to_py(obj)
 
     # Atomic vectors of length 1 -> scalar
     if isinstance(obj, (BoolVector, IntVector, FloatVector, StrVector)):
@@ -47,9 +53,20 @@ def r_generic_types_to_py(obj):
 
     # ListVector -> dict (recursive)
     if isinstance(obj, ListVector):
-        raise NotImplementedError("ListVector to dict conversion not implemented yet")
+        names = list(obj.names) if obj.names is not None else None
+        if not names or all(n is None or n == "" for n in names):
+            return [r_generic_types_to_py(v) for v in obj]
+        out = {}
+        for idx, v in enumerate(obj):
+            key = names[idx] if names[idx] not in (None, "") else str(idx)
+            out[key] = r_generic_types_to_py(v)
+        return out
     
-    raise NotImplementedError("Conversion for this R object type not implemented yet")
+    # Fallback to numpy conversion where possible
+    try:
+        return r_array_to_py(obj)
+    except Exception:
+        raise NotImplementedError("Conversion for this R object type not implemented yet")
 
 
 # def r_general_types_to_py(obj):

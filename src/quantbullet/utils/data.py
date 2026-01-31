@@ -4,89 +4,6 @@ import random
 from datetime import date, timedelta
 from typing import Union
 
-# def download_fama_french_five_factors_daily(start, end):
-#     """
-#     Download the Fama-French Five-Factor model data from the Ken French data library
-    
-#     Parameters
-#     ----------
-#     start : datetime.date
-#         The start date for the data
-#     end : datetime.date
-#         The end date for the data
-        
-#     Returns
-#     -------
-#     pandas.DataFrame
-#         The Fama-French Five Factors
-#     """
-#     # Import the pandas_datareader package
-#     import pandas_datareader.data as web
-
-#     # Use DataReader to fetch the Fama-French Five-Factor model data
-#     ff_factors = web.DataReader('F-F_Research_Data_5_Factors_2x3_Daily', 'famafrench', start, end)
-
-#     # The Fama-French dataset can contain different tables. For example, '0' is typically the annual data,
-#     # '1' might be the monthly data, etc. Here we access the daily data.
-#     ff_daily = ff_factors[0]
-
-#     return ff_daily
-
-
-# def generate_fake_bond_trades( start_date: str | date,
-#                                end_date: str | date,
-#                                freq: str = "D") -> pd.DataFrame:
-#     """
-#     Generate a DataFrame of fake bond trades for testing purposes.
-    
-#     The DataFrame will contain the following columns:
-#     - date: The date of the trade
-#     - ticker: The ticker symbol of the bond
-#     - rating: The rating of the bond (e.g., AAA, AA, A, etc.)
-#     - feature_A: A random feature value
-#     - feature_B: A random feature value
-#     - feature_C: A random feature value
-#     - feature_D: A random feature value
-#     - expiry: The expiry date of the bond
-#     - yield: The yield of the bond
-    
-#     Returns
-#     -------
-#     pandas.DataFrame
-#         A DataFrame containing the fake bond trades.
-#     """
-#     base_tickers = [f"TICK{i:03}" for i in range(1, 51)]
-#     ratings = ['AAA', 'AA', 'A', 'BBB', 'BB', 'B']
-#     date_range = pd.date_range(start=start_date, end=end_date, freq=freq)
-
-#     records = []
-#     for current_date in date_range:
-#         for rating in ratings:
-#             # For each rating, randomly pick 10–20 tickers to simulate trading on that day
-#             traded_today = random.sample(base_tickers, k=random.randint(10, 20))
-#             for ticker in traded_today:
-#                 expiry_date = current_date + timedelta(days=random.randint(30, 3650))
-#                 means = [5, 20, 50, 100]
-#                 std_devs = [1, 5, 10, 20]
-#                 features = [np.random.normal(mean, std_dev) for mean, std_dev in zip(means, std_devs)]
-#                 yield_value = features[0] * 0.2 + features[1] * 0.2 + np.random.normal(0, 0.2)
-#                 # Ensure yield_value is non-negative
-#                 yield_value = max(0, yield_value)
-#                 records.append({
-#                     'date': current_date,
-#                     'ticker': f"{ticker} {rating}",
-#                     'rating': rating,
-#                     'feature_A': features[0],
-#                     'feature_B': features[1],
-#                     'feature_C': features[2],
-#                     'feature_D': features[3],
-#                     'expiry': expiry_date,
-#                     'yield': yield_value
-#                 })
-
-#     df_large = pd.DataFrame(records)
-#     return df_large
-
 def generate_fake_bond_trades(
     start_date: Union[str, date],
     end_date: Union[str, date],
@@ -236,3 +153,38 @@ def generate_fake_loan_prices(
         previous_ids = today_ids
 
     return pd.DataFrame(data)
+
+def generate_fake_happiness_data(
+    n_samples: int = 200,
+    random_state: int = 42,
+):
+    """
+    Generate a DataFrame of fake happiness data for testing purposes.
+    """
+    np.random.seed(random_state)
+
+    # Create features
+    age = np.random.uniform(20, 80, n_samples)
+    income = np.random.uniform(20000, 120000, n_samples)
+    education = np.random.uniform(8, 20, n_samples)
+    level = np.random.choice(['highschool', 'bachelor', 'master', 'phd'], n_samples)
+
+    # Create target with non-linear relationships
+    happiness = (
+        0.5 * np.sin((age - 40) / 10) +  # non-linear relationship with age
+        0.3 * np.log(income / 30000) +   # log relationship with income
+        0.2 * education +                # linear relationship with education
+        0.1 * (level == 'phd').astype(float) +  # categorical effect
+        np.random.normal(0, 0.5, n_samples)  # noise
+    )
+
+    # Create DataFrame
+    data = pd.DataFrame({
+        'age': age,
+        'income': income,
+        'education': education,
+        'level': level,
+        'happiness': happiness
+    })
+
+    return data

@@ -47,6 +47,7 @@ class MgcvBamWrapper:
 
         self._bam_predict           = r.ro.globalenv["predict_bam_api"]
         self._bam_predict_pinned_data   = r.ro.globalenv["predict_bam_pinned_data_api"]
+        self._extract_components    = r.ro.globalenv["extract_gam_components_api"]
         
         self._plot_fn               = r.ro.globalenv["plot_gam_smooth_api"]
         self._summary_text_fn       = r.ro.globalenv["model_summary_text_api"]
@@ -514,6 +515,47 @@ class MgcvBamWrapper:
             n_threads=n_threads,
             gc_level=gc_level
         )
+    
+    def extract_components(
+        self,
+        curve_length: int = 200,
+        sample_n: int = 2000,
+        include_se: bool = True,
+        seed: int = 42,
+        smooth_labels: Optional[list[str]] = None,
+        x_values: Optional[dict] = None,
+        ref_values: Optional[dict] = None,
+    ) -> dict:
+        """
+        Extract intercept, parametric coefficients, and 1D smooth curves.
+
+        Args:
+            curve_length: Number of points per curve.
+            sample_n: Number of rows sampled from data for curve extraction.
+            include_se: Whether to include standard errors for curves.
+            seed: Random seed for sampling.
+            smooth_labels: Optional list of smooth term labels to extract.
+            x_values: Optional dict of explicit x grids or ranges per term/var.
+            ref_values: Optional dict of fixed values for other covariates.
+        """
+        self._ensure_fitted()
+
+        kwargs = {
+            "curve_length": curve_length,
+            "sample_n": sample_n,
+            "include_se": include_se,
+            "seed": seed,
+        }
+        if smooth_labels is not None:
+            kwargs["smooth_labels"] = smooth_labels
+        if x_values is not None:
+            kwargs["x_values"] = x_values
+        if ref_values is not None:
+            kwargs["ref_values"] = ref_values
+
+        res_r = self._extract_components(self.model_r_, **kwargs)
+
+        return r_generic_types_to_py(res_r)
     
     def plot_to_file(
         self,
