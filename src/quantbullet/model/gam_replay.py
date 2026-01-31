@@ -42,7 +42,7 @@ class GAMReplayModel:
 
     @classmethod
     def from_partial_dependence_json(cls, path: str) -> "GAMReplayModel":
-        """Load a GAMReplayModel from a JSON file."""
+        """Load a GAMReplayModel from a standard JSON file."""
         term_data, intercept, _ = load_partial_dependence_json(path)
         return cls(term_data=term_data, intercept=intercept)
 

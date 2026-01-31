@@ -797,3 +797,53 @@ extract_gam_components_api <- function(gam_fit, curve_length = 200L, include_se 
     link = gam_fit$family$link
   )
 }
+
+save_gam_components_json <- function(gam_fit, path, curve_length = 200L, include_se = TRUE) {
+  # Save raw extracted components to JSON for Python consumption.
+  # Python will convert this to the standard GAMReplayModel format.
+  #
+
+  # Usage in R:
+  #   fit <- bam(y ~ s(x1) + s(x2, by=level) + level, data=df)
+  #   save_gam_components_json(fit, "model_components.json")
+  #
+  # Then in Python:
+  #   from quantbullet.r.mgcv_bam import convert_r_components_to_json
+  #   convert_r_components_to_json("model_components.json", "model_standard.json")
+  #   replay = GAMReplayModel.from_partial_dependence_json("model_standard.json")
+  
+  if (!requireNamespace("jsonlite", quietly = TRUE)) {
+    stop("jsonlite package is required. Install with: install.packages('jsonlite')")
+  }
+  
+  components <- extract_gam_components_api(gam_fit, curve_length = curve_length, include_se = include_se)
+  
+  # Convert smooths dataframes to lists for JSON serialization
+  smooths_list <- list()
+  for (label in names(components$smooths)) {
+    df <- components$smooths[[label]]
+    smooths_list[[label]] <- as.list(df)
+  }
+  
+  # Convert parametric dataframe to list
+  param_list <- NULL
+  if (!is.null(components$parametric)) {
+    param_list <- as.list(components$parametric)
+  }
+  
+  # Build payload with raw components
+  payload <- list(
+    intercept = components$intercept,
+    parametric = param_list,
+    smooths = smooths_list,
+    xlevels = components$xlevels,
+    link = components$link,
+    curve_length = curve_length
+  )
+  
+  # Write to JSON
+  json_str <- jsonlite::toJSON(payload, auto_unbox = TRUE, pretty = TRUE, digits = 10)
+  writeLines(json_str, path)
+  
+  invisible(path)
+}
