@@ -31,6 +31,93 @@ def _term_key_from_data(data: "GAMTermData") -> Union[str, Tuple[str, str]]:
         return (data.feature_x, data.feature_y)
     raise ValueError(f"Unknown term data type: {type(data)}")
 
+
+# =============================================================================
+# Term Name Formatting/Parsing Utilities
+# =============================================================================
+# Format: {type}__{feature}[__{by_feature}__{by_level}]
+# Examples:
+#   s__age              -> spline on age
+#   s__age__level__B    -> spline on age, by level=B
+#   f__level            -> factor on level
+#   te__x1__x2          -> tensor on x1, x2
+
+def format_term_name(
+    term_type: str,
+    feature: str,
+    by_feature: Optional[str] = None,
+    by_level: Optional[str] = None,
+    feature2: Optional[str] = None,
+) -> str:
+    """
+    Format a term name using the standard convention.
+    
+    Parameters
+    ----------
+    term_type : str
+        Term type: 's' (spline), 'f' (factor), 'te' (tensor)
+    feature : str
+        Main feature name
+    by_feature : str, optional
+        For spline-by-group terms, the grouping variable
+    by_level : str, optional
+        For spline-by-group terms, the specific level
+    feature2 : str, optional
+        For tensor terms, the second feature
+        
+    Returns
+    -------
+    str
+        Formatted term name like 's__age' or 's__age__level__B'
+    """
+    if term_type == "te" and feature2:
+        return f"te__{feature}__{feature2}"
+    if by_feature and by_level:
+        return f"{term_type}__{feature}__{by_feature}__{by_level}"
+    return f"{term_type}__{feature}"
+
+
+def parse_term_name(name: str) -> Dict[str, str]:
+    """
+    Parse a term name back to its components.
+    
+    Parameters
+    ----------
+    name : str
+        Term name like 's__age' or 's__age__level__B'
+        
+    Returns
+    -------
+    dict
+        Dictionary with keys: type, feature, and optionally by_feature, by_level, or feature2
+        
+    Examples
+    --------
+    >>> parse_term_name('s__age')
+    {'type': 's', 'feature': 'age'}
+    
+    >>> parse_term_name('s__age__level__B')
+    {'type': 's', 'feature': 'age', 'by_feature': 'level', 'by_level': 'B'}
+    
+    >>> parse_term_name('te__x1__x2')
+    {'type': 'te', 'feature': 'x1', 'feature2': 'x2'}
+    """
+    parts = name.split("__")
+    
+    if len(parts) < 2:
+        raise ValueError(f"Invalid term name format: {name}")
+    
+    term_type = parts[0]
+    result = {"type": term_type, "feature": parts[1]}
+    
+    if term_type == "te" and len(parts) == 3:
+        result["feature2"] = parts[2]
+    elif len(parts) == 4:
+        result["by_feature"] = parts[2]
+        result["by_level"] = parts[3]
+    
+    return result
+
 @dataclass
 class GAMTermData:
     """Base class for GAM term partial dependence data."""
@@ -899,20 +986,31 @@ class WrapperGAM:
         return out
         
     def _format_term_name(self, ti: int) -> str:
-        """Human-readable term name for term index ti."""
+        """
+        Format term name using standard convention: {type}__{feature}[__{by_feature}__{by_level}]
+        
+        Examples:
+            s__age, s__age__level__B, f__level, te__x1__x2
+        """
         t = self.gam_.terms[ti]
         tname = getattr(t, "_name", "term")
 
         # spline_term
         if tname == "spline_term":
             feat_idx = int(getattr(t, "feature", -1))
-            feat = self.design_columns_[feat_idx] if feat_idx >= 0 else "?"
+            feat = self.design_columns_[feat_idx] if feat_idx >= 0 else "unknown"
             by = getattr(t, "by", None)
             if by is None:
-                return f"s({feat})"
+                return format_term_name("s", feat)
+            # by-term: dummy column name is like "level___A"
             by_idx = int(by)
-            by_name = self.design_columns_[by_idx]
-            return f"s({feat})*by({by_name})"
+            by_col_name = self.design_columns_[by_idx]
+            # Parse dummy column: "level___A" -> by_feature="level", by_level="A"
+            if "___" in by_col_name:
+                by_feature, by_level = by_col_name.split("___", 1)
+            else:
+                by_feature, by_level = by_col_name, "unknown"
+            return format_term_name("s", feat, by_feature=by_feature, by_level=by_level)
 
         # tensor_term
         if tname == "tensor_term":
@@ -920,16 +1018,16 @@ class WrapperGAM:
             if feats is not None and len(feats) == 2:
                 a = self.design_columns_[int(feats[0])]
                 b = self.design_columns_[int(feats[1])]
-                return f"te({a},{b})"
-            return "te(?)"
+                return format_term_name("te", a, feature2=b)
+            return "te__unknown"
 
         # factor_term
         if tname == "factor_term":
             feat_idx = int(getattr(t, "feature", -1))
-            feat = self.design_columns_[feat_idx] if feat_idx >= 0 else "?"
-            return f"f({feat})"
+            feat = self.design_columns_[feat_idx] if feat_idx >= 0 else "unknown"
+            return format_term_name("f", feat)
 
-        return f"{tname}[{ti}]"
+        return f"{tname}__{ti}"
 
     def get_model_summary_text(self) -> str:
         """Get a formatted text summary of the model including feature mapping and GAM summary.

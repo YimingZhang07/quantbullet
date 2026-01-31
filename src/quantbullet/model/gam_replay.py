@@ -9,7 +9,9 @@ from quantbullet.model.gam import (
     SplineByGroupTermData, 
     TensorTermData, 
     FactorTermData,
-    load_partial_dependence_json
+    load_partial_dependence_json,
+    format_term_name,
+    parse_term_name,
 )
 from quantbullet.model.smooth_fit import make_monotone_predictor_pchip
 
@@ -180,24 +182,22 @@ class GAMReplayModel:
 
     def _format_term_name(self, data: GAMTermData, group_label: Optional[str] = None) -> str:
         """
-        Format term names for decomposition output.
+        Format term names using standard convention: {type}__{feature}[__{by_feature}__{by_level}]
         
-        Naming convention:
-            - spline: s(feature)
-            - spline by group: s(feature):by_feature=level
-            - tensor: te(feature_x, feature_y)
-            - factor: f(feature)
+        Examples:
+            s__age, s__age__level__B, f__level, te__x1__x2
         """
         if isinstance(data, SplineTermData):
-            return f"s({data.feature})"
+            return format_term_name("s", data.feature)
         elif isinstance(data, SplineByGroupTermData):
             if group_label is not None:
-                return f"s({data.feature}):{data.by_feature}={group_label}"
-            return f"s({data.feature}, by={data.by_feature})"
+                return format_term_name("s", data.feature, 
+                                        by_feature=data.by_feature, by_level=group_label)
+            return format_term_name("s", data.feature)
         elif isinstance(data, TensorTermData):
-            return f"te({data.feature_x}, {data.feature_y})"
+            return format_term_name("te", data.feature_x, feature2=data.feature_y)
         elif isinstance(data, FactorTermData):
-            return f"f({data.feature})"
+            return format_term_name("f", data.feature)
         return "unknown"
 
     def decompose(self, X: pd.DataFrame) -> Dict[str, Any]:
