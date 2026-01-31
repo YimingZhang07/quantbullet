@@ -519,41 +519,29 @@ class MgcvBamWrapper:
     def extract_components(
         self,
         curve_length: int = 200,
-        sample_n: int = 2000,
         include_se: bool = True,
-        seed: int = 42,
-        smooth_labels: Optional[list[str]] = None,
-        x_values: Optional[dict] = None,
-        ref_values: Optional[dict] = None,
     ) -> dict:
         """
         Extract intercept, parametric coefficients, and 1D smooth curves.
 
         Args:
-            curve_length: Number of points per curve.
-            sample_n: Number of rows sampled from data for curve extraction.
-            include_se: Whether to include standard errors for curves.
-            seed: Random seed for sampling.
-            smooth_labels: Optional list of smooth term labels to extract.
-            x_values: Optional dict of explicit x grids or ranges per term/var.
-            ref_values: Optional dict of fixed values for other covariates.
+            curve_length: Number of points per curve (default: 200).
+            include_se: Whether to include standard errors for curves (default: True).
+            
+        Returns:
+            dict with keys:
+                - intercept: Model intercept value
+                - parametric: DataFrame of parametric coefficients
+                - smooths: dict of smooth curves, each with x, fit, se (if include_se), term, var
+                - link: Link function name (e.g., 'identity', 'logit')
         """
         self._ensure_fitted()
 
-        kwargs = {
-            "curve_length": curve_length,
-            "sample_n": sample_n,
-            "include_se": include_se,
-            "seed": seed,
-        }
-        if smooth_labels is not None:
-            kwargs["smooth_labels"] = smooth_labels
-        if x_values is not None:
-            kwargs["x_values"] = x_values
-        if ref_values is not None:
-            kwargs["ref_values"] = ref_values
-
-        res_r = self._extract_components(self.model_r_, **kwargs)
+        res_r = self._extract_components(
+            self.model_r_,
+            curve_length=curve_length,
+            include_se=include_se
+        )
 
         return r_generic_types_to_py(res_r)
     

@@ -162,64 +162,64 @@ qb_pin_put_parquet <- function(data_name, parquet_path, lock = TRUE) {
 }
 
 
-sanitize_factor_levels <- function(fit, data, set_level = FALSE, verbose = TRUE) {
+# sanitize_factor_levels <- function(fit, data, set_level = FALSE, verbose = TRUE) {
 
-  # Ensure factor levels in new data are compatible with the fitted model.
-  # Any unseen factor levels are either replaced with a fallback level
-  # or set to NA, to prevent prediction errors in mgcv::predict.gam().
+#   # Ensure factor levels in new data are compatible with the fitted model.
+#   # Any unseen factor levels are either replaced with a fallback level
+#   # or set to NA, to prevent prediction errors in mgcv::predict.gam().
 
-  if (!data.table::is.data.table(data)) {
-    data <- data.table::as.data.table(data)
-  }
+#   if (!data.table::is.data.table(data)) {
+#     data <- data.table::as.data.table(data)
+#   }
 
-  fit_model <- fit$model
-  if (is.null(fit_model) || !is.data.frame(fit_model)) {
-    stop("fit$model is missing or not a data.frame. Cannot infer factor levels.")
-  }
+#   fit_model <- fit$model
+#   if (is.null(fit_model) || !is.data.frame(fit_model)) {
+#     stop("fit$model is missing or not a data.frame. Cannot infer factor levels.")
+#   }
 
-  # only check columns that exist in both fit$model and data
-  common_cols <- intersect(names(fit_model), names(data))
+#   # only check columns that exist in both fit$model and data
+#   common_cols <- intersect(names(fit_model), names(data))
   
-  # Pre-identify factor columns only (avoid checking every column)
-  factor_cols <- character(0)
-  for (colname in common_cols) {
-    if (is.factor(fit_model[[colname]])) {
-      factor_cols <- c(factor_cols, colname)
-    }
-  }
+#   # Pre-identify factor columns only (avoid checking every column)
+#   factor_cols <- character(0)
+#   for (colname in common_cols) {
+#     if (is.factor(fit_model[[colname]])) {
+#       factor_cols <- c(factor_cols, colname)
+#     }
+#   }
   
-  # Early return if no factors to sanitize
-  if (length(factor_cols) == 0L) return(data)
+#   # Early return if no factors to sanitize
+#   if (length(factor_cols) == 0L) return(data)
 
-  # Process only factor columns
-  for (colname in factor_cols) {
-    x_fit <- fit_model[[colname]]
-    lvls <- levels(x_fit)
+#   # Process only factor columns
+#   for (colname in factor_cols) {
+#     x_fit <- fit_model[[colname]]
+#     lvls <- levels(x_fit)
 
-    # data col might not be factor; compare as character safely
-    x_new <- data[[colname]]
+#     # data col might not be factor; compare as character safely
+#     x_new <- data[[colname]]
 
-    bad_idx <- which(!is.na(x_new) & !(as.character(x_new) %in% lvls))
-    if (length(bad_idx) == 0L) next
+#     bad_idx <- which(!is.na(x_new) & !(as.character(x_new) %in% lvls))
+#     if (length(bad_idx) == 0L) next
 
-    if (verbose) {
-      message(colname)
-      warning(sprintf("%s: '%s' is not in fit levels", colname, as.character(x_new[bad_idx[1]])))
-    }
+#     if (verbose) {
+#       message(colname)
+#       warning(sprintf("%s: '%s' is not in fit levels", colname, as.character(x_new[bad_idx[1]])))
+#     }
 
-    if (set_level) {
-      data[bad_idx, (colname) := lvls[length(lvls)]]
-    } else {
-      data[bad_idx, (colname) := NA]
-    }
+#     if (set_level) {
+#       data[bad_idx, (colname) := lvls[length(lvls)]]
+#     } else {
+#       data[bad_idx, (colname) := NA]
+#     }
 
-    # optional: keep as factor with training levels (often beneficial)
-    # uncomment if you want strict factor typing:
-    # data[, (colname) := factor(get(colname), levels = lvls)]
-  }
+#     # optional: keep as factor with training levels (often beneficial)
+#     # uncomment if you want strict factor typing:
+#     # data[, (colname) := factor(get(colname), levels = lvls)]
+#   }
 
-  data
-}
+#   data
+# }
 
 strip_gam_object <- function(cm, force = FALSE) {
   # Check if already stripped (avoid re-stripping)
@@ -303,10 +303,10 @@ predict_bam_api <- function(gam_fit, X, set_level = FALSE, type = "response",
   }
   time_convert <- as.numeric(Sys.time() - time_convert_begin)
 
-  # Sanitize factor levels
-  time_sanitize_begin <- Sys.time()
-  X <- sanitize_factor_levels(gam_fit, X, set_level = set_level, verbose = FALSE)
-  time_sanitize <- as.numeric(Sys.time() - time_sanitize_begin)
+  # Legacy: sanitize_factor_levels is no longer needed
+  # time_sanitize_begin <- Sys.time()
+  # X <- sanitize_factor_levels(gam_fit, X, set_level = set_level, verbose = FALSE)
+  # time_sanitize <- as.numeric(Sys.time() - time_sanitize_begin)
   
   # Strip model (this can be slow)
   time_strip_begin <- Sys.time()
@@ -341,8 +341,8 @@ predict_bam_api <- function(gam_fit, X, set_level = FALSE, type = "response",
   time_total <- as.numeric(Sys.time() - time_total_begin)
   
   # Detailed timing breakdown
-  cat(sprintf("[R predict_bam] n=%d | convert=%.3fs sanitize=%.3fs strip=%.3fs predict=%.3fs | total=%.3fs\n", 
-                  n, time_convert, time_sanitize, time_strip, time_predict, time_total))
+  cat(sprintf("[R predict_bam] n=%d | convert=%.3fs strip=%.3fs predict=%.3fs | total=%.3fs\n", 
+                  n, time_convert, time_strip, time_predict, time_total))
 
   out
 }
@@ -705,257 +705,78 @@ model_report_pdf_api <- function(
   invisible(TRUE)
 }
 
-extract_gam_components_api <- function(
-  gam_fit,
-  curve_length = 200L,
-  sample_n = 2000L,
-  include_se = TRUE,
-  seed = 42L,
-  smooth_labels = NULL,
-  x_values = NULL,
-  ref_values = NULL
-) {
-  # Extract parametric coefficients + smooth curves (1D) for plotting/rebuilds.
-  xlevels <- gam_fit$xlevels
-
-  apply_ref_values <- function(df, ref_values, xlevels) {
-    if (is.null(ref_values)) return(df)
-    if (!is.list(ref_values)) stop("ref_values must be a named list.")
-    for (nm in names(ref_values)) {
-      if (!nm %in% names(df)) next
-      val <- ref_values[[nm]]
-      if (!is.null(xlevels[[nm]])) {
-        lvls <- xlevels[[nm]]
-        val_chr <- as.character(val)
-        if (!val_chr %in% lvls) {
-          warning(sprintf("ref_values[%s] not in xlevels; set to NA", nm))
-          df[[nm]] <- factor(rep(NA_character_, nrow(df)), levels = lvls)
-        } else {
-          df[[nm]] <- factor(rep(val_chr, length.out = nrow(df)), levels = lvls)
-        }
-      } else if (is.factor(df[[nm]])) {
-        lvls <- levels(df[[nm]])
-        val_chr <- as.character(val)
-        if (!val_chr %in% lvls) {
-          warning(sprintf("ref_values[%s] not in factor levels; set to NA", nm))
-          df[[nm]] <- factor(rep(NA_character_, nrow(df)), levels = lvls)
-        } else {
-          df[[nm]] <- factor(rep(val_chr, length.out = nrow(df)), levels = lvls)
-        }
-      } else {
-        df[[nm]] <- rep(val, length.out = nrow(df))
-      }
-    }
-    df
+extract_gam_components_api <- function(gam_fit, curve_length = 200L, include_se = TRUE) {
+  # Extract parametric coefficients + 1D smooth curves for plotting/rebuilds.
+  # Requires gam_fit$model to be present (don't strip it before calling this).
+  
+  if (is.null(gam_fit$model) || nrow(gam_fit$model) == 0L) {
+    stop("gam_fit$model is required for curve extraction")
   }
-
-  get_x_values <- function(label, var, curve_length, x_values, var_summary, X) {
-    if (!is.null(x_values)) {
-      if (!is.list(x_values)) stop("x_values must be a named list.")
-      vals <- NULL
-      if (!is.null(x_values[[label]])) {
-        vals <- x_values[[label]]
-      } else if (!is.null(x_values[[var]])) {
-        vals <- x_values[[var]]
-      }
-      if (!is.null(vals)) {
-        vals <- as.numeric(vals)
-        if (length(vals) == 2L) {
-          return(seq(vals[1], vals[2], length.out = curve_length))
-        }
-        return(vals)
-      }
-    }
-
-    v_min <- NA_real_
-    v_max <- NA_real_
-    if (!is.null(var_summary) && !is.null(var_summary[[var]]) &&
-        is.numeric(var_summary[[var]]) && length(var_summary[[var]]) >= 2L) {
-      v_min <- suppressWarnings(min(var_summary[[var]], na.rm = TRUE))
-      v_max <- suppressWarnings(max(var_summary[[var]], na.rm = TRUE))
-    }
-    if (!is.finite(v_min) || !is.finite(v_max)) {
-      v_min <- suppressWarnings(min(X[[var]], na.rm = TRUE))
-      v_max <- suppressWarnings(max(X[[var]], na.rm = TRUE))
-    }
-    if (!is.finite(v_min) || !is.finite(v_max) || v_min == v_max) {
-      return(NULL)
-    }
-    seq(v_min, v_max, length.out = curve_length)
-  }
-
-  build_synthetic_data <- function(var_summary, xlevels, n) {
-    vars <- unique(c(names(var_summary), names(xlevels)))
-    if (length(vars) == 0L) return(NULL)
-
-    out <- data.frame()
-    for (v in vars) {
-      if (!is.null(xlevels[[v]])) {
-        lvls <- xlevels[[v]]
-        if (length(lvls) == 0L) {
-          out[[v]] <- factor(rep(NA_character_, n))
-        } else {
-          out[[v]] <- factor(rep(lvls, length.out = n), levels = lvls)
-        }
-        next
-      }
-
-      vs <- var_summary[[v]]
-      if (is.factor(vs)) {
-        lvls <- levels(vs)
-        out[[v]] <- factor(rep(lvls, length.out = n), levels = lvls)
-      } else if (is.character(vs)) {
-        lvls <- unique(vs)
-        if (length(lvls) == 0L) {
-          out[[v]] <- factor(rep(NA_character_, n))
-        } else {
-          out[[v]] <- factor(rep(lvls, length.out = n), levels = lvls)
-        }
-      } else if (is.logical(vs)) {
-        out[[v]] <- rep(c(TRUE, FALSE), length.out = n)
-      } else if (is.numeric(vs)) {
-        if (length(vs) >= 2L) {
-          v_min <- suppressWarnings(min(vs, na.rm = TRUE))
-          v_max <- suppressWarnings(max(vs, na.rm = TRUE))
-          if (is.finite(v_min) && is.finite(v_max) && v_min < v_max) {
-            out[[v]] <- stats::runif(n, v_min, v_max)
-          } else {
-            out[[v]] <- rep(vs[1], n)
-          }
-        } else if (length(vs) == 1L) {
-          out[[v]] <- rep(vs[1], n)
-        } else {
-          out[[v]] <- rep(NA_real_, n)
-        }
-      } else {
-        out[[v]] <- rep(NA, n)
-      }
-    }
-    out
-  }
-
-  X <- NULL
-  if (!is.null(gam_fit$model) && is.data.frame(gam_fit$model) && nrow(gam_fit$model) > 0L) {
-    X <- gam_fit$model
-  } else {
-    var_summary <- gam_fit$var.summary
-    xlevels <- gam_fit$xlevels
-    X <- build_synthetic_data(var_summary, xlevels, as.integer(sample_n))
-  }
-
-  if (is.null(X) || !is.data.frame(X)) {
-    stop("Model lacks data for curve extraction. Keep gam_fit$var.summary/xlevels.")
-  }
-  if (!inherits(X, "data.frame")) {
-    X <- as.data.frame(X)
-  }
-
-  n_all <- nrow(X)
-  if (n_all == 0L) stop("X has 0 rows.")
-
+  
+  ref_row <- gam_fit$model[1, , drop = FALSE]
   curve_length <- as.integer(curve_length)
   if (is.na(curve_length) || curve_length <= 1L) curve_length <- 200L
-  sample_n <- as.integer(sample_n)
-  if (is.na(sample_n) || sample_n <= 0L) sample_n <- min(2000L, n_all)
-
-  if (!is.null(seed)) {
-    set.seed(as.integer(seed))
-  }
-  idx <- sample.int(n_all, min(sample_n, n_all))
-  X_s <- X[idx, , drop = FALSE]
-  X_s <- apply_ref_values(X_s, ref_values, xlevels)
-  ref_row <- X_s[1, , drop = FALSE]
-
-  pred_terms <- predict.gam(
-    gam_fit,
-    newdata = X_s,
-    type = "terms",
-    se.fit = isTRUE(include_se)
-  )
-  term_fit <- if (is.list(pred_terms) && !is.null(pred_terms$fit)) pred_terms$fit else pred_terms
-  term_fit <- as.matrix(term_fit)
-  term_se <- if (is.list(pred_terms) && !is.null(pred_terms$se.fit)) pred_terms$se.fit else NULL
-  if (!is.null(term_se)) term_se <- as.matrix(term_se)
-
-  var_summary <- gam_fit$var.summary
-  smooth_labels_all <- vapply(gam_fit$smooth, function(sm) sm$label, character(1))
-  if (!is.null(smooth_labels)) {
-    smooth_labels_all <- intersect(smooth_labels_all, smooth_labels)
-  }
-
+  
+  # Extract 1D smooth curves
   curves <- list()
-  skipped <- character(0)
-
-  for (label in smooth_labels_all) {
-    sm_idx <- which(vapply(gam_fit$smooth, function(sm) identical(sm$label, label), logical(1)))
-    if (length(sm_idx) == 0L) {
-      skipped <- c(skipped, label)
-      next
+  for (sm in gam_fit$smooth) {
+    if (length(sm$term) != 1L) next  # skip 2D+ smooths
+    
+    var <- sm$term[1]
+    label <- sm$label
+    by_var <- sm$by  # e.g., "level" for s(age, by=level)
+    
+    x_vals <- gam_fit$model[[var]]
+    if (!is.numeric(x_vals)) next
+    
+    x_min <- min(x_vals, na.rm = TRUE)
+    x_max <- max(x_vals, na.rm = TRUE)
+    if (!is.finite(x_min) || !is.finite(x_max) || x_min >= x_max) next
+    
+    x_grid <- seq(x_min, x_max, length.out = curve_length)
+    
+    newdata <- ref_row[rep(1, curve_length), , drop = FALSE]
+    newdata[[var]] <- x_grid
+    
+    # For "by" factor smooths (e.g., s(age):levelB), set the by variable correctly
+    # The label format is "s(var):byVarLevel" - extract the level from it
+    if (!is.null(by_var) && by_var != "NA" && nzchar(by_var)) {
+      # Extract level from label: "s(age):levelB" -> "B"
+      # Label format: s(var):byVarLevel where byVar is the by variable name
+      by_level <- sub(paste0(".*:", by_var), "", label)
+      if (nzchar(by_level) && by_var %in% names(newdata)) {
+        # Set the by variable to the correct level
+        lvls <- levels(gam_fit$model[[by_var]])
+        if (!is.null(lvls) && by_level %in% lvls) {
+          newdata[[by_var]] <- factor(rep(by_level, curve_length), levels = lvls)
+        }
+      }
     }
-    sm <- gam_fit$smooth[[sm_idx[1]]]
-    vars <- sm$term
-    if (length(vars) != 1L) {
-      skipped <- c(skipped, label)
-      next
-    }
-    v <- vars[1]
-    if (!v %in% names(X_s)) {
-      skipped <- c(skipped, label)
-      next
-    }
-    if (!label %in% colnames(term_fit)) {
-      skipped <- c(skipped, label)
-      next
-    }
-
-    contrib <- term_fit[, label]
-    keep_idx <- which(!is.na(contrib) & contrib != 0)
-    if (length(keep_idx) == 0L) {
-      keep_idx <- which(!is.na(X_s[[v]]))
-    }
-    if (length(keep_idx) == 0L) {
-      skipped <- c(skipped, label)
-      next
-    }
-    X_sub <- X_s[keep_idx, , drop = FALSE]
-
-    new_x <- get_x_values(label, v, curve_length, x_values, var_summary, X)
-    if (is.null(new_x) || length(new_x) < 2L) {
-      skipped <- c(skipped, label)
-      next
-    }
-
-    X_new <- ref_row[rep(1, length(new_x)), , drop = FALSE]
-    X_new[[v]] <- new_x
-
-    pred_new <- predict.gam(
-      gam_fit,
-      newdata = X_new,
-      type = "terms",
-      se.fit = isTRUE(include_se)
-    )
-    new_fit <- if (is.list(pred_new) && !is.null(pred_new$fit)) pred_new$fit else pred_new
-    new_fit <- as.matrix(new_fit)
-    new_se <- if (is.list(pred_new) && !is.null(pred_new$se.fit)) pred_new$se.fit else NULL
-    if (!is.null(new_se)) new_se <- as.matrix(new_se)
-
-    if (!label %in% colnames(new_fit)) {
-      skipped <- c(skipped, label)
-      next
-    }
-
+    
+    pred <- predict.gam(gam_fit, newdata, type = "terms", se.fit = isTRUE(include_se))
+    fit_mat <- if (is.list(pred)) pred$fit else pred
+    
+    if (!label %in% colnames(fit_mat)) next
+    
     df <- data.frame(
-      x = new_x,
-      fit = as.numeric(new_fit[, label]),
+      x = x_grid,
+      fit = as.numeric(fit_mat[, label]),
+      term = label,
+      var = var,
       stringsAsFactors = FALSE
     )
-    if (!is.null(new_se)) {
-      df$se <- as.numeric(new_se[, label])
+    if (isTRUE(include_se) && is.list(pred) && !is.null(pred$se.fit)) {
+      df$se <- as.numeric(pred$se.fit[, label])
     }
-    df$term <- label
-    df$var <- v
+    # Store the by_var info for reconstruction
+    if (!is.null(by_var) && by_var != "NA" && nzchar(by_var)) {
+      df$by_var <- by_var
+      df$by_level <- sub(paste0(".*:", by_var), "", label)
+    }
     curves[[label]] <- df
   }
+  
+  # Parametric coefficients
 
   smy <- summary(gam_fit)
   param_tbl <- NULL
@@ -963,26 +784,12 @@ extract_gam_components_api <- function(
     param_tbl <- as.data.frame(smy$p.table)
     param_tbl$term <- rownames(param_tbl)
     rownames(param_tbl) <- NULL
-    param_tbl <- param_tbl[, c("term", setdiff(names(param_tbl), "term"))]
   }
-
-  intercept <- NA_real_
-  if (!is.null(param_tbl) && "(Intercept)" %in% param_tbl$term) {
-    intercept <- param_tbl$Estimate[param_tbl$term == "(Intercept)"][1]
-  } else if ("(Intercept)" %in% names(coef(gam_fit))) {
-    intercept <- unname(coef(gam_fit)["(Intercept)"])
-  }
-
+  
   list(
-    intercept = intercept,
+    intercept = unname(coef(gam_fit)["(Intercept)"]),
     parametric = param_tbl,
     smooths = curves,
-    smooth_labels = smooth_labels_all,
-    skipped = skipped,
-    coef_full = as.numeric(coef(gam_fit)),
-    coef_names = names(coef(gam_fit)),
-    link = gam_fit$family$link,
-    n = n_all,
-    sample_n = nrow(X_s)
+    link = gam_fit$family$link
   )
 }
