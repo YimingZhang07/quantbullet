@@ -103,6 +103,8 @@ class PdfColumnFormat( BaseColumnFormat ):
     colormap: Optional[Callable[[float, float, float], colors.Color]] = None  # colormap takes (val, vmin, vmax) and returns a ReportLab Color
     named_colormap: Optional[str] = None # we use a few predefined colormaps by name
     headerbgcolor: tuple[float, float, float] | colors.Color | None = None
+    align: Optional[str] = None  # e.g., "LEFT", "CENTER", "RIGHT"
+    header_align: Optional[str] = None  # align header independently if needed
     vmin: Optional[float] = None
     vmax: Optional[float] = None
     missing_label: Optional[str] = None
@@ -272,6 +274,14 @@ def build_table_from_df( df: pd.DataFrame, schema: list[PdfColumnMeta], col_widt
                 if pd.notna(val):
                     bgcolor = col.format.colormap(val, vmin, vmax)
                     style.add("BACKGROUND", (col_idx, row_idx), (col_idx, row_idx), bgcolor)
+
+    # --- Apply column alignment overrides
+    for col_idx, col in enumerate(schema):
+        if col.format.align:
+            style.add("ALIGN", (col_idx, 1), (col_idx, -1), col.format.align)
+        header_align = col.format.header_align or col.format.align
+        if header_align:
+            style.add("ALIGN", (col_idx, 0), (col_idx, 0), header_align)
 
     tbl.setStyle(style)
 

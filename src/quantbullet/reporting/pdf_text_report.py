@@ -235,12 +235,20 @@ class PdfTextReport:
 
         # Let ReportLab compute column widths.
         # If you have a "frame width" instead of full page width, use that here.
-        available_width = self.page_size[0]
-        available_height = self.page_size[1]
-        tbl.wrap(available_width, available_height)
+        tbl.wrap(self.doc.width, self.doc.height)
 
         # _colWidths is what ReportLab decided was best
         return list(tbl._colWidths)
+
+    def compute_table_left_indent( self, df, schema, font_size: int = 8, col_widths: list[float] | None = None ):
+        """Compute left indent to align text with a centered table."""
+        if col_widths is None:
+            col_widths = self.compute_col_widths_for_df( df, schema, font_size=font_size )
+        if not col_widths:
+            return 0, col_widths
+        table_width = sum( col_widths )
+        left_indent = max( ( self.doc.width - table_width ) / 2, 0 )
+        return left_indent, col_widths
 
     def add_multiindex_df_table( self, df, font_size:int=6, space_after:int=12, 
                                  heatmap_cols:bool=False, heatmap_all:bool=False, 
