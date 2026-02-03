@@ -352,36 +352,73 @@ plot_binned_actual_vs_pred_overlay <- function(
 # Diagnostic Plot Helper (config-driven)
 # ============================================================================
 
+#' Merge config with defaults (defaults only fill in missing keys)
+#'
+#' @param defaults Default values (used only for keys not present in cfg)
+#' @param cfg User-provided config (takes precedence, even if value is NULL)
+#' @return Merged config list
 .merge_config <- function(defaults, cfg) {
-  out <- defaults
-  if (length(cfg)) {
-    for (nm in names(cfg)) {
-      out[[nm]] <- cfg[[nm]]
+  # Start with cfg - user's explicit config takes full precedence
+  out <- if (is.null(cfg)) list() else cfg
+
+  # Only fill in defaults for keys NOT present in cfg
+  if (length(defaults)) {
+    cfg_names <- names(out)
+    for (nm in names(defaults)) {
+      if (!(nm %in% cfg_names)) {
+        out[[nm]] <- defaults[[nm]]
+      }
     }
   }
   out
 }
 
+#' Normalize diagnostic config with defaults
+#'
+#' Defaults are only used for keys not present in cfg.
+#' Config values (even NULL) take precedence over defaults.
+#'
+#' @param cfg User-provided config
+#' @param defaults Default values for missing keys
+#' @return Normalized config list
 .normalize_diag_config <- function(cfg, defaults) {
   if (is.null(cfg)) cfg <- list()
   out <- .merge_config(defaults, cfg)
 
+  # Handle overlay shorthand
   if (!is.null(out$overlay) && isTRUE(out$overlay)) {
     out$type <- "overlay"
   }
-  if (is.null(out$type)) {
-    out$type <- "binned"
+
+  # Default type if not specified (check key existence, not just NULL)
+  if (!("type" %in% names(out)) || is.null(out$type)) {
+    out$type <- "facet"
   }
   out$type <- tolower(out$type)
 
+  # Validate type
+
+  if (!(out$type %in% c("facet", "overlay"))) {
+    stop(paste0("Invalid diag config type '", out$type, "'. Must be 'facet' or 'overlay'."))
+  }
+
+  # Required fields validation
   if (is.null(out$x_col)) stop("diag config missing x_col")
   if (is.null(out$act_col)) stop("diag config missing act_col")
   if (is.null(out$pred_col)) stop("diag config missing pred_col")
 
   out$pred_col <- as.character(out$pred_col)
 
-  if (is.null(out$title)) {
-    out$title <- paste(out$act_col, "vs", paste(out$pred_col, collapse = ", "), "by", out$x_col)
+  # Auto-generate title only if not provided (check key existence)
+  if (!("title" %in% names(out)) || is.null(out$title)) {
+    base_title <- paste(out$act_col, "vs", paste(out$pred_col, collapse = ", "), "by", out$x_col)
+    if (!is.null(out$facet_col) && nzchar(out$facet_col)) {
+      # Use appropriate label based on plot type
+      group_label <- if (out$type == "overlay") "color:" else "facet:"
+      out$title <- paste0(base_title, " (", group_label, " ", out$facet_col, ")")
+    } else {
+      out$title <- base_title
+    }
   }
 
   out
@@ -392,7 +429,7 @@ plot_binned_actual_vs_pred_overlay <- function(
 #' @param x_cols Character vector of x columns
 #' @param act_col Actual values column name
 #' @param pred_col Prediction column name(s)
-#' @param plot_type "binned" or "overlay"
+#' @param plot_type "facet" or "overlay"
 #' @param facet_col Optional faceting column
 #' @param weight_col Optional weight column
 #' @param bins Binning strategy
@@ -408,7 +445,7 @@ build_diag_configs <- function(
   x_cols,
   act_col,
   pred_col,
-  plot_type = "binned",
+  plot_type = "facet",
   facet_col = NULL,
   weight_col = NULL,
   bins = NULL,
@@ -452,7 +489,7 @@ build_diag_configs <- function(
 #' Render diagnostic plots from configs
 #'
 #' Each config can include:
-#'   type ("binned" or "overlay"), x_col, act_col, pred_col,
+#'   type ("facet" or "overlay"), x_col, act_col, pred_col,
 #'   facet_col, weight_col, bins, n_bins, n_cols, pred_colors, y_transform, title.
 #'
 #' @param df Data frame with actual and predicted values

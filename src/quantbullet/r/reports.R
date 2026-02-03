@@ -88,6 +88,7 @@ combined_model_report <- function(
   df,
   fpath,
   diag_configs = NULL,
+  diag_defaults = list(),
   width = 1200,
   height = 800,
   dpi = 150,
@@ -152,7 +153,7 @@ combined_model_report <- function(
   }
 
   diag_pages_fn <- function() {
-    render_diagnostic_plots(df, diag_configs, defaults = list())
+    render_diagnostic_plots(df, diag_configs, defaults = diag_defaults)
   }
 
   has_smooth <- isTRUE(include_smooths)

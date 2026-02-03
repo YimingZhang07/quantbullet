@@ -53,6 +53,7 @@ class RReports:
         df: pd.DataFrame,
         out_path: Union[str, Path],
         diag_configs: Optional[List[dict]] = None,
+        diag_defaults: Optional[dict] = None,
         width: int = 1200,
         height: int = 800,
         dpi: int = 150,
@@ -126,6 +127,8 @@ class RReports:
         }
         if diag_configs is not None:
             kwargs["diag_configs"] = py_obj_to_r(diag_configs, r=self.r_)
+        if diag_defaults is not None:
+            kwargs["diag_defaults"] = py_obj_to_r(diag_defaults, r=self.r_)
         if smooth_width is not None:
             kwargs["smooth_width"] = smooth_width
         if smooth_height is not None:
@@ -170,6 +173,7 @@ def combined_model_report(
     df: pd.DataFrame,
     out_path: Union[str, Path],
     diag_configs: Optional[List[dict]] = None,
+    diag_defaults: Optional[dict] = None,
     width: int = 1200,
     height: int = 800,
     dpi: int = 150,
@@ -239,6 +243,7 @@ def combined_model_report(
         df=df,
         out_path=out_path,
         diag_configs=diag_configs,
+        diag_defaults=diag_defaults,
         width=width,
         height=height,
         dpi=dpi,
