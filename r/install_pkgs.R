@@ -14,4 +14,5 @@ renv::install("foreach")
 renv::install("itertools")
 renv::install("glue")
 renv::install("pdftools")
+renv::install("tidyverse")
 renv::snapshot()                     # writes renv.lock

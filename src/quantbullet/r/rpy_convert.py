@@ -69,6 +69,51 @@ def r_generic_types_to_py(obj):
         raise NotImplementedError("Conversion for this R object type not implemented yet")
 
 
+def py_obj_to_r(obj, r=None):
+    """
+    Convert common Python objects (including dict/list) to R objects.
+
+    Useful for passing structured configs into R functions.
+    """
+    if r is None:
+        r = get_r()
+
+    from rpy2.rinterface import NULL
+    from rpy2.robjects import ListVector, StrVector, IntVector, FloatVector, BoolVector
+
+    if obj is None:
+        return NULL
+
+    if isinstance(obj, dict):
+        return ListVector({k: py_obj_to_r(v, r) for k, v in obj.items()})
+
+    if isinstance(obj, (list, tuple)):
+        if len(obj) == 0:
+            return ListVector({})
+        if all(isinstance(x, dict) for x in obj):
+            return ListVector({str(i + 1): py_obj_to_r(x, r) for i, x in enumerate(obj)})
+        if all(isinstance(x, str) for x in obj):
+            return StrVector(obj)
+        if all(isinstance(x, bool) for x in obj):
+            return BoolVector(obj)
+        if all(isinstance(x, int) and not isinstance(x, bool) for x in obj):
+            return IntVector(obj)
+        if all(isinstance(x, (int, float)) for x in obj):
+            return FloatVector(obj)
+        return ListVector({str(i + 1): py_obj_to_r(x, r) for i, x in enumerate(obj)})
+
+    if isinstance(obj, str):
+        return StrVector([obj])
+    if isinstance(obj, bool):
+        return BoolVector([obj])
+    if isinstance(obj, int) and not isinstance(obj, bool):
+        return IntVector([obj])
+    if isinstance(obj, float):
+        return FloatVector([obj])
+
+    return obj
+
+
 # def r_general_types_to_py(obj):
 #     """
 #     Convert common rpy2 R objects into clean Python objects.
