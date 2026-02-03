@@ -349,7 +349,6 @@ def plot_binned_actual_vs_pred_plotnine(
             geom_line,
             facet_wrap,
             scale_color_manual,
-            scale_size,
             scale_x_continuous,
             labs,
             theme_bw,
@@ -357,6 +356,7 @@ def plot_binned_actual_vs_pred_plotnine(
             element_text,
             element_rect,
             element_line,
+            scale_size_area,
         )
     except ImportError as e:
         raise ImportError("plotnine is required for plot_binned_actual_vs_pred_plotnine()") from e
@@ -420,7 +420,7 @@ def plot_binned_actual_vs_pred_plotnine(
             aes(x="bin_val", y="pred_mean", color="pred_col", group="pred_col"),
             size=1.2,
         )
-        + scale_size(range=(1.5, 6), name="Count")
+        + scale_size_area(max_size=6, name="Count")
         + scale_color_manual(values=pred_colors, name="Model")
         + labs(
             title=f"{act_col} vs {', '.join(pred_cols)}",
@@ -501,7 +501,7 @@ def plot_binned_actual_vs_pred_overlay_plotnine(
             geom_point,
             geom_line,
             scale_color_manual,
-            scale_size,
+            scale_size_area,
             scale_x_continuous,
             scale_linetype_discrete,
             labs,
@@ -588,7 +588,7 @@ def plot_binned_actual_vs_pred_overlay_plotnine(
             ),
             size=1.2,
         )
-        + scale_size(range=(1.5, 6), name="Count")
+        + scale_size_area(max_size=6, name="Count")
         + scale_color_manual(values=color_map, name=facet_col)
         + labs(
             title=f"{act_col} vs {', '.join(pred_cols)}",
