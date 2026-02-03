@@ -198,7 +198,7 @@ plot_binned_actual_vs_pred <- function(
       aes(x = bin_val, y = pred_mean, color = pred_col, group = pred_col),
       linewidth = 1
     ) +
-    scale_size_continuous(range = c(min_size, max_size), name = "Count") +
+    scale_size_area(max_size = max_size, name = "Count", n.breaks = 3) +
     scale_color_manual(values = setNames(pred_colors[seq_along(pred_cols)], pred_cols), name = "Model") +
     labs(
       title = if (!is.null(title)) title else paste(act_col, "vs", paste(pred_cols, collapse = ", ")),
@@ -321,7 +321,7 @@ plot_binned_actual_vs_pred_overlay <- function(
       ),
       linewidth = 1
     ) +
-    scale_size_continuous(range = c(min_size, max_size), name = "Count") +
+    scale_size_area(max_size = max_size, name = "Count", n.breaks = 3) +
     scale_color_manual(values = color_map, name = facet_col) +
     labs(
       title = if (!is.null(title)) title else paste(act_col, "vs", paste(pred_cols, collapse = ", ")),

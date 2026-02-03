@@ -112,29 +112,3 @@ def py_obj_to_r(obj, r=None):
         return FloatVector([obj])
 
     return obj
-
-
-# def r_general_types_to_py(obj):
-#     """
-#     Convert common rpy2 R objects into clean Python objects.
-#     """
-#     # NULL -> None
-#     if isinstance(obj, NULLType):
-#         return None
-
-#     # Atomic vectors of length 1 -> scalar
-#     if isinstance(obj, (BoolVector, IntVector, FloatVector, StrVector)):
-#         if len(obj) == 1:
-#             return obj[0]
-#         else:
-#             return list(obj)
-
-#     # ListVector -> dict (recursive)
-#     if isinstance(obj, ListVector):
-#         return {name: r_general_types_to_py(obj.rx2(name)) for name in obj.names}
-
-#     # Fallback: use rpy2 converters (numpy / pandas)
-#     try:
-#         return _r_to_py(obj)
-#     except Exception:
-#         return obj
