@@ -30,6 +30,29 @@ class Feature:
             "specs": to_json_value(self.specs),
         }
 
+    def to_r_gam_term(self) -> str:
+        """Convert feature to R GAM formula term.
+
+        For numeric features with spline specs: s(name, k=n_splines, by=by_var)
+        For categorical features: just the name (R treats as factor)
+        """
+        if self.dtype.is_category():
+            return self.name
+
+        # Numeric feature - check if it has spline specs
+        if self.specs and "n_splines" in self.specs:
+            parts = [self.name]
+            k = self.specs.get("n_splines")
+            if k is not None:
+                parts.append(f"k={k}")
+            by = self.specs.get("by")
+            if by is not None:
+                parts.append(f"by={by}")
+            return f"s({', '.join(parts)})"
+
+        # Numeric without spline specs - linear term
+        return self.name
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Feature":
         return cls(
@@ -175,3 +198,19 @@ class FeatureSpec:
     def from_dict(cls, data: Dict[str, Any]) -> "FeatureSpec":
         features = [Feature.from_dict(entry) for entry in data.get("features", [])]
         return cls(features=features)
+
+    def to_r_gam_formula(self) -> str:
+        """Export feature spec to R GAM formula string.
+
+        Generates formula like: y ~ s(x1, k=20) + s(x2, k=20, by=group) + cat_var
+
+        Returns
+        -------
+        str
+            R formula string for use with mgcv::gam or mgcv::bam
+        """
+        # Get model input features only
+        input_features = [f for f in self._features if f.role == FeatureRole.MODEL_INPUT]
+        terms = [f.to_r_gam_term() for f in input_features]
+        rhs = " + ".join(terms)
+        return f"{self.y} ~ {rhs}"
