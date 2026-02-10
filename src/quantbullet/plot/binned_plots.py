@@ -48,14 +48,19 @@ def prepare_binned_data(df, x_col, act_col, pred_cols, facet_col=None, weight_co
     # Aggregation
     group_cols = ['facet', 'bin_val'] if facet_col else ['bin_val']
     pred_mean_cols = {pred_col: f"pred_mean__{pred_col}" for pred_col in pred_cols}
+
+    def _weighted_mean(values, weights):
+        w_sum = weights.sum()
+        return np.average(values, weights=weights) if w_sum != 0 else np.nan
+
     agg = (
         tmp.groupby(group_cols, observed=False)
         .apply(
             lambda g: pd.Series({
-                "act_mean": np.average(g['act'], weights=g['weight']),
+                "act_mean": _weighted_mean(g['act'], g['weight']),
                 "count": len(g),
                 **{
-                    pred_mean_cols[pred_col]: np.average(g[pred_col], weights=g['weight'])
+                    pred_mean_cols[pred_col]: _weighted_mean(g[pred_col], g['weight'])
                     for pred_col in pred_cols
                 },
             }),
