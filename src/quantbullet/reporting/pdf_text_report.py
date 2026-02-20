@@ -24,6 +24,7 @@ from reportlab.lib.pagesizes import landscape, letter
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.platypus import (
+    Flowable,
     Image,
     PageBreak,
     Paragraph,
@@ -43,6 +44,24 @@ from ._reportlab_utils import (
     multi_index_df_to_table_data,
 )
 from .formatters import number2string
+
+class _BookmarkFlowable(Flowable):
+    """Zero-size flowable that registers a PDF bookmark and outline entry."""
+
+    width = 0
+    height = 0
+
+    def __init__(self, key: str, title: str, level: int = 0, closed: bool = False):
+        super().__init__()
+        self.key = key
+        self.title = title
+        self.level = level
+        self.closed = closed
+
+    def draw(self):
+        self.canv.bookmarkPage(self.key)
+        self.canv.addOutlineEntry(self.title, self.key, level=self.level, closed=self.closed)
+
 
 class PdfTextReport:
     def __init__( self, 
@@ -443,6 +462,28 @@ class PdfTextReport:
         width, height = self.doc.pagesize
         canvas.setFont( "Helvetica", 9 )
         canvas.drawCentredString( width / 2.0, 15, text )  # y=15 points from bottom
+
+    _bookmark_counter = 0
+
+    def add_bookmark(self, title: str, level: int = 0, closed: bool = False, key: str | None = None):
+        """Add a PDF outline bookmark at the current position.
+
+        Parameters
+        ----------
+        title : str
+            Caption shown in the PDF outline/bookmarks panel.
+        level : int, optional
+            Nesting depth (0 = top-level, 1 = sub-section, etc.). It is an error
+            to jump down more than one level at a time (e.g. 0 then 2).
+        closed : bool, optional
+            Whether the node starts collapsed in the outline tree.
+        key : str, optional
+            Unique internal key. Auto-generated if omitted.
+        """
+        if key is None:
+            PdfTextReport._bookmark_counter += 1
+            key = f"_bm_{PdfTextReport._bookmark_counter}"
+        self.story.append(_BookmarkFlowable(key, title, level=level, closed=closed))
 
     def add_spacer( self, height: int = 12 ):
         """Add a vertical spacer."""
