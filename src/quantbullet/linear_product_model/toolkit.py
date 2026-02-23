@@ -356,7 +356,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         
         data_caches = {}
         # cache the predictions from all blocks just once
-        block_preds = { feature: model.single_feature_group_predict( feature, X_sample, ignore_global_scale=True ) for feature in self.numerical_feature_groups.keys() }
+        block_preds = { feature: model.single_feature_group_predict( feature, X_sample, ignore_global_scale=True ) for feature in self.feature_groups.keys() }
         for feature, subfeatures in self.numerical_feature_groups.items():
             # Create binned dataframe
             binned_df, cutoff_values_right = self._create_bins(X_sample.orig[feature], n_quantile_groups, n_bins)
@@ -509,7 +509,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         X_sample = dcontainer_sample
         y_sample = dcontainer_sample.response
 
-        block_preds = { feature: model.single_feature_group_predict( feature, X_sample, ignore_global_scale=True ) for feature in self.categorical_feature_groups.keys() }
+        block_preds = { feature: model.single_feature_group_predict( feature, X_sample, ignore_global_scale=True ) for feature in self.feature_groups.keys() }
         for i, (feature, subfeatures) in enumerate(self.categorical_feature_groups.items()):
             ax = axes[i]
             other_blocks_preds = model.global_scalar_ * vector_product_numexpr_dict_values( data=block_preds, exclude=feature )
