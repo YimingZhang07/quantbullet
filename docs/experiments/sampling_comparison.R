@@ -15,7 +15,7 @@ suppressPackageStartupMessages({
 DATA_DIR          <- "C:/Users/yimingz/repo/quantbullet/docs/experiments"
 DATA_PATH         <- file.path(DATA_DIR, "sampling_data.parquet")
 PDF_OUT           <- file.path(DATA_DIR, "sampling_comparison.pdf")
-TARGET_EVENT_RATE <- 0.3
+TARGET_EVENT_RATE <- 0.1
 SEED              <- 42
 
 # ── Load & preprocess ─────────────────────────────────────────────────────────
