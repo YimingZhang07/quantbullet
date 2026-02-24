@@ -24,7 +24,6 @@ from quantbullet.preprocessing.transformers import FlatRampTransformer
 from quantbullet.reporting import AdobeSourceFontStyles, PdfChartReport
 from quantbullet.reporting.utils import register_fonts_from_package, merge_pdfs
 from quantbullet.reporting.formatters import numberarray2string
-from quantbullet.utils.decorators import deprecated
 from quantbullet.linear_product_model.mtg_perf_eval import MtgPerfColnames, MtgModelPerformanceEvaluator
 
 class LinearProductModelReportMixin:
@@ -223,26 +222,6 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         plt.tight_layout()
         plt.show()
 
-    @deprecated( msg = "Use ProductModelDataContainer.sample() instead." )
-    def sample_data( self, sample_frac, *args, seed=42 ):
-        """Randomly subsample multiple arrays/dataframes with the same mask."""
-        if not 0 <= sample_frac <= 1:
-            raise ValueError("sample_frac must be between 0 and 1")
-
-        lengths = [len(arg) for arg in args]
-        if len(set(lengths)) != 1:
-            raise ValueError(f"All arguments must have the same length, got {lengths}")
-
-        if seed is not None:
-            rng = np.random.RandomState(seed)
-        else:
-            rng = np.random
-
-        n = lengths[0]
-        sample_mask = rng.rand(n) <= sample_frac
-
-        return tuple(arg[sample_mask] for arg in args)
-    
     def get_feature_grid_and_predictions( self, feature_series, model, n_points=200 ):
         """Get a grid of feature values and the corresponding model predictions for that feature."""
         x_min, x_max = feature_series.min(), feature_series.max()
@@ -277,46 +256,6 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         y_values = model.single_feature_group_predict( group_to_include = feature_name, X=single_feature_container, ignore_global_scale=True )
         return y_values
 
-    def plot_model_implied_errors( self, model, X, y, train_df, sample_frac=0.1 ):
-        """For each continuous feature, plot the implied actual vs model prediction
-
-        Implied actual is defined as the ratio of the true target value to the predicted value from the other feature groups.
-
-        Parameters
-        ----------
-        model : LinearProductModelBase
-            The fitted linear product model
-        
-        X : pd.DataFrame
-            The original feature dataframe. there has to be a column 'y' for the target variable.
-
-        train_df : pd.DataFrame
-            The transformed feature dataframe used for training the model.
-
-        """
-        n_features = len( self.numerical_feature_groups )
-        fig, axes = get_grid_fig_axes( n_charts=n_features, n_cols=3 )
-        X_sample, y_sample ,train_df_sample = self.sample_data( sample_frac, X, y, train_df )
-
-        for i, feature in enumerate( self.numerical_feature_groups_names ):
-            # the data size may be too large to plot all points, so we sample a fraction of the data
-            other_blocks_preds = model.leave_out_feature_group_predict(feature, train_df_sample)
-            implied_actual = y_sample / other_blocks_preds
-
-            # codes for plotting
-            ax = axes[i]
-            ax.scatter(X_sample[feature], implied_actual, alpha=0.2, color=EconomistBrandColor.LONDON_70)
-            x_grid, this_feature_preds = self.get_feature_grid_and_predictions( X[feature], model )
-            ax.plot(x_grid, this_feature_preds, color=EconomistBrandColor.ECONOMIST_RED, label='Model Prediction', linewidth=2)
-            ax.set_title(f'{feature} Implied Error', fontdict={'fontsize': 14} )
-            ax.set_xlabel(f'{feature} Value', fontdict={'fontsize': 12} )
-            ax.set_ylabel('Implied Actual', fontdict={'fontsize': 12} )
-
-        close_unused_axes( axes )
-        plt.tight_layout()
-        self.implied_actual_plot_axes = axes
-        return fig, axes
-    
     def get_implied_actual_caches( self, feature_name ):
         return self.implied_actual_data_caches.get( feature_name, None )
 
