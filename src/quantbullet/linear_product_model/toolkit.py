@@ -22,7 +22,7 @@ from quantbullet.preprocessing.transformers import FlatRampTransformer
 from quantbullet.reporting import AdobeSourceFontStyles, PdfChartReport
 from quantbullet.reporting.utils import register_fonts_from_package, merge_pdfs
 from quantbullet.reporting.formatters import numberarray2string
-from quantbullet.linear_product_model.mtg_perf_eval import MtgPerfColnames, MtgModelPerformanceEvaluator
+from quantbullet.linear_product_model.mortgage_diagnostics import MortgageColnames, MortgageDiagnostics
 
 class LinearProductModelReportMixin:
     @property
@@ -639,11 +639,11 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         os.remove( pdf2 )
         return merged_pdf_path
     
-    def plot_performance_diagnostics( self, model: LinearProductModelBase, X: ProductModelDataContainer, colnames: MtgPerfColnames ):
+    def plot_performance_diagnostics( self, model: LinearProductModelBase, X: ProductModelDataContainer, colnames: MortgageColnames ):
         X_orig = X.orig.copy()
         X_orig['model_pred'] = model.predict( X )
-        evaluator = MtgModelPerformanceEvaluator( df = X_orig, colname_mapping=colnames )
-        incentive_fig, incentive_axes = evaluator.incentive_by_vintage_year_plots( n_cols=3, n_quantile_bins=50 )
+        diag = MortgageDiagnostics( df=X_orig, colnames=colnames )
+        incentive_fig, incentive_axes = diag.incentive_by_vintage_year_plots( n_cols=3, n_bins=50 )
         self.perf_plots_incentive_axes = incentive_axes
         return incentive_fig, incentive_axes
     

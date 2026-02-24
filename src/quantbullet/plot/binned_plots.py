@@ -7,7 +7,7 @@ from quantbullet.plot.colors import EconomistBrandColor as EBC
 from quantbullet.plot.cycles import ECONOMIST_LINE_COLORS
 
 
-def prepare_binned_data(df, x_col, act_col, pred_cols, facet_col=None, weight_col=None, bins=None, n_bins=10, min_size=20, max_size=100):
+def prepare_binned_data(df, x_col, act_col, pred_cols, facet_col=None, weight_col=None, bins=None, n_bins=10, min_count=0, min_size=20, max_size=100):
     """
     Parameters
     ----------
@@ -15,6 +15,8 @@ def prepare_binned_data(df, x_col, act_col, pred_cols, facet_col=None, weight_co
         - None (default): Use quantile binning with n_bins
         - False or 'discrete': Group by exact x values (no binning)
         - array-like: Custom bin edges for pd.cut()
+    min_count : int
+        Drop bins with fewer than this many observations after aggregation.
     """
     # Setup weights
     weights = df[weight_col] if weight_col else pd.Series(1, index=df.index)
@@ -69,7 +71,9 @@ def prepare_binned_data(df, x_col, act_col, pred_cols, facet_col=None, weight_co
         .reset_index()
     )
 
-    # Calculate global scaling factors
+    if min_count > 0:
+        agg = agg[agg['count'] >= min_count].reset_index(drop=True)
+
     global_min = agg['count'].min()
     global_max = agg['count'].max()
     
