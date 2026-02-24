@@ -642,3 +642,108 @@ def plot_binned_actual_vs_pred_overlay_plotnine(
         p = p + theme(figure_size=figsize)
 
     return p
+
+
+# def plot_faceted_scatter_line_plotnine(
+#     agg_df,
+#     x_col,
+#     scatter_y_col,
+#     line_y_col,
+#     size_col='count',
+#     facet_col='feature_name',
+#     scatter_color=EBC.LONDON_70,
+#     line_color=EBC.ECONOMIST_RED,
+#     x_label='',
+#     y_label='',
+#     n_cols=3,
+#     figsize=(6, 4),
+# ):
+#     """Faceted scatter + line plot on pre-aggregated data (plotnine).
+
+#     Each facet displays a scatter layer (sized by *size_col*) and a line
+#     layer sharing the same x-axis.  Facets use ``scales='free'`` so each
+#     panel gets its own axis range.
+
+#     Parameters
+#     ----------
+#     agg_df : pd.DataFrame
+#         Pre-aggregated, stacked DataFrame.
+#     x_col : str
+#         Column used for the shared x-axis.
+#     scatter_y_col : str
+#         Column for the scatter y-values.
+#     line_y_col : str
+#         Column for the line y-values.
+#     size_col : str
+#         Column that controls scatter point sizes.
+#     facet_col : str
+#         Column used to facet the plot.
+#     scatter_color, line_color : str
+#         Colours for the two layers.
+#     x_label, y_label : str
+#         Axis labels.
+#     n_cols : int
+#         Maximum columns in the facet grid.
+#     figsize : tuple of (width, height)
+#         Per-facet size in inches.
+#     """
+#     try:
+#         from plotnine import (
+#             ggplot,
+#             aes,
+#             geom_point,
+#             geom_line,
+#             facet_wrap,
+#             scale_size_area,
+#             labs,
+#             theme_bw,
+#             theme,
+#             element_text,
+#             element_rect,
+#             element_line,
+#         )
+#     except ImportError as e:
+#         raise ImportError("plotnine is required for plot_faceted_scatter_line_plotnine()") from e
+
+#     agg_df = agg_df.sort_values([facet_col, x_col])
+
+#     n_facets = agg_df[facet_col].nunique()
+#     n_cols_eff = min(n_cols, n_facets)
+#     n_rows = int(np.ceil(n_facets / n_cols_eff))
+
+#     p = (
+#         ggplot()
+#         + geom_point(
+#             agg_df,
+#             aes(x=x_col, y=scatter_y_col, size=size_col),
+#             color=scatter_color,
+#             alpha=0.6,
+#         )
+#         + geom_line(
+#             agg_df,
+#             aes(x=x_col, y=line_y_col),
+#             color=line_color,
+#             size=1.2,
+#         )
+#         + facet_wrap(f'~{facet_col}', ncol=n_cols_eff, scales='free')
+#         + scale_size_area(max_size=6, name=size_col.replace('_', ' ').title())
+#         + labs(x=x_label, y=y_label)
+#         + theme_bw(base_size=11)
+#         + theme(
+#             axis_title_x=element_text(size=10, weight='bold'),
+#             axis_title_y=element_text(size=10, weight='bold'),
+#             axis_text_y=element_text(size=9),
+#             panel_grid_major=element_line(color='#e0e0e0', size=0.3),
+#             panel_grid_minor=element_line(color='#f0f0f0', size=0.2),
+#             panel_border=element_rect(color='#4d4d4d', fill='none', size=0.7),
+#             strip_background=element_rect(fill='white', color='#4d4d4d', size=0.4),
+#             strip_text=element_text(size=9, weight='bold', color='#333333'),
+#             legend_position='right',
+#             legend_title=element_text(size=9, weight='bold'),
+#             legend_text=element_text(size=8),
+#             plot_background=element_rect(fill='white'),
+#             figure_size=(figsize[0] * n_cols_eff, figsize[1] * n_rows),
+#         )
+#     )
+
+#     return p

@@ -21,7 +21,6 @@ from quantbullet.model.core import FeatureSpec
 from quantbullet.plot.utils import get_grid_fig_axes, close_unused_axes, scale_scatter_sizes
 from quantbullet.plot.colors import EconomistBrandColor
 from quantbullet.preprocessing.transformers import FlatRampTransformer
-from quantbullet.dfutils import get_bins_and_labels
 from quantbullet.reporting import AdobeSourceFontStyles, PdfChartReport
 from quantbullet.reporting.utils import register_fonts_from_package, merge_pdfs
 from quantbullet.reporting.formatters import numberarray2string
@@ -56,20 +55,23 @@ class LinearProductModelReportMixin:
     
 @dataclass
 class ImpliedActualDataCache:
+    """Cached aggregated implied-actual data for a single feature block.
+
+    Downstream consumers can access convenient array fields (bin_right,
+    bin_implied_actuals, bin_model_preds, bin_count) without knowing the
+    underlying DataFrame column names.
+    """
     feature            : str
     agg_df             : pd.DataFrame
-    x_grid             : np.ndarray
-    x_grid_preds       : np.ndarray
 
-    # derived fields
     bin_right               : np.ndarray = field(init=False)
     bin_implied_actuals     : np.ndarray = field(init=False)
     bin_model_preds         : np.ndarray = field(init=False)
     bin_count               : np.ndarray = field(init=False)
 
     def __post_init__(self):
-        self.bin_right = self.agg_df['feature_bin_right'].values
-        self.bin_implied_actuals = self.agg_df['implied_actual_mean'].values
+        self.bin_right = self.agg_df['bin_val'].values
+        self.bin_implied_actuals = self.agg_df['implied_actual'].values
         self.bin_model_preds = self.agg_df['model_pred'].values
         self.bin_count = self.agg_df['count'].values
 
@@ -77,6 +79,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
     """A toolkit for building, fitting, evaluating, and reporting linear product models."""
 
     __slots__ = ( 'feature_spec', 'preprocess_config', 'feature_groups_', 'additional_plots', 'subfeatures_',
+                  'implied_actual_bin_config',
                   'implied_actual_plot_axes', 'implied_actual_data_caches', 'perf_plots_incentive_axes' )
 
     """
@@ -100,6 +103,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         for feature in feature_spec.x:
             self.feature_groups_[ feature ] = []
         self.additional_plots = []
+        self.implied_actual_bin_config: dict = {}
 
     def clone( self, exclude_preprocess_features: list=None ):
         """Create a copy of the toolkit, optionally excluding certain features from the preprocessing config."""
@@ -316,189 +320,244 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
     def get_implied_actual_caches( self, feature_name ):
         return self.implied_actual_data_caches.get( feature_name, None )
 
-    def plot_discretized_implied_errors(
-        self, 
-        model,
-        X: ProductModelDataContainer,
-        method: str = 'bin',
-        sample_frac: float = 1,
-        n_quantile_groups: int | None = 100,
-        n_bins: int = 20,
-        min_scatter_size: int = 10,
-        max_scatter_size: int = 500,
-        hspace: float = 0.4,
-        wspace: float = 0.3,
-    ) -> tuple[object, list[object]]:
-        """
-        Generate discretized implied errors plots for the model.
-        
-        Parameters:
-        -----------
-        method : str
-            avg: Calculate implied actual as mean(y/m) for each bin
-            bin: Calculate implied actual as sum(y)/sum(m) for each bin
-        """
-        # Fetch y from container and apply offset if present
-        if X.response is None:
-            raise ValueError("ProductModelDataContainer.response must be provided for plotting implied errors.")
-        y = X.response
-        if hasattr(model, 'offset_y') and getattr(model, 'offset_y') is not None:
-            y = y + getattr(model, 'offset_y')
-        
-        # Setup plotting infrastructure
-        n_features = len(self.numerical_feature_groups)
-        fig, axes = get_grid_fig_axes(n_charts=n_features, n_cols=3)
-        fig.subplots_adjust(hspace=hspace, wspace=wspace)
-        
-        # Sample data via container; preserve alignment across orig/expanded/response
-        X_sample = X.sample(sample_frac) if sample_frac < 1 else X
-        y_sample = X_sample.response
-        
-        data_caches = {}
-        # cache the predictions from all blocks just once
-        block_preds = { feature: model.single_feature_group_predict( feature, X_sample, ignore_global_scale=True ) for feature in self.feature_groups.keys() }
-        for feature, subfeatures in self.numerical_feature_groups.items():
-            # Create binned dataframe
-            binned_df, cutoff_values_right = self._create_bins(X_sample.orig[feature], n_quantile_groups, n_bins)
-            
-            # Get predictions from other blocks
-            other_blocks_preds = model.global_scalar_ * vector_product_numexpr_dict_values( data=block_preds, exclude=feature )
-            
-            # Calculate implied actual based on method
-            agg_df = self._calculate_implied_actual_agg(
-                binned_df, y_sample, other_blocks_preds, cutoff_values_right, method
-            )
-            
-            # Get feature grid and predictions
-            x_grid, x_grid_preds = self.get_feature_grid_and_predictions(
-                X_sample.orig[feature], model
-            )
+    @staticmethod
+    def _bin_feature_values(series: pd.Series, strategy, n_quantile_groups: int = 100) -> pd.Series:
+        """Map feature values to bin representative values.
 
-            agg_df['model_pred'] = self.get_single_feature_pred_given_values( feature, agg_df['feature_bin_right'], model )
-            
-            data_caches[feature] = ImpliedActualDataCache(feature, agg_df, x_grid, x_grid_preds)
-        
-        # Plot all features with consistent sizing
-        global_min_count = min(cache.agg_df['count'].min() for _, cache in data_caches.items())
-        global_max_count = max(cache.agg_df['count'].max() for _, cache in data_caches.items())
-        
-        for i, (_, cache) in enumerate(data_caches.items()):
-            ax = axes[i]
-            sizes = scale_scatter_sizes(
-                cache.bin_count,
-                min_size=min_scatter_size,
-                max_size=max_scatter_size,
-                global_min=global_min_count,
-                global_max=global_max_count
-            )
-            
-            # Create scatter plot
-            ax.scatter(
-                cache.bin_right,
-                cache.bin_implied_actuals,
-                alpha=0.7,
-                color=EconomistBrandColor.LONDON_70,
-                label='Implied Actual',
-                s=sizes
-            )
-            
-            # Plot model prediction line
-            ax.plot(
-                cache.x_grid, 
-                cache.x_grid_preds,
-                color=EconomistBrandColor.ECONOMIST_RED,
-                label='Model Prediction',
-                linewidth=2
-            )
-            
-            ax.set_xlabel(f'{cache.feature}', fontdict={'fontsize': 12})
-            ax.set_ylabel('Implied Actual', fontdict={'fontsize': 12})
-        
-        close_unused_axes(axes)
-        self.implied_actual_plot_axes = axes
-        self.implied_actual_data_caches = data_caches
-        return fig, axes
-
-    def _create_bins(self, feature_series: pd.Series, n_quantile_groups: int | None, n_bins: int | None) -> tuple[pd.DataFrame, list[float]]:
-        """Create binned dataframe based on a feature series.
-        
         Parameters
         ----------
-        feature_series : pd.Series
-            The feature series to bin.
-        n_quantile_groups : int, optional
-            The number of quantile groups to create.
-        n_bins : int
-            The number of bins to create if not using quantiles.
+        strategy : None, 'discrete', or numeric
+            - None : quantile binning with *n_quantile_groups* (default)
+            - 'discrete' : group by exact values (e.g. integer age)
+            - numeric : round to that unit then group (e.g. 1000 rounds to nearest $1 K)
+        """
+        if strategy == 'discrete':
+            return series.copy()
+        if isinstance(strategy, (int, float)):
+            return (series / strategy).round() * strategy
+        bins = pd.qcut(series, q=n_quantile_groups, duplicates='drop')
+        return bins.apply(lambda iv: iv.right).astype(float)
+
+    def compute_implied_actual_data(
+        self,
+        model,
+        dcontainer: ProductModelDataContainer,
+        sample_frac: float = 1,
+    ) -> dict[str, pd.DataFrame]:
+        """Compute per-feature observation-level implied-actual data.
+
+        For each numerical feature block *f*, the implied actual is
+        ``y / (global_scalar * prod(other blocks))``, i.e. what this block
+        "should" output given the response and all other blocks.
 
         Returns
         -------
-        pd.DataFrame
-            The binned dataframe with feature bins and cutoff values.
-            Columns include:
-              - feature: The original feature values.
-              - feature_bin: The binned feature values.
-              - cutoff_values_right: The right edges of the bins.
+        dict[str, pd.DataFrame]
+            Keyed by feature name.  Each DataFrame has columns:
+            ``feature_value, implied_actual, model_pred, weight``.
         """
-        binned_df = pd.DataFrame( { 'feature': feature_series } )
-        
-        if n_quantile_groups is not None:
-            binned_df[ 'feature_bin' ] = pd.qcut( feature_series, n_quantile_groups, duplicates='drop' )
-            cutoff_values_right = [ interval.right for interval in binned_df[ 'feature_bin' ].cat.categories ]
-        else:
-            # Equal-width bins
-            cutoff_values = list( np.linspace( feature_series.min(), feature_series.max(), n_bins + 1 ) )
-            cutoff_values = cutoff_values[ 1:-1 ]  # Remove first and last to avoid -inf/inf bins
-            
-            bins, labels = get_bins_and_labels( cutoffs=cutoff_values, decimal_places=4 )
-            binned_df['feature_bin'] = pd.cut( binned_df[ 'feature' ], bins=bins, labels=labels )
-            cutoff_values_right = cutoff_values + [ feature_series.max() ]
-        
-        return binned_df, cutoff_values_right
+        if dcontainer.response is None:
+            raise ValueError("ProductModelDataContainer.response must be provided.")
 
-    def _calculate_implied_actual_agg(
-        self,
-        binned_df: pd.DataFrame,
-        y_sample: np.ndarray,
-        other_blocks_preds: np.ndarray,
-        cutoff_values_right: list[float],
-        method: str = 'bin'
-    ) -> pd.DataFrame:
-        """Calculate aggregated implied actual values based on the specified method."""
-        
-        if method == 'avg':
-            # Simple method: mean(y/m) per bin
-            implied_actual = y_sample / other_blocks_preds
-            binned_df['implied_actual'] = implied_actual
-            
-            agg_df = binned_df.groupby('feature_bin', observed=False).agg(
-                implied_actual_mean=('implied_actual', 'mean'),
-                count=('implied_actual', 'count')
-            ).reset_index()
-            
-        elif method == 'bin':
-            # Binned method: sum(y)/sum(m) per bin
-            binned_df['y'] = y_sample
-            binned_df['m'] = other_blocks_preds
+        dc = dcontainer.sample(sample_frac) if sample_frac < 1 else dcontainer
+        y = dc.response
+        if hasattr(model, 'offset_y') and model.offset_y is not None:
+            y = y + model.offset_y
 
-            agg_df = binned_df.groupby('feature_bin', observed=False).agg(
-                sum_y=('y', 'sum'),
-                sum_m=('m', 'sum'),
-                count=('y', 'count')
-            ).reset_index()
+        block_preds = {
+            feat: model.single_feature_group_predict(feat, dc, ignore_global_scale=True)
+            for feat in self.feature_groups_.keys()
+        }
 
-            agg_df['implied_actual_mean'] = np.where(
-                np.isclose(agg_df['sum_m'], 0), 
-                0, 
-                agg_df['sum_y'] / agg_df['sum_m']
+        result: dict[str, pd.DataFrame] = {}
+        for feature in self.numerical_feature_groups:
+            other_preds = model.global_scalar_ * vector_product_numexpr_dict_values(
+                data=block_preds, exclude=feature,
             )
-        else:
-            raise ValueError(f"Unknown method: {method}")
-        
-        agg_df['feature_bin_right'] = cutoff_values_right
-        return agg_df
+            result[feature] = pd.DataFrame({
+                'feature_value': dc.orig[feature].values,
+                'implied_actual': y / other_preds,
+                'model_pred': block_preds[feature],
+                'weight': other_preds,
+            })
+        return result
 
-    def plot_categorical_plots( self, model: LinearProductModelBase, dcontainer: ProductModelDataContainer, sample_frac=1, hspace=0.4, wspace=0.3, method:str='bin' ):
+    def _aggregate_implied_data(
+        self,
+        raw_data: dict[str, pd.DataFrame],
+        bin_config: dict,
+        n_quantile_groups: int,
+        agg_method: str,
+    ) -> dict[str, pd.DataFrame]:
+        """Bin and aggregate per-feature implied-actual data.
+
+        Returns
+        -------
+        dict[str, pd.DataFrame]
+            Keyed by feature name.  Each DataFrame has columns:
+            ``bin_val, implied_actual, model_pred, count, feature_name``.
+        """
+        per_feature: dict[str, pd.DataFrame] = {}
+
+        for feature, df in raw_data.items():
+            bin_vals = self._bin_feature_values(
+                df['feature_value'], bin_config.get(feature), n_quantile_groups,
+            )
+
+            if agg_method == 'weighted':
+                y_orig = df['implied_actual'] * df['weight']
+                agg = pd.DataFrame({
+                    'bin_val': bin_vals,
+                    '_y_orig': y_orig,
+                    '_weight': df['weight'],
+                    'model_pred': df['model_pred'],
+                }).groupby('bin_val', observed=True).agg(
+                    _sum_y=('_y_orig', 'sum'),
+                    _sum_w=('_weight', 'sum'),
+                    model_pred=('model_pred', 'mean'),
+                    count=('_y_orig', 'count'),
+                ).reset_index()
+                agg['implied_actual'] = np.where(
+                    np.isclose(agg['_sum_w'], 0), 0,
+                    agg['_sum_y'] / agg['_sum_w'],
+                )
+                agg = agg.drop(columns=['_sum_y', '_sum_w'])
+            elif agg_method == 'simple':
+                agg = pd.DataFrame({
+                    'bin_val': bin_vals,
+                    'implied_actual': df['implied_actual'],
+                    'model_pred': df['model_pred'],
+                }).groupby('bin_val', observed=True).agg(
+                    implied_actual=('implied_actual', 'mean'),
+                    model_pred=('model_pred', 'mean'),
+                    count=('implied_actual', 'count'),
+                ).reset_index()
+            else:
+                raise ValueError(f"Unknown agg_method: {agg_method}")
+
+            agg['feature_name'] = feature
+            per_feature[feature] = agg
+
+        return per_feature
+
+    def plot_implied_actuals(
+        self,
+        model,
+        dcontainer: ProductModelDataContainer,
+        agg_method: str = 'weighted',
+        sample_frac: float = 1,
+        n_quantile_groups: int = 100,
+        bin_config: dict | None = None,
+        min_count: int = 0,
+        ylim: tuple | dict | None = None,
+        show_lowess: bool = False,
+        lowess_frac: float = 0.3,
+        n_cols: int = 3,
+        figsize: tuple = (5, 4),
+        min_scatter_size: int = 10,
+        max_scatter_size: int = 500,
+    ):
+        """Plot implied actuals vs model predictions for each numerical feature.
+
+        For each feature block in a multiplicative model, the implied actual
+        is ``y / (global_scalar * product_of_other_blocks)`` -- i.e. what this
+        block "should" output given the response and all other blocks.
+
+        Parameters
+        ----------
+        agg_method : str
+            ``'weighted'`` (default): sum(y) / sum(m) per bin -- a ratio of
+            totals that down-weights noisy individual observations.
+            ``'simple'``: mean(y/m) per bin -- unweighted average of
+            individual implied-actual ratios.
+        bin_config : dict, optional
+            Per-feature binning overrides, merged with
+            ``self.implied_actual_bin_config``.  Values can be:
+            ``None`` (quantile), ``'discrete'``, or a numeric rounding unit.
+        n_quantile_groups : int
+            Number of quantile bins for features using default binning.
+        min_count : int
+            Hide bins with fewer than this many observations.
+        ylim : tuple or dict, optional
+            Y-axis display range.  A tuple ``(ymin, ymax)`` applies to all
+            features; a dict ``{'feature': (ymin, ymax)}`` sets per-feature
+            limits.  Data is never modified -- only ``ax.set_ylim`` is called.
+        show_lowess : bool
+            If True, overlay a LOWESS curve (local regression) on each
+            subplot as a non-parametric reference.  Useful for spotting
+            curvature the piecewise-linear model may be missing.
+        lowess_frac : float
+            Fraction of data used for each LOWESS local fit (bandwidth).
+            Smaller values follow the data more tightly; larger values
+            produce a smoother reference.
+        """
+        raw_data = self.compute_implied_actual_data(model, dcontainer, sample_frac)
+        effective_config = {**self.implied_actual_bin_config, **(bin_config or {})}
+        per_feature = self._aggregate_implied_data(
+            raw_data, effective_config, n_quantile_groups, agg_method,
+        )
+
+        data_caches = {}
+        for feature, agg_df in per_feature.items():
+            data_caches[feature] = ImpliedActualDataCache(feature, agg_df)
+        self.implied_actual_data_caches = data_caches
+
+        features = list(per_feature.keys())
+        fig, axes = get_grid_fig_axes(n_charts=len(features), n_cols=n_cols,
+                                      width=figsize[0], height=figsize[1])
+
+        global_min_count = min(df['count'].min() for df in per_feature.values())
+        global_max_count = max(df['count'].max() for df in per_feature.values())
+
+        for i, feature in enumerate(features):
+            ax = axes[i]
+            agg = per_feature[feature]
+
+            show = agg if min_count <= 0 else agg[agg['count'] >= min_count]
+
+            sizes = scale_scatter_sizes(
+                show['count'],
+                min_size=min_scatter_size, max_size=max_scatter_size,
+                global_min=global_min_count, global_max=global_max_count,
+            )
+            ax.scatter(
+                show['bin_val'], show['implied_actual'],
+                s=sizes, alpha=0.7, color=EconomistBrandColor.LONDON_70,
+                label='Implied Actual',
+            )
+            ax.plot(
+                show['bin_val'], show['model_pred'],
+                color=EconomistBrandColor.ECONOMIST_RED, linewidth=2,
+                label='Model Prediction',
+            )
+
+            if show_lowess and len(show) >= 3:
+                from statsmodels.nonparametric.smoothers_lowess import lowess
+                counts = show['count'].values
+                reps = np.maximum(1, np.round(counts / counts.max() * 100)).astype(int)
+                x_rep = np.repeat(show['bin_val'].values, reps)
+                y_rep = np.repeat(show['implied_actual'].values, reps)
+                smoothed = lowess(y_rep, x_rep, frac=lowess_frac)
+                ax.plot(
+                    smoothed[:, 0], smoothed[:, 1],
+                    color=EconomistBrandColor.CHICAGO_45, linewidth=2,
+                    linestyle='--', label='LOWESS',
+                )
+
+            ax.set_xlabel(feature, fontsize=12)
+            ax.set_ylabel('Implied Actual', fontsize=12)
+
+            if ylim is not None:
+                if isinstance(ylim, dict) and feature in ylim:
+                    ax.set_ylim(ylim[feature])
+                elif isinstance(ylim, tuple):
+                    ax.set_ylim(ylim)
+
+        close_unused_axes(axes)
+        self.implied_actual_plot_axes = axes
+        return fig, axes
+
+    def plot_categorical_plots( self, model: LinearProductModelBase, dcontainer: ProductModelDataContainer, sample_frac=1, hspace=0.4, wspace=0.3, agg_method:str='weighted' ):
         if hasattr( model, 'offset_y') and getattr( model, 'offset_y') is not None:
             y = dcontainer.response + getattr( model, 'offset_y')
 
@@ -516,14 +575,13 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
             this_feature_preds = block_preds[ feature ]
 
             binned_df = pd.DataFrame({
-                # note that feature itself is a categorical series, so we don't need to bin it
                 "feature_bin": X_sample.orig[feature],
                 "feature_pred": this_feature_preds,
                 "y": y_sample,
                 "m": other_blocks_preds,
             })
 
-            if method == 'avg':
+            if agg_method == 'simple':
                 implied_actual = y_sample / other_blocks_preds
                 binned_df['implied_actual'] = implied_actual
                 agg_df = binned_df.groupby( 'feature_bin', observed=False ).agg(
@@ -531,7 +589,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
                     this_feature_preds_mean     = ('feature_pred', 'mean'),
                     count                       = ('implied_actual', 'count')
                 )
-            elif method == 'bin':
+            elif agg_method == 'weighted':
                 agg_df = (
                     binned_df.groupby("feature_bin", observed=False)
                     .agg(
@@ -548,7 +606,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
                 )
                 agg_df.drop(columns=["sum_y", "sum_m"], inplace=True)
             else:
-                raise ValueError(f"Unknown method: {method}")
+                raise ValueError(f"Unknown agg_method: {agg_method}")
 
             # plot bar chart for each feature bin
             x = np.arange(len(agg_df.index))  # numeric positions
