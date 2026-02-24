@@ -212,6 +212,7 @@ def plot_binned_actual_vs_pred(
     close_unused=True,
     pred_colors=None,
     y_transform=None,
+    align_ylim=False,
     **kwargs,
 ):
     """
@@ -315,6 +316,14 @@ def plot_binned_actual_vs_pred(
     
     # make room on the right so the legend doesn't overlap/crop
     # We use tight_layout with a rect to restrict the axes to the left side
+    if align_ylim and facet_col is not None:
+        visible = [ax for ax in axes if ax.get_visible()]
+        if len(visible) > 1:
+            all_ylims = [ax.get_ylim() for ax in visible]
+            shared = (min(lo for lo, _ in all_ylims), max(hi for _, hi in all_ylims))
+            for ax in visible:
+                ax.set_ylim(shared)
+
     fig.tight_layout(rect=layout_rect)
     
     return fig, axes

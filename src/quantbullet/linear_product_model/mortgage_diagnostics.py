@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
+from matplotlib import ticker as mticker
 from quantbullet.plot.binned_plots import plot_binned_actual_vs_pred
 
 NAMED_TRANSFORMS = {
@@ -43,9 +44,12 @@ class MortgageDiagnostics:
         Per-column binning strategy.  Keys are column *roles* (e.g.
         ``'age'``, ``'incentive'``), values are ``'discrete'`` or a
         numeric rounding unit.  Columns not listed use quantile binning.
-    y_transform : callable, optional
+    y_transform : callable or str, optional
         Applied to both actual and predicted y-values before plotting.
-        Example: ``lambda smm: 1 - (1 - smm)**12`` to convert SMM to CPR.
+        Can be a callable or a string key from ``NAMED_TRANSFORMS``
+        (e.g. ``'smm_to_cpr'``, ``'annualize'``).
+    y_as_percent : bool
+        If True (default), format the y-axis as percentages.
     """
 
     def __init__(
@@ -54,6 +58,7 @@ class MortgageDiagnostics:
         colnames: MortgageColnames,
         bin_config: dict | None = None,
         y_transform=None,
+        y_as_percent: bool = True,
     ):
         self.df = df
         self.colnames = colnames
@@ -66,6 +71,7 @@ class MortgageDiagnostics:
                 )
             y_transform = NAMED_TRANSFORMS[y_transform]
         self.y_transform = y_transform
+        self.y_as_percent = y_as_percent
 
     def _require(self, *fields):
         """Raise if any of the named column mappings are ``None``."""
@@ -113,15 +119,19 @@ class MortgageDiagnostics:
 
         return plot_df, bins
 
-    def _plot(self, x_role: str, facet_col: str | None = None, **kwargs):
+    def _plot(self, x_role: str, facet_col: str | None = None,
+              facet_series=None, **kwargs):
         """Shared plotting logic: build data, apply instance-level defaults, delegate."""
         plot_df, bins = self._build_plot_df(x_role)
         if facet_col is not None:
-            plot_df[facet_col] = kwargs.pop(f'_{facet_col}_series')
+            if facet_series is not None:
+                plot_df[facet_col] = facet_series
+            else:
+                plot_df[facet_col] = self.df[facet_col].values
 
         kwargs.setdefault('y_transform', self.y_transform)
 
-        return plot_binned_actual_vs_pred(
+        fig, axes = plot_binned_actual_vs_pred(
             plot_df,
             x_col=x_role,
             act_col='actual',
@@ -132,18 +142,25 @@ class MortgageDiagnostics:
             **kwargs,
         )
 
-    def incentive_plot(self, **kwargs):
-        """Actual vs predicted by incentive."""
+        if self.y_as_percent:
+            for ax in axes:
+                if ax.get_visible():
+                    ax.yaxis.set_major_formatter(mticker.PercentFormatter(1.0))
+
+        return fig, axes
+
+    def incentive_plot(self, facet_col: str | None = None, **kwargs):
+        """Actual vs predicted by incentive, optionally faceted."""
         self._require('incentive')
-        return self._plot('incentive', **kwargs)
+        return self._plot('incentive', facet_col=facet_col, **kwargs)
 
     def incentive_by_vintage_year_plots(self, **kwargs):
         """Actual vs predicted by incentive, faceted by origination vintage year."""
         self._require('incentive', 'orig_dt')
         return self._plot('incentive', facet_col='vintage_year',
-                          _vintage_year_series=self._vintage_year(), **kwargs)
+                          facet_series=self._vintage_year(), **kwargs)
 
-    def age_plot(self, **kwargs):
-        """Actual vs predicted by loan age."""
+    def age_plot(self, facet_col: str | None = None, **kwargs):
+        """Actual vs predicted by loan age, optionally faceted."""
         self._require('age')
-        return self._plot('age', **kwargs)
+        return self._plot('age', facet_col=facet_col, **kwargs)
