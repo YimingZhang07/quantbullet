@@ -6,8 +6,6 @@ from dataclasses import dataclass, field
 # ===== Third-Party Imports =====
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-from matplotlib import ticker as mticker
 from sklearn.preprocessing import OneHotEncoder
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Table, TableStyle
 from reportlab.lib.pagesizes import landscape, letter
@@ -158,69 +156,19 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         return [ feature_name for feature_name in self.feature_groups_.keys() if self.feature_spec[ feature_name].dtype.is_category() ]
 
     @property
-    def numerical_feature_groups_names(self):
+    def numerical_feature_group_names(self):
         return [ feature_name for feature_name in self.feature_groups_.keys() if self.feature_spec[ feature_name].dtype.is_numeric() ]
 
-    @property
-    def feature_groups(self):
-        return self.feature_groups_
-    
     @property
     def categorical_feature_groups(self):
         return { feature_name: self.feature_groups_[ feature_name ] for feature_name in self.categorical_feature_group_names }
     
     @property
     def numerical_feature_groups(self):
-        return { feature_name: self.feature_groups_[ feature_name ] for feature_name in self.numerical_feature_groups_names }
+        return { feature_name: self.feature_groups_[ feature_name ] for feature_name in self.numerical_feature_group_names }
     
     def has_feature_group( self, feature_name ):
         return feature_name in self.feature_groups_.keys()
-
-    def plot_model_curves( self, model ):
-        n_features = self.n_feature_groups
-        _, axes = get_grid_fig_axes( n_charts=n_features, n_cols=3 )
-
-        for i, (feature, transformer) in enumerate(self.feature_config.items()):
-            ax = axes[i]  # pick the subplot for this feature
-
-            if isinstance(transformer, OneHotEncoder):
-                coef_dict = model.coef_dict[feature]
-                categories = []
-                values = []
-                for subfeature, coef in coef_dict.items():
-                    category = subfeature.split('_')[-1]
-                    categories.append(category)
-                    values.append(coef)
-                ax.bar( categories, values, width=0.2, color=EconomistBrandColor.CHICAGO_55 )
-                x_label = 'Category'
-                
-            if isinstance(transformer, FlatRampTransformer):
-                # use the knots from the transformer and generate a smooth range for plotting
-                knots = transformer.knots
-                x_min, x_max = min(knots), max(knots )
-                x_grid = np.linspace(x_min, x_max, 200).reshape(-1, 1)
-                coef_vector = model.coef_blocks[feature]
-                transformed_x_grid = transformer.transform( x_grid )
-                y_vals = transformed_x_grid @ coef_vector
-                ax.plot( x_grid, y_vals, color=EconomistBrandColor.CHICAGO_45, linewidth=2 )
-                x_label = 'Value'
-
-            ax.set_title( feature, fontsize=14 )
-            ax.set_xlabel( x_label, fontsize=12 )
-            ax.yaxis.set_major_locator( mticker.MaxNLocator( nbins=6 ) )
-            for label in ax.get_xticklabels():
-                label.set_fontsize(10)
-                # label.set_family( 'Source Sans Pro' )
-            for label in ax.get_yticklabels():
-                label.set_fontsize(10)
-                # label.set_family( 'Source Sans Pro' )
-
-        # hide any unused subplots
-        for j in range(i+1, len(axes)):
-            axes[j].axis("off")
-
-        plt.tight_layout()
-        plt.show()
 
     def get_feature_grid_and_predictions( self, feature_series, model, n_points=200 ):
         """Get a grid of feature values and the corresponding model predictions for that feature."""
@@ -231,7 +179,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
     
     def get_single_feature_pred_given_values( self, feature_name, feature_values, model ):
         """Get model predictions for specific feature values."""
-        if self.has_feature_group( feature_name ) is False:
+        if not self.has_feature_group( feature_name ):
             raise ValueError(f"Feature {feature_name} not found in feature_groups_")
 
         feature_values = np.array( feature_values ).reshape( -1, 1 )
@@ -507,7 +455,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         X_sample = dcontainer_sample
         y_sample = dcontainer_sample.response
 
-        block_preds = { feature: model.single_feature_group_predict( feature, X_sample, ignore_global_scale=True ) for feature in self.feature_groups.keys() }
+        block_preds = { feature: model.single_feature_group_predict( feature, X_sample, ignore_global_scale=True ) for feature in self.feature_groups_.keys() }
         for i, (feature, subfeatures) in enumerate(self.categorical_feature_groups.items()):
             ax = axes[i]
             other_blocks_preds = model.global_scalar_ * vector_product_numexpr_dict_values( data=block_preds, exclude=feature )

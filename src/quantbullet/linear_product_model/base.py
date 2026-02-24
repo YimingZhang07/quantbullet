@@ -251,7 +251,7 @@ class LinearProductModelBase(ABC):
     def leave_out_feature_group_predict( self, group_to_exclude, X : ProductModelDataContainer | pd.DataFrame, params_dict = None, ignore_global_scale=False ):
         """Predict the product of all other feature groups except the one specified."""
         if not group_to_exclude in self.feature_groups_:
-            raise ValueError(f"Feature group '{group_to_exclude}' not found in feature_groups_. Predicting all feature groups instead.")
+            raise ValueError(f"Feature group '{group_to_exclude}' not found in feature_groups_.")
 
         if params_dict is None:
             params_dict = self.coef_dict
