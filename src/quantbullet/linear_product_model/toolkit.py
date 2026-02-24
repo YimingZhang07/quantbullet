@@ -160,6 +160,11 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         return [ feature_name for feature_name in self.feature_groups_.keys() if self.feature_spec[ feature_name].dtype.is_numeric() ]
 
     @property
+    def feature_groups(self):
+        """Public accessor for the feature group mapping (``{name: [expanded_names]}``)."""
+        return self.feature_groups_
+
+    @property
     def categorical_feature_groups(self):
         return { feature_name: self.feature_groups_[ feature_name ] for feature_name in self.categorical_feature_group_names }
     

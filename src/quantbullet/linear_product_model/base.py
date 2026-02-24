@@ -9,7 +9,6 @@ from .utils import (
 from .datacontainer import ProductModelDataContainer
 from quantbullet.log_config import setup_logger
 from dataclasses import dataclass
-from quantbullet.utils.decorators import deprecated
 logger = setup_logger(__name__)
 
 @dataclass
@@ -37,8 +36,18 @@ def memorize_fit_args(func):
     return wrapper
 
 class LinearProductModelBCD(ABC):
-    """
-    Base class for linear product models using Block Coordinate Descent (BCD).
+    """Mixin for models fitted via Block Coordinate Descent (BCD).
+
+    Tracks optimisation history and provides normalised coefficient views.
+
+    BCD-specific coefficient views (all derived from ``coef_``):
+
+    - ``bias_one_coef_`` : each group's coefficients divided by its first
+      element (the intercept/bias term), so the first coefficient is always 1.
+    - ``normalized_coef_`` : each group's coefficients divided by its
+      training-data block mean, making groups comparable in scale.
+    - ``bias_one_coef_dict`` / ``normalized_coef_dict`` : named-dict versions
+      of the above (``{group: {feature_name: value}}``).
     """
 
     def __init__(self):
@@ -103,9 +112,35 @@ class LinearProductModelBCD(ABC):
 
 
 class LinearProductModelBase(ABC):
+    """Core base class for all linear product models.
+
+    A linear product model predicts
+    ``y_hat = global_scalar * prod_i( X_i @ beta_i )``
+    where each *feature group* ``i`` contributes one multiplicative factor.
+
+    Attributes (set after ``fit()``)
+    --------------------------------
+    feature_groups_ : dict[str, list[str]]
+        ``{group_name: [expanded_feature_names]}``.  Defines which columns
+        of the expanded design matrix belong to each group.
+    coef_ : dict[str, np.ndarray]
+        Fitted coefficients.  ``{group_name: coefficient_vector}``.
+        This is the canonical representation -- all other views derive from it.
+    global_scalar_ : float
+        A single multiplicative scalar applied to the entire product.
+    se_ : dict[str, np.ndarray] | None
+        Standard errors per group (populated by ``calculate_se``).
+
+    Coefficient views (properties)
+    ------------------------------
+    coef_vector : np.ndarray
+        All coefficients flattened into one array (for scipy optimisers).
+    coef_dict : dict[str, dict[str, float]]
+        Named version: ``{group: {feature_name: value}}``.
+    """
     def __init__(self):
         self.feature_groups_ = None
-        self.se_= None
+        self.se_ = None
         self.coef_ = None
         self.global_scalar_ = 1.0
 
@@ -117,7 +152,7 @@ class LinearProductModelBase(ABC):
         flat_params = []
         for key in self.block_names:
             if key not in params_blocks:
-                raise ValueError(f"Feature block '{key}' not found in params_blocks.")
+                raise ValueError(f"Feature group '{key}' not found in params_blocks.")
             flat_params.extend(params_blocks[key])
         
         return np.array(flat_params, dtype=float)
@@ -131,7 +166,7 @@ class LinearProductModelBase(ABC):
         start = 0
         for key in self.block_names:
             if key not in self.feature_groups_:
-                raise ValueError(f"Feature block '{key}' not found in feature_groups_.")
+                raise ValueError(f"Feature group '{key}' not found in feature_groups_.")
             n_features = len(self.feature_groups_[key])
             params_blocks[key] = flat_params[start: start + n_features]
             start += n_features
@@ -145,11 +180,6 @@ class LinearProductModelBase(ABC):
             raise ValueError("Model not fitted yet. Please call fit() first.")
         return self.flatten_params(self.coef_)
     
-    @property
-    def coef_blocks(self):
-        """Return the coefficients as a dictionary of arrays."""
-        return self.coef_
-
     @property
     def coef_dict(self):
         """
@@ -187,6 +217,7 @@ class LinearProductModelBase(ABC):
 
     @property
     def block_names(self):
+        """Feature group names, in the order used by flatten/unflatten."""
         if self.feature_groups_ is None:
             raise ValueError("feature_groups_ is not set.")
         return list(self.feature_groups_.keys())
@@ -238,16 +269,6 @@ class LinearProductModelBase(ABC):
             
         return init_params, init_params_blocks
 
-    @deprecated("get_X_blocks is deprecated. Use X.get_containers_dict(feature_groups) instead.")
-    def get_X_blocks(self, X, feature_groups=None):
-        """Get the feature blocks {feature_group_name: feature_matrix} by feature_groups { feature_group_name: list of feature_names }."""
-        if feature_groups is None:
-            if self.feature_groups_ is None:
-                raise ValueError("feature_groups_ is not set.")
-            feature_groups = self.feature_groups_
-        
-        return { key: X[feature_groups[key]].values for key in feature_groups }
-
     def leave_out_feature_group_predict( self, group_to_exclude, X : ProductModelDataContainer | pd.DataFrame, params_dict = None, ignore_global_scale=False ):
         """Predict the product of all other feature groups except the one specified."""
         if not group_to_exclude in self.feature_groups_:
@@ -269,7 +290,7 @@ class LinearProductModelBase(ABC):
         if isinstance(X, ProductModelDataContainer):
             X_blocks = X.get_containers_dict( list( keep_feature_groups.keys() ) )
         elif isinstance(X, pd.DataFrame):
-            X_blocks = self.get_X_blocks(X, keep_feature_groups)
+            X_blocks = { key: X[cols].values for key, cols in keep_feature_groups.items() }
         else:
             raise ValueError("Invalid input type. Expected ProductModelDataContainer or pd.DataFrame.")
 
@@ -352,7 +373,7 @@ class LinearProductRegressorBase(LinearProductModelBase):
     def calculate_feature_group_se( self, feature_group, X, y ):
         """Calculate the standard error of the coefficients for a specific feature group."""
         fixed_blocks_preds = self.leave_out_feature_group_predict(group_to_exclude=feature_group, X=X)
-        X_block_coef = self.coef_blocks[feature_group]
+        X_block_coef = self.coef_[feature_group]
         X_block = X[self.feature_groups_[feature_group]].values
         return estimate_ols_beta_se_with_scalar_vector( X_block, y, beta=X_block_coef, scalar_vector=fixed_blocks_preds )
     
@@ -361,10 +382,9 @@ class LinearProductRegressorBase(LinearProductModelBase):
             raise ValueError("Model not fitted yet. Please call fit() first.")
 
         if isinstance(X, ProductModelDataContainer):
-            # Containers dict is { feature_group_name : container }
             data_blocks = X.get_expanded_array_dict( list( self.feature_groups_.keys() ) )
         elif isinstance(X, pd.DataFrame):
-            data_blocks = self.get_X_blocks(X, self.feature_groups_)
+            data_blocks = { key: X[cols].values for key, cols in self.feature_groups_.items() }
         else:
             raise ValueError("Invalid input type. Expected ProductModelDataContainer or pd.DataFrame.")
 
@@ -395,7 +415,7 @@ class LinearProductRegressorBase(LinearProductModelBase):
         result = np.ones(n_obs, dtype=float)
         for key in params_blocks:
             if key not in X_blocks:
-                raise ValueError(f"Feature block '{key}' not found in input blocks.")
+                raise ValueError(f"Feature group '{key}' not found in input blocks.")
 
             # if the feature group is a submodel, use the submodel to predict
             if hasattr( self, 'submodels_' ) and key in self.submodels_:
