@@ -20,6 +20,17 @@ class FitMetadata:
     ftol               : float | None = None
     cache_qr_decomp    : bool  | None = None
 
+@dataclass
+class InteractionCoef:
+    """Per-category coefficients for a continuous-by-categorical interaction.
+
+    Each entry in ``categories`` is either an ndarray (OLS-fitted coefficients
+    sharing the same basis/knots) or an object with a ``.predict()`` method
+    (a frozen submodel whose predictions are held constant during BCD).
+    """
+    by: str
+    categories: dict    # {cat_val: ndarray | model_with_predict}
+
 def memorize_fit_args(func):
     """Decorator for fit methods to memorize some additional info about the input data X and y."""
     @functools.wraps(func)
@@ -81,23 +92,30 @@ class LinearProductModelBCD(ABC):
         return self._coef_to_coef_dict(self.normalized_coef_)
     
     def _coef_to_coef_dict(self, coef):
-        """Convert coef_ dict to a nested dictionary with feature names."""
+        """Convert coef_ dict to a nested dictionary with feature names.
+
+        Interaction groups (InteractionCoef) are skipped -- they don't have a
+        single coefficient vector that maps 1-to-1 to expanded feature names.
+        """
         if self.feature_groups_ is None:
             raise ValueError("feature_groups_ is not set.")
         coef_dict = {}
         for group, features in self.feature_groups_.items():
-            coef_dict[group] = {features[i]: coef[group][i] for i in range(len(features))}
+            group_coef = coef.get(group)
+            if group_coef is None or isinstance(group_coef, InteractionCoef):
+                continue
+            coef_dict[group] = {features[i]: group_coef[i] for i in range(len(features))}
         return coef_dict
     
     @property
     def bias_one_coef_(self):
-        # assume the first feature in each group is the bias term
         if self.coef_ is None:
             raise ValueError("Model not fitted yet. Please call fit() first.")
         bias_one_coef = {}
         for group, coef in self.coef_.items():
-            bias_coef = coef[0]
-            bias_one_coef[group] = coef / bias_coef
+            if isinstance(coef, InteractionCoef):
+                continue
+            bias_one_coef[group] = coef / coef[0]
         return bias_one_coef
     
     @property
@@ -106,6 +124,8 @@ class LinearProductModelBCD(ABC):
             raise ValueError("Model not fitted yet. Please call fit() first.")
         normalized_coef = {}
         for group, coef in self.coef_.items():
+            if isinstance(coef, InteractionCoef):
+                continue
             block_mean = self.block_means_.get(group)
             normalized_coef[group] = coef / block_mean
         return normalized_coef
@@ -182,13 +202,20 @@ class LinearProductModelBase(ABC):
     
     @property
     def coef_dict(self):
-        """
-        Return the coefficients as a dictionary of dictionaries,
-        where keys are feature group names and values are dictionaries of feature names to coefficients.
+        """Return coefficients as ``{group: {feature_name: value}}``.
+
+        Interaction groups are skipped (use ``coef_[group].categories`` to
+        inspect per-category coefficients).
         """
         if self.feature_groups_ is None:
             raise ValueError("feature_groups_ is not set.")
-        return {group: dict(zip(self.feature_groups_[group], self.coef_[group])) for group in self.feature_groups_}
+        result = {}
+        for group in self.feature_groups_:
+            coef = self.coef_.get(group)
+            if coef is None or isinstance(coef, InteractionCoef):
+                continue
+            result[group] = dict(zip(self.feature_groups_[group], coef))
+        return result
     
     def _coef_dict_to_blocks(self, coef_dict):
         """Convert a dictionary of coefficients to a dictionary of blocks.
@@ -367,8 +394,45 @@ class LinearProductModelBase(ABC):
 class LinearProductRegressorBase(LinearProductModelBase):
     def __init__(self):
         super().__init__()
-        # we will allow a constant offset to the response variable
         self.offset_y = None
+
+    def _predict_group(self, group, X_block, cat_series=None):
+        """Predict one group's multiplicative contribution.
+
+        Dispatches based on the type stored in ``coef_[group]``:
+        - ``np.ndarray``: standard linear ``X_block @ coef``
+        - ``InteractionCoef``: per-category prediction assembled via masking
+        - Submodel (in ``submodels_``): ``submodel.predict(X_block)``
+
+        Parameters
+        ----------
+        group : str
+        X_block : np.ndarray
+            Design matrix for this group (n_obs, n_basis).
+        cat_series : array-like, optional
+            Categorical column values.  Required when ``coef_[group]`` is an
+            ``InteractionCoef``.
+        """
+        coef = self.coef_[group]
+        if isinstance(coef, InteractionCoef):
+            if cat_series is None:
+                raise ValueError(
+                    f"cat_series is required for interaction group '{group}' "
+                    f"(interaction by '{coef.by}')"
+                )
+            pred = np.ones(X_block.shape[0], dtype=float)
+            for cat_val, cat_coef in coef.categories.items():
+                mask = (cat_series == cat_val)
+                if hasattr(mask, 'values'):
+                    mask = mask.values
+                if hasattr(cat_coef, 'predict'):
+                    pred[mask] = cat_coef.predict(X_block[mask])
+                else:
+                    pred[mask] = X_block[mask] @ cat_coef
+            return pred
+        if hasattr(self, 'submodels_') and group in self.submodels_:
+            return self.submodels_[group].predict(X_block)
+        return np.dot(X_block, coef)
         
     def calculate_feature_group_se( self, feature_group, X, y ):
         """Calculate the standard error of the coefficients for a specific feature group."""

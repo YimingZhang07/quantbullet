@@ -242,17 +242,24 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         ``y / (global_scalar * prod(other blocks))``, i.e. what this block
         "should" output given the response and all other blocks.
 
+        For interaction features the result is split by category: keys are
+        ``"feature|by_var=cat_val"`` and each DataFrame only contains the
+        rows belonging to that category.
+
         Returns
         -------
         dict[str, pd.DataFrame]
-            Keyed by feature name.  Each DataFrame has columns:
+            Keyed by feature name (or ``feature|by=cat`` for interactions).
+            Each DataFrame has columns:
             ``feature_value, implied_actual, model_pred, weight``.
         """
+        from .base import InteractionCoef
+
         if dcontainer.response is None:
             raise ValueError("ProductModelDataContainer.response must be provided.")
 
         dc = dcontainer.sample(sample_frac) if sample_frac < 1 else dcontainer
-        y = dc.response
+        y = np.asarray(dc.response, dtype=float)
         if hasattr(model, 'offset_y') and model.offset_y is not None:
             y = y + model.offset_y
 
@@ -266,12 +273,31 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
             other_preds = model.global_scalar_ * vector_product_numexpr_dict_values(
                 data=block_preds, exclude=feature,
             )
-            result[feature] = pd.DataFrame({
-                'feature_value': dc.orig[feature].values,
-                'implied_actual': y / other_preds,
-                'model_pred': block_preds[feature],
-                'weight': other_preds,
-            })
+
+            coef = model.coef_.get(feature)
+            if isinstance(coef, InteractionCoef):
+                cat_series = dc.orig[coef.by]
+                X_block = dc.get_expanded_array_for_feature_group(feature)
+                for cat_val, cat_coef in coef.categories.items():
+                    mask = (cat_series == cat_val).values
+                    if hasattr(cat_coef, 'predict'):
+                        cat_pred = cat_coef.predict(X_block[mask])
+                    else:
+                        cat_pred = X_block[mask] @ cat_coef
+                    key = f"{feature}|{coef.by}={cat_val}"
+                    result[key] = pd.DataFrame({
+                        'feature_value': dc.orig[feature].values[mask],
+                        'implied_actual': y[mask] / other_preds[mask],
+                        'model_pred': cat_pred,
+                        'weight': other_preds[mask],
+                    })
+            else:
+                result[feature] = pd.DataFrame({
+                    'feature_value': dc.orig[feature].values,
+                    'implied_actual': y / other_preds,
+                    'model_pred': block_preds[feature],
+                    'weight': other_preds,
+                })
         return result
 
     def _aggregate_implied_data(
@@ -292,8 +318,11 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         per_feature: dict[str, pd.DataFrame] = {}
 
         for feature, df in raw_data.items():
+            parent_feature = feature.split('|')[0] if '|' in feature else feature
             bin_vals = self._bin_feature_values(
-                df['feature_value'], bin_config.get(feature), n_quantile_groups,
+                df['feature_value'],
+                bin_config.get(feature, bin_config.get(parent_feature)),
+                n_quantile_groups,
             )
 
             if agg_method == 'weighted':
