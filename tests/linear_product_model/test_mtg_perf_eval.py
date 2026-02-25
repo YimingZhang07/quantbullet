@@ -1,7 +1,7 @@
 import unittest
 import numpy as np
 import pandas as pd
-from quantbullet.linear_product_model.mtg_perf_eval import MtgModelPerformanceEvaluator, MtgPerfColnames
+from quantbullet.linear_product_model.mortgage_diagnostics import MortgageDiagnostics, MortgageColnames
 
 def create_test_data() -> pd.DataFrame:
     np.random.seed(42)
@@ -68,21 +68,17 @@ class TestMTGPerfEval(unittest.TestCase):
 
     def test_incentive_plots(self):
         """Test incentive by vintage year plots generation."""
-        colnames = MtgPerfColnames(
+        colnames = MortgageColnames(
             incentive       ='incentive',
-            dt              ='factor_date',
+            factor_dt       ='factor_date',
             orig_dt         ='origination_date',
             response        ='prepay_rate',
             model_preds={
                 'Model' : 'model_pred'
             },
-            weighted_by='balance'
+            weight='balance'
         )
         df = create_test_data()
-        # add some large numbers to vintage 2023 for testing
         df.loc[df['origination_date'].dt.year == 2023, 'balance'] += 10e6
-        evaluator = MtgModelPerformanceEvaluator(
-            df=df,
-            colname_mapping=colnames
-        )
-        evaluator.incentive_by_vintage_year_plots(n_quantile_bins=20, n_cols=3, scatter_size_by='sum_weights', scatter_size_scale=0.3)
+        diag = MortgageDiagnostics(df=df, colnames=colnames)
+        diag.incentive_by_vintage_year_plots(n_bins=20, n_cols=3)
