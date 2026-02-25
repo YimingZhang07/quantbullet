@@ -128,9 +128,11 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
                         if hasattr(cat_coef, 'predict'):
                             continue  # frozen submodel
                         bool_mask = interaction_masks[feature_group][cat_val]
-                        eff_w = weights * bool_mask if weights is not None else bool_mask.astype(np.float64)
+                        X_masked = (self.global_scalar_ * mX)[bool_mask]
+                        y_masked = y[bool_mask] if isinstance(y, np.ndarray) else np.asarray(y)[bool_mask]
+                        w_masked = weights[bool_mask] if weights is not None else None
                         interaction_params[feature_group][cat_val] = ols_normal_equation(
-                            self.global_scalar_ * mX, y, weights=eff_w)
+                            X_masked, y_masked, weights=w_masked)
 
                     combined = self._build_interaction_block_pred(
                         feature_group, floating_data, interaction_params, interaction_masks)
@@ -222,10 +224,37 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
         self.coef_ = copy.deepcopy(self.coef_history_[-1])
         self.global_scalar_ = self.global_scalar_history_[-1]
 
+        # Compute final per-category A/E scalars using converged model state.
+        # block_preds for regular groups must use the final coef_ (not mid-loop values).
+        final_regular_preds = {}
+        for key in feature_groups:
+            if key not in self.interactions_:
+                final_regular_preds[key] = data_blocks[key] @ self.coef_[key]
+            else:
+                final_regular_preds[key] = self._build_interaction_block_pred(
+                    key, data_blocks[key], interaction_params, interaction_masks)
+
         for parent, cat_coefs in interaction_params.items():
+            fixed = self.global_scalar_ * vector_product_numexpr_dict_values(
+                final_regular_preds, exclude=parent)
+            scalars = {}
+            for cat_val, cat_coef in cat_coefs.items():
+                if hasattr(cat_coef, 'predict'):
+                    scalars[cat_val] = 1.0
+                    continue
+                bool_mask = interaction_masks[parent][cat_val]
+                cat_pred = data_blocks[parent][bool_mask] @ cat_coef
+                y_hat_c = fixed[bool_mask] * cat_pred
+                y_c = y[bool_mask]
+                if weights is not None:
+                    scalars[cat_val] = np.sum(weights[bool_mask] * y_c) / np.sum(weights[bool_mask] * y_hat_c)
+                else:
+                    scalars[cat_val] = np.sum(y_c) / np.sum(y_hat_c)
+
             self.coef_[parent] = InteractionCoef(
                 by=self.interactions_[parent],
                 categories=dict(cat_coefs),
+                scalars=scalars,
             )
 
         for key in feature_groups:

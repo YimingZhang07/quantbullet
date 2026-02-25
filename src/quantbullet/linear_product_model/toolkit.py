@@ -235,6 +235,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         model,
         dcontainer: ProductModelDataContainer,
         sample_frac: float = 1,
+        sample_weights: np.ndarray | None = None,
     ) -> dict[str, pd.DataFrame]:
         """Compute per-feature observation-level implied-actual data.
 
@@ -245,6 +246,14 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         For interaction features the result is split by category: keys are
         ``"feature|by_var=cat_val"`` and each DataFrame only contains the
         rows belonging to that category.
+
+        Parameters
+        ----------
+        sample_weights : np.ndarray, optional
+            Per-observation weights (same as passed to ``model.fit()``).
+            When provided, the aggregation weight becomes
+            ``sample_weights * other_preds`` so that the binned implied
+            actuals reflect the same weighting the model was fitted with.
 
         Returns
         -------
@@ -263,6 +272,9 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         if hasattr(model, 'offset_y') and model.offset_y is not None:
             y = y + model.offset_y
 
+        if sample_weights is not None:
+            sample_weights = np.asarray(sample_weights, dtype=float).ravel()
+
         block_preds = {
             feat: model.single_feature_group_predict(feat, dc, ignore_global_scale=True)
             for feat in self.feature_groups_.keys()
@@ -273,6 +285,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
             other_preds = model.global_scalar_ * vector_product_numexpr_dict_values(
                 data=block_preds, exclude=feature,
             )
+            agg_weight = sample_weights * other_preds if sample_weights is not None else other_preds
 
             coef = model.coef_.get(feature)
             if isinstance(coef, InteractionCoef):
@@ -280,23 +293,24 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
                 X_block = dc.get_expanded_array_for_feature_group(feature)
                 for cat_val, cat_coef in coef.categories.items():
                     mask = (cat_series == cat_val).values
+                    scalar = coef.scalars.get(cat_val, 1.0)
                     if hasattr(cat_coef, 'predict'):
-                        cat_pred = cat_coef.predict(X_block[mask])
+                        cat_pred = scalar * cat_coef.predict(X_block[mask])
                     else:
-                        cat_pred = X_block[mask] @ cat_coef
+                        cat_pred = scalar * (X_block[mask] @ cat_coef)
                     key = f"{feature}|{coef.by}={cat_val}"
                     result[key] = pd.DataFrame({
                         'feature_value': dc.orig[feature].values[mask],
                         'implied_actual': y[mask] / other_preds[mask],
                         'model_pred': cat_pred,
-                        'weight': other_preds[mask],
+                        'weight': agg_weight[mask],
                     })
             else:
                 result[feature] = pd.DataFrame({
                     'feature_value': dc.orig[feature].values,
                     'implied_actual': y / other_preds,
                     'model_pred': block_preds[feature],
-                    'weight': other_preds,
+                    'weight': agg_weight,
                 })
         return result
 
@@ -367,6 +381,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         dcontainer: ProductModelDataContainer,
         agg_method: str = 'weighted',
         sample_frac: float = 1,
+        sample_weights: np.ndarray | None = None,
         n_quantile_groups: int = 100,
         bin_config: dict | None = None,
         min_count: int = 0,
@@ -391,6 +406,10 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
             totals that down-weights noisy individual observations.
             ``'simple'``: mean(y/m) per bin -- unweighted average of
             individual implied-actual ratios.
+        sample_weights : np.ndarray, optional
+            Per-observation weights (same as passed to ``model.fit()``).
+            When provided the binned implied actuals reflect the same
+            weighting the model was fitted with.
         bin_config : dict, optional
             Per-feature binning overrides, merged with
             ``self.implied_actual_bin_config``.  Values can be:
@@ -412,7 +431,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
             Smaller values follow the data more tightly; larger values
             produce a smoother reference.
         """
-        raw_data = self.compute_implied_actual_data(model, dcontainer, sample_frac)
+        raw_data = self.compute_implied_actual_data(model, dcontainer, sample_frac, sample_weights)
         effective_config = {**self.implied_actual_bin_config, **(bin_config or {})}
         per_feature = self._aggregate_implied_data(
             raw_data, effective_config, n_quantile_groups, agg_method,

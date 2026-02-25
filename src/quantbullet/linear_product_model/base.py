@@ -27,9 +27,18 @@ class InteractionCoef:
     Each entry in ``categories`` is either an ndarray (OLS-fitted coefficients
     sharing the same basis/knots) or an object with a ``.predict()`` method
     (a frozen submodel whose predictions are held constant during BCD).
+
+    ``scalars`` holds per-category level corrections (A/E ratios) computed
+    after BCD convergence to ensure each category's predictions are unbiased.
+    The full prediction for category *c* is ``scalars[c] * X @ categories[c]``.
     """
     by: str
-    categories: dict    # {cat_val: ndarray | model_with_predict}
+    categories: dict         # {cat_val: ndarray | model_with_predict}
+    scalars: dict = None     # {cat_val: float}
+
+    def __post_init__(self):
+        if self.scalars is None:
+            self.scalars = {k: 1.0 for k in self.categories}
 
 def memorize_fit_args(func):
     """Decorator for fit methods to memorize some additional info about the input data X and y."""
@@ -425,10 +434,11 @@ class LinearProductRegressorBase(LinearProductModelBase):
                 mask = (cat_series == cat_val)
                 if hasattr(mask, 'values'):
                     mask = mask.values
+                scalar = coef.scalars.get(cat_val, 1.0)
                 if hasattr(cat_coef, 'predict'):
-                    pred[mask] = cat_coef.predict(X_block[mask])
+                    pred[mask] = scalar * cat_coef.predict(X_block[mask])
                 else:
-                    pred[mask] = X_block[mask] @ cat_coef
+                    pred[mask] = scalar * (X_block[mask] @ cat_coef)
             return pred
         if hasattr(self, 'submodels_') and group in self.submodels_:
             return self.submodels_[group].predict(X_block)
