@@ -261,51 +261,63 @@ class LinearProductModelBase(ABC):
         return list(self.feature_groups_.keys())
 
     def infer_init_params(self, init_params, X_blocks, y):
-        """
-        Infer initial guess, depending on the type of init_params.
-        If init_params is None, it initializes based on the mean of the response variable.
-        If init_params is a scalar, it initializes all blocks with that value.
+        """Infer initial parameter guess from ``X_blocks`` structure.
+
+        All structural information (block names, per-block dimensions) is
+        derived from ``X_blocks`` directly, so this method has **no hidden
+        dependence** on ``self.feature_groups_``.
 
         Parameters
         ----------
         init_params : None, scalar, or np.ndarray
-            Initial parameters for the model.
-        X_blocks : dict
-            Dictionary of feature blocks, where keys are block names and values are feature matrices.
+            ``None`` → initialise so each block predicts ``mean(y)^(1/n_blocks)``.
+            Scalar  → fill every coefficient with that value.
+            Array   → use as-is (length must match total features).
+        X_blocks : dict[str, np.ndarray]
+            ``{group_name: design_matrix}``.  Keys define block ordering;
+            ``design_matrix.shape[1]`` defines per-block dimensionality.
         y : np.ndarray
-            Response variable for the model.
+            Response variable (used only when ``init_params is None``).
 
         Returns
         -------
-        init_params : np.ndarray
-            Flattened initial parameters for the model.
-        init_params_blocks : dict
-            Dictionary of initial parameters for each block, where keys are block names and values are parameter arrays.
+        flat_params : np.ndarray
+            All block coefficients concatenated in key order.
+        params_blocks : dict[str, np.ndarray]
+            ``{group_name: coefficient_vector}`` (same data, dict form).
         """
+        block_names = list(X_blocks.keys())
+        block_sizes = {key: X_blocks[key].shape[1] for key in block_names}
+        n_features = sum(block_sizes.values())
+
         if init_params is None:
-            # we cannot use 1s as initial parameters anymore, as this leads to >1 predicted values and clipped to 1 for all observations
-            # making it impossible to optimize;
-            # Therefore we initialize a constant value that on average predicts the true probability
             true_mean = np.mean(y)
-            n_blocks = len(self.block_names)
-            block_target = true_mean ** (1 / n_blocks)
-            init_params_blocks = { key: init_betas_by_response_mean(X_blocks[key], block_target) for key in self.block_names }
-            logger.debug(f"Using initial params: {init_params_blocks}")
-            init_params = self.flatten_params(init_params_blocks)
+            block_target = true_mean ** (1 / len(block_names))
+            params_blocks = {
+                key: init_betas_by_response_mean(X_blocks[key], block_target)
+                for key in block_names
+            }
+            logger.debug(f"Using initial params: {params_blocks}")
+        elif np.isscalar(init_params):
+            params_blocks = {
+                key: np.full(block_sizes[key], float(init_params), dtype=float)
+                for key in block_names
+            }
+        elif isinstance(init_params, np.ndarray):
+            if len(init_params) != n_features:
+                raise ValueError(
+                    f"init_params length {len(init_params)} does not match "
+                    f"number of features {n_features}.")
+            init_params = np.asarray(init_params, dtype=float)
+            params_blocks, start = {}, 0
+            for key in block_names:
+                params_blocks[key] = init_params[start: start + block_sizes[key]]
+                start += block_sizes[key]
         else:
-            if np.isscalar(init_params):
-                init_params_blocks = { key: np.full(len(self.feature_groups_[key]), float(init_params), dtype=float) for key in self.block_names }
-                init_params = self.flatten_params(init_params_blocks)
-            elif isinstance(init_params, np.ndarray):
-                if len(init_params) != self.n_features:
-                    raise ValueError(f"init_params length {len(init_params)} does not match number of features {self.n_features}.")
-                else:
-                    init_params = np.asarray(init_params, dtype=float)
-                    init_params_blocks = self.unflatten_params(init_params)
-            else:
-                raise ValueError("init_params must be None, a numpy array, or a scalar.")
-            
-        return init_params, init_params_blocks
+            raise ValueError("init_params must be None, a numpy array, or a scalar.")
+
+        flat_params = np.concatenate([params_blocks[key] for key in block_names])
+        return flat_params, params_blocks
 
     def leave_out_feature_group_predict( self, group_to_exclude, X : ProductModelDataContainer | pd.DataFrame, params_dict = None, ignore_global_scale=False ):
         """Predict the product of all other feature groups except the one specified."""

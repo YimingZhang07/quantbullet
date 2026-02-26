@@ -160,9 +160,9 @@ class LinearProductClassifierBCD( LinearProductClassifierBase, LinearProductMode
         
         if init_params is None:
             self.global_scalar_ = np.mean(y)
-            _, params_blocks = self.infer_init_params( init_params, data_blocks, np.ones_like(y) )
+            _, params_blocks = self.infer_init_params(init_params, data_blocks, np.ones_like(y))
         else:
-            _, params_blocks = self.infer_init_params( init_params, data_blocks, y)
+            _, params_blocks = self.infer_init_params(init_params, data_blocks, y)
 
 
         for i in range(n_iterations):

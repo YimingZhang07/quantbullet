@@ -85,44 +85,43 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
     # fit — initialisation helpers
     # ------------------------------------------------------------------
 
-    def _init_interactions(self, X, data_blocks, feature_groups, interaction_submodels):
-        """Build ``interaction_masks`` and ``interaction_params`` from raw data."""
+    def _init_interactions(self, orig_df, data_blocks, feature_groups, interaction_submodels):
+        """Build ``interaction_masks`` and ``interaction_params`` from raw categorical columns."""
         interaction_masks = {}
         interaction_params = {}
         for parent, cat_var in self.interactions_.items():
             if parent not in feature_groups:
                 raise ValueError(f"Interaction parent '{parent}' not found in feature_groups.")
-            categories = sorted(X.orig[cat_var].dropna().unique(), key=str)
+            categories = sorted(orig_df[cat_var].dropna().unique(), key=str)
             parent_subs = interaction_submodels.get(parent, {})
             interaction_masks[parent] = {}
             interaction_params[parent] = {}
             for cat_val in categories:
-                interaction_masks[parent][cat_val] = (X.orig[cat_var] == cat_val).values
+                interaction_masks[parent][cat_val] = (orig_df[cat_var] == cat_val).values
                 if cat_val in parent_subs:
                     interaction_params[parent][cat_val] = parent_subs[cat_val]
                 else:
                     interaction_params[parent][cat_val] = init_betas_by_response_mean(data_blocks[parent], 1.0)
         return interaction_masks, interaction_params
 
-    def _init_regular_params(self, feature_groups, data_blocks, y, n_obs, init_params):
-        """Initialise coefficient vectors for regular (non-interaction) groups.
+    def _init_global_scalar(self, y, init_params):
+        """Initialize the model-level scalar before block-level parameter inference.
 
-        Temporarily swaps ``self.feature_groups_`` because ``infer_init_params``
-        relies on it for flatten/unflatten.  A ``try/finally`` guard ensures
-        the original value is always restored.
+        For default initialization (``init_params is None``), block params are inferred
+        around a unit target, so the response level is carried by ``global_scalar_``.
         """
-        regular_groups = [g for g in feature_groups if g not in self.interactions_]
-        regular_data = {g: data_blocks[g] for g in regular_groups}
-        saved_fg = self.feature_groups_
-        self.feature_groups_ = {g: feature_groups[g] for g in regular_groups}
-        try:
-            if init_params is None:
-                self.global_scalar_ = np.mean(y)
-                _, params_blocks = self.infer_init_params(None, regular_data, np.ones(n_obs))
-            else:
-                _, params_blocks = self.infer_init_params(init_params, regular_data, y)
-        finally:
-            self.feature_groups_ = saved_fg
+        if init_params is None:
+            self.global_scalar_ = np.mean(y)
+
+    def _infer_regular_params(self, feature_groups, data_blocks, y, init_params):
+        """Infer coefficient vectors for regular (non-interaction) groups."""
+        regular_data = {
+            group: data_blocks[group]
+            for group in feature_groups
+            if group not in self.interactions_
+        }
+        target_y = np.ones_like(y, dtype=float) if init_params is None else y
+        _, params_blocks = self.infer_init_params(init_params, regular_data, target_y)
         return params_blocks
 
     def _init_block_preds(self, data_blocks, params_blocks, interaction_params, interaction_masks):
@@ -318,12 +317,14 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
              init_params=None, early_stopping_rounds=5, n_iterations=20, force_rounds=5, verbose=1, ftol=1e-5,
              cache_qr_decomp=False, offset_y=None, use_svd=False, weights=None ):
 
-        # ---- setup ----
+        # ---- 1) setup model state ----
         self._reset_history( cache_qr_decomp=cache_qr_decomp )
         self.feature_groups_ = feature_groups
         self.submodels_ = submodels or {}
         self.interactions_ = interactions or {}
 
+        # ---- 2) validate inputs and build canonical arrays ----
+        orig_df = X.orig
         data_blocks = X.get_expanded_array_dict( list( feature_groups.keys() ) )
 
         if weights is not None:
@@ -338,19 +339,20 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
             self.offset_y = offset_y
             y = y + offset_y
 
-        # data_blocks      : {str: ndarray(n_obs, n_basis)}  — expanded design matrices, read-only
-        # params_blocks     : {str: ndarray(n_basis,)}        — regular-group coefficients, updated per BCD pass
-        # interaction_params: {str: {cat: ndarray(n_basis,)}} — per-category coefficients for interaction groups
-        # interaction_masks : {str: {cat: bool(n_obs,)}}      — row masks per category, set once
-        # block_preds       : {str: ndarray(n_obs,)}          — cached block predictions (no scalar), updated per BCD pass
-        # y                 : ndarray(n_obs,)                  — response (with offset if any)
-        # weights           : ndarray(n_obs,) | None           — observation weights
-        #
-        # Full prediction = global_scalar_ * product(block_preds.values())
+        # ---- 3) initialize global level and block-level states ----
+        # data_blocks       : {str: ndarray(n_obs, n_basis)}   expanded design matrices (read-only)
+        # interaction_masks : {str: {cat: bool(n_obs,)}}       per-category row masks
+        # interaction_params: {str: {cat: ndarray(n_basis,)}}  interaction-group coefficients
+        # params_blocks     : {str: ndarray(n_basis,)}         regular-group coefficients
+        # block_preds       : {str: ndarray(n_obs,)}           cached block predictions (without scalar)
+        # y                 : ndarray(n_obs,)                  response (offset-adjusted if needed)
+        # weights           : ndarray(n_obs,) | None           optional observation weights
+        # full_prediction   : global_scalar_ * product(block_preds.values())
+        self._init_global_scalar(y, init_params)
         interaction_masks, interaction_params = self._init_interactions(
-            X, data_blocks, feature_groups, interaction_submodels or {})
-        params_blocks = self._init_regular_params(
-            feature_groups, data_blocks, y, X.shape[0], init_params)
+            orig_df, data_blocks, feature_groups, interaction_submodels or {})
+        params_blocks = self._infer_regular_params(
+            feature_groups, data_blocks, y, init_params)
         block_preds = self._init_block_preds(
             data_blocks, params_blocks, interaction_params, interaction_masks)
 
