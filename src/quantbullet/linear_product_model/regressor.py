@@ -26,7 +26,34 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
     # ------------------------------------------------------------------
 
     def _build_interaction_block_pred(self, group, data_block, interaction_params, masks):
-        """Assemble the combined prediction vector for an interaction group."""
+        """Assemble the combined prediction vector for an interaction group.
+
+        Parameters
+        ----------
+        group : str
+            Feature group name that has an interaction, e.g. ``'x1'``.
+        data_block : np.ndarray, shape ``(n_obs, n_basis)``
+            Expanded basis matrix for this group (e.g. FlatRampTransformer
+            output).  Every row is one observation; columns are the knot-basis
+            features.  All observations are present — masking by category
+            happens inside this method.
+        interaction_params : dict[str, dict[Any, np.ndarray | model]]
+            Nested dict ``{group: {cat_val: coef}}``.
+            ``coef`` is either an ``np.ndarray`` of shape ``(n_basis,)`` (OLS
+            coefficients for that category) or a frozen submodel with a
+            ``.predict()`` method.
+        masks : dict[str, dict[Any, np.ndarray]]
+            Nested dict ``{group: {cat_val: bool_mask}}``.
+            ``bool_mask`` is a boolean array of shape ``(n_obs,)`` — True for
+            observations belonging to that category.  The masks across
+            categories are mutually exclusive and collectively exhaustive.
+
+        Returns
+        -------
+        np.ndarray, shape ``(n_obs,)``
+            Per-observation prediction for this block.  Observation *i* gets
+            ``data_block[i] @ coef_c`` where *c* is its category.
+        """
         combined = np.ones(data_block.shape[0], dtype=float)
         for cat_val, cat_coef in interaction_params[group].items():
             m = masks[group][cat_val]
@@ -52,6 +79,37 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
         self.interactions_ = interactions or {}
         interaction_submodels = interaction_submodels or {}
 
+        # ---- Key data structures used throughout fit() ----
+        #
+        # data_blocks : dict[str, ndarray(n_obs, n_basis)]
+        #     Raw expanded design matrices, keyed by group name.
+        #     e.g. data_blocks['x1'] has shape (50000, 14) after
+        #     FlatRampTransformer expansion.  Read-only after creation.
+        #
+        # params_blocks : dict[str, ndarray(n_basis,)]
+        #     Coefficient vectors for *regular* (non-interaction) groups.
+        #     Updated in-place each BCD iteration.
+        #     e.g. params_blocks['x3'] has shape (10,).
+        #
+        # interaction_params : dict[str, dict[cat_val, ndarray(n_basis,) | submodel]]
+        #     Per-category coefficient vectors for interaction groups.
+        #     e.g. interaction_params['x1']['A'] has shape (14,).
+        #     Frozen submodels carry a .predict() method instead.
+        #
+        # interaction_masks : dict[str, dict[cat_val, bool_ndarray(n_obs,)]]
+        #     Boolean masks selecting rows for each category.
+        #     e.g. interaction_masks['x1']['A'][i] is True when obs i
+        #     belongs to category 'A'.  Mutually exclusive, set once.
+        #
+        # block_preds : dict[str, ndarray(n_obs,)]
+        #     Cached single-block predictions (without global_scalar_).
+        #     For regular groups:    block_preds[g] = data_blocks[g] @ params_blocks[g]
+        #     For interaction groups: block_preds[g] = per-category X @ beta stitched together.
+        #     Updated each BCD iteration after a group is re-solved.
+        #
+        # The full model prediction at any point is:
+        #     y_hat = global_scalar_ * product(block_preds.values())
+
         data_blocks = X.get_expanded_array_dict( list( feature_groups.keys() ) )
 
         if weights is not None:
@@ -70,8 +128,8 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
         n_obs = X.shape[0]
 
         # ---------- interaction metadata: categories & boolean masks ----------
-        interaction_masks = {}   # {parent: {cat_val: bool_array}}
-        interaction_params = {}  # {parent: {cat_val: ndarray | submodel}}
+        interaction_masks = {}
+        interaction_params = {}
         for parent, cat_var in self.interactions_.items():
             if parent not in feature_groups:
                 raise ValueError(f"Interaction parent '{parent}' not found in feature_groups.")
@@ -115,6 +173,14 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
                     ignore_global_scale=True)
 
         # ========================== BCD iterations ==========================
+        # Per-iteration derived variables (recomputed each pass):
+        #
+        # floating_data    : ndarray(n_obs, n_basis) — alias of data_blocks[current_group]
+        # fixed_predictions: ndarray(n_obs,)         — element-wise product of ALL OTHER blocks' preds
+        # mX               : ndarray(n_obs, n_basis) — effective design matrix = floating_data * fixed[:, None]
+        # X_masked          : ndarray(n_cat, n_basis) — s * mX subsetted to one category (the OLS input)
+        #
+        # OLS solves:  y_masked ≈ X_masked @ beta_c   →   y ≈ s * fixed * X_basis @ beta
         for i in range(n_iterations):
             for feature_group in feature_groups:
 
@@ -136,7 +202,7 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
 
                     combined = self._build_interaction_block_pred(
                         feature_group, floating_data, interaction_params, interaction_masks)
-                    combined_mean = np.mean(combined)
+                    combined_mean = np.average(combined, weights=weights) if weights is not None else np.mean(combined)
 
                     if not np.isclose(combined_mean, 0):
                         for cat_val, cat_coef in interaction_params[feature_group].items():
@@ -174,7 +240,7 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
                         mX = floating_data * fixed_predictions[:, None]
 
                     floating_predictions = mX @ floating_params
-                    floating_mean = np.mean(floating_predictions)
+                    floating_mean = np.average(floating_predictions, weights=weights) if weights is not None else np.mean(floating_predictions)
 
                     if not np.isclose(floating_mean, 0):
                         floating_params /= floating_mean
@@ -197,11 +263,13 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
             loss = self.loss_function(predictions, y)
             self.loss_history_.append(loss)
             self.coef_history_.append(copy.deepcopy(params_blocks))
+            self.interaction_params_history_.append(copy.deepcopy(interaction_params))
             self.global_scalar_history_.append(self.global_scalar_)
 
             if loss <= self.best_loss_:
                 self.best_loss_ = loss
                 self.best_params_ = copy.deepcopy(params_blocks)
+                self.best_interaction_params_ = copy.deepcopy(interaction_params)
                 self.best_iteration_ = i
 
             if verbose > 0:
@@ -223,20 +291,21 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
         # ========================== finalise ==========================
         self.coef_ = copy.deepcopy(self.coef_history_[-1])
         self.global_scalar_ = self.global_scalar_history_[-1]
+        final_interaction_params = copy.deepcopy(self.interaction_params_history_[-1])
 
         # Compute final per-category A/E scalars using converged model state.
-        # block_preds for regular groups must use the final coef_ (not mid-loop values).
-        final_regular_preds = {}
+        # Rebuild block predictions from final coefs (not mid-loop values).
+        final_block_preds = {}
         for key in feature_groups:
             if key not in self.interactions_:
-                final_regular_preds[key] = data_blocks[key] @ self.coef_[key]
+                final_block_preds[key] = data_blocks[key] @ self.coef_[key]
             else:
-                final_regular_preds[key] = self._build_interaction_block_pred(
-                    key, data_blocks[key], interaction_params, interaction_masks)
+                final_block_preds[key] = self._build_interaction_block_pred(
+                    key, data_blocks[key], final_interaction_params, interaction_masks)
 
-        for parent, cat_coefs in interaction_params.items():
+        for parent, cat_coefs in final_interaction_params.items():
             fixed = self.global_scalar_ * vector_product_numexpr_dict_values(
-                final_regular_preds, exclude=parent)
+                final_block_preds, exclude=parent)
             scalars = {}
             for cat_val, cat_coef in cat_coefs.items():
                 if hasattr(cat_coef, 'predict'):
@@ -259,7 +328,10 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
 
         for key in feature_groups:
             if key in self.interactions_:
-                self.block_means_[key] = np.mean(block_preds[key])
+                coef = self.coef_[key]
+                block_pred = self._predict_group(
+                    key, data_blocks[key], cat_series=X.orig[coef.by])
+                self.block_means_[key] = np.mean(block_pred)
             else:
                 block_pred = data_blocks[key] @ self.coef_[key]
                 self.block_means_[key] = np.mean(block_pred)

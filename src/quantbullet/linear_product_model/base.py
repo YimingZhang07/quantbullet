@@ -79,9 +79,11 @@ class LinearProductModelBCD(ABC):
         self.loss_history_ = []
         self.best_loss_ = float('inf')
         self.best_params_ = None
+        self.best_interaction_params_ = None
         self.best_iteration_ = None
         self.global_scalar_ = 1.0
         self.global_scalar_history_ = []
+        self.interaction_params_history_ = []
         self.block_means_ = {}
         if cache_qr_decomp:
             self.qr_decomp_cache_ = {}

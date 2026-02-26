@@ -69,6 +69,7 @@ def vector_product_numexpr_dict_values(
 
     arrays = [v for k, v in data.items() if k not in exclude]
     if not arrays:
-        raise ValueError("No arrays left after exclusion!")
+        ref = next(iter(data.values()))
+        return np.ones(len(ref), dtype=ref.dtype)
 
     return vector_product_numexpr_list(arrays)

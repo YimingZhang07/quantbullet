@@ -1,0 +1,9 @@
+---
+description: Python environment and virtual environment rules
+globs: "**/*.py"
+---
+# Rules
+- **Environment**: ALWAYS use the local virtual environment `.venv`.
+- **Execution**: Run scripts via `./.venv/bin/python` (Unix) or `.\.venv\Scripts\python.exe` (Windows).
+- **Prohibition**: DO NOT use global python or system-wide packages.
+- **Dependency**: Use `pip` inside `.venv` for installs.
