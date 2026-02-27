@@ -497,16 +497,21 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         self.implied_actual_plot_axes = axes
         return fig, axes
 
-    def plot_categorical_plots( self, model: LinearProductModelBase, dcontainer: ProductModelDataContainer, sample_frac=1, hspace=0.4, wspace=0.3, agg_method:str='weighted' ):
-        if hasattr( model, 'offset_y') and getattr( model, 'offset_y') is not None:
-            y = dcontainer.response + getattr( model, 'offset_y')
+    def plot_categorical_plots( self, model: LinearProductModelBase, dcontainer: ProductModelDataContainer,
+                                sample_frac=1, sample_weights: np.ndarray | None = None,
+                                hspace=0.4, wspace=0.3, agg_method:str='weighted' ):
 
         n_features = len( self.categorical_feature_groups )
         fig, axes = get_grid_fig_axes( n_charts=n_features, n_cols=3 )
         fig.subplots_adjust(hspace=hspace, wspace=wspace)
         dcontainer_sample = dcontainer.sample(sample_frac) if sample_frac < 1 else dcontainer
         X_sample = dcontainer_sample
-        y_sample = dcontainer_sample.response
+        y_sample = np.asarray(dcontainer_sample.response, dtype=float)
+        if hasattr(model, 'offset_y') and model.offset_y is not None:
+            y_sample = y_sample + model.offset_y
+
+        if sample_weights is not None:
+            sample_weights = np.asarray(sample_weights, dtype=float).ravel()
 
         block_preds = { feature: model.single_feature_group_predict( feature, X_sample, ignore_global_scale=True ) for feature in self.feature_groups_.keys() }
         for i, (feature, subfeatures) in enumerate(self.categorical_feature_groups.items()):
@@ -520,31 +525,66 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
                 "y": y_sample,
                 "m": other_blocks_preds,
             })
+            if sample_weights is not None:
+                binned_df['w'] = sample_weights
 
             if agg_method == 'simple':
                 implied_actual = y_sample / other_blocks_preds
                 binned_df['implied_actual'] = implied_actual
-                agg_df = binned_df.groupby( 'feature_bin', observed=False ).agg(
-                    implied_actual_mean         = ('implied_actual', 'mean'),
-                    this_feature_preds_mean     = ('feature_pred', 'mean'),
-                    count                       = ('implied_actual', 'count')
-                )
-            elif agg_method == 'weighted':
-                agg_df = (
-                    binned_df.groupby("feature_bin", observed=False)
-                    .agg(
-                        sum_y=("y", "sum"),
-                        sum_m=("m", "sum"),
-                        count=("y", "count"),
-                        this_feature_preds_mean=("feature_pred", "mean"),
+                if sample_weights is not None:
+                    binned_df['_wa'] = sample_weights * implied_actual
+                    agg_df = binned_df.groupby('feature_bin', observed=False).agg(
+                        _sum_wa=('_wa', 'sum'),
+                        _sum_w=('w', 'sum'),
+                        this_feature_preds_mean=('feature_pred', 'mean'),
+                        count=('implied_actual', 'count'),
                     )
-                    .reset_index()
-                    .set_index("feature_bin")
-                )
-                agg_df["implied_actual_mean"] = np.where(
-                    np.isclose(agg_df["sum_m"], 0), 0, agg_df["sum_y"] / agg_df["sum_m"]
-                )
-                agg_df.drop(columns=["sum_y", "sum_m"], inplace=True)
+                    agg_df['implied_actual_mean'] = np.where(
+                        np.isclose(agg_df['_sum_w'], 0), 0,
+                        agg_df['_sum_wa'] / agg_df['_sum_w'],
+                    )
+                    agg_df.drop(columns=['_sum_wa', '_sum_w'], inplace=True)
+                else:
+                    agg_df = binned_df.groupby( 'feature_bin', observed=False ).agg(
+                        implied_actual_mean         = ('implied_actual', 'mean'),
+                        this_feature_preds_mean     = ('feature_pred', 'mean'),
+                        count                       = ('implied_actual', 'count')
+                    )
+            elif agg_method == 'weighted':
+                if sample_weights is not None:
+                    binned_df['_wy'] = sample_weights * y_sample
+                    binned_df['_wm'] = sample_weights * other_blocks_preds
+                    agg_df = (
+                        binned_df.groupby("feature_bin", observed=False)
+                        .agg(
+                            sum_wy=("_wy", "sum"),
+                            sum_wm=("_wm", "sum"),
+                            count=("y", "count"),
+                            this_feature_preds_mean=("feature_pred", "mean"),
+                        )
+                        .reset_index()
+                        .set_index("feature_bin")
+                    )
+                    agg_df["implied_actual_mean"] = np.where(
+                        np.isclose(agg_df["sum_wm"], 0), 0, agg_df["sum_wy"] / agg_df["sum_wm"]
+                    )
+                    agg_df.drop(columns=["sum_wy", "sum_wm"], inplace=True)
+                else:
+                    agg_df = (
+                        binned_df.groupby("feature_bin", observed=False)
+                        .agg(
+                            sum_y=("y", "sum"),
+                            sum_m=("m", "sum"),
+                            count=("y", "count"),
+                            this_feature_preds_mean=("feature_pred", "mean"),
+                        )
+                        .reset_index()
+                        .set_index("feature_bin")
+                    )
+                    agg_df["implied_actual_mean"] = np.where(
+                        np.isclose(agg_df["sum_m"], 0), 0, agg_df["sum_y"] / agg_df["sum_m"]
+                    )
+                    agg_df.drop(columns=["sum_y", "sum_m"], inplace=True)
             else:
                 raise ValueError(f"Unknown agg_method: {agg_method}")
 
