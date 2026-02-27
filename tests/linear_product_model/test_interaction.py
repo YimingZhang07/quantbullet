@@ -23,6 +23,8 @@ def _generate_interaction_data(n_samples=50_000, seed=42):
 
     x2 is categorical with two levels: 'A' (30%) and 'B' (70%).
     Category A follows a U-shape in x1; category B follows a linear trend.
+
+    Returns (df, weights) where weights are random positive per-observation weights.
     """
     np.random.seed(seed)
 
@@ -39,9 +41,12 @@ def _generate_interaction_data(n_samples=50_000, seed=42):
 
     y = 5.0 * f_x1 * g_x3 + np.random.randn(n_samples) * 2.0
 
+    weights = np.random.exponential(scale=1.0, size=n_samples)
+    weights[x2 == 'B'] *= 3.0
+
     df = pd.DataFrame({'x1': x1, 'x2': x2, 'x3': x3, 'y': y})
     df['x2'] = df['x2'].astype('category')
-    return df
+    return df, weights
 
 
 class TestInteraction(unittest.TestCase):
@@ -58,7 +63,7 @@ class TestInteraction(unittest.TestCase):
             shutil.rmtree(self.cache_dir, ignore_errors=True)
 
     def test_interaction_x1_by_x2(self):
-        df = _generate_interaction_data()
+        df, weights = _generate_interaction_data()
 
         preprocess_config = {
             'x1': FlatRampTransformer(
@@ -94,6 +99,7 @@ class TestInteraction(unittest.TestCase):
             interactions={'x1': 'x2'},
             n_iterations=10,
             early_stopping_rounds=5,
+            weights=weights,
         )
 
         # --- basic convergence checks ---
@@ -126,8 +132,8 @@ class TestInteraction(unittest.TestCase):
                 f"A/E scalar for category '{cat_val}' = {scalar:.4f}, expected close to 1.0",
             )
 
-        # --- implied-actual plots (x1 splits into x1|x2=A, x1|x2=B panels) ---
-        fig, axes = tk.plot_implied_actuals(model, dcontainer)
+        # --- implied-actual plots with sample_weights ---
+        fig, axes = tk.plot_implied_actuals(model, dcontainer, sample_weights=weights)
         fig_path = Path(self.cache_dir) / "interaction_implied_actuals.png"
         fig.savefig(fig_path, dpi=150, bbox_inches='tight')
         self.assertTrue(fig_path.exists())

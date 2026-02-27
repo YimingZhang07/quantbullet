@@ -18,8 +18,11 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
         LinearProductModelBCD.__init__(self)
         self.interactions_ = {}
 
-    def loss_function(self, y_hat, y):
-        return np.mean((y - y_hat) ** 2)
+    def loss_function(self, y_hat, y, weights=None):
+        residuals_sq = (y - y_hat) ** 2
+        if weights is not None:
+            return np.average(residuals_sq, weights=weights)
+        return np.mean(residuals_sq)
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -104,14 +107,14 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
                     interaction_params[parent][cat_val] = init_betas_by_response_mean(data_blocks[parent], 1.0)
         return interaction_masks, interaction_params
 
-    def _init_global_scalar(self, y, init_params):
+    def _init_global_scalar(self, y, init_params, weights=None):
         """Initialize the model-level scalar before block-level parameter inference.
 
         For default initialization (``init_params is None``), block params are inferred
         around a unit target, so the response level is carried by ``global_scalar_``.
         """
         if init_params is None:
-            self.global_scalar_ = np.mean(y)
+            self.global_scalar_ = np.average(y, weights=weights) if weights is not None else np.mean(y)
 
     def _infer_regular_params(self, feature_groups, data_blocks, y, init_params):
         """Infer coefficient vectors for regular (non-interaction) groups."""
@@ -200,9 +203,8 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
                 Q, R = self.qr_decomp_cache_[group]
             scaled_y = y / self.global_scalar_ / fixed
             new_params = np.linalg.solve(R, Q.T @ scaled_y)
-            mX = X_basis * fixed[:, None]
 
-        mean = self._absorb_block_mean(mX @ new_params, weights)
+        mean = self._absorb_block_mean(X_basis @ new_params, weights)
         if not np.isclose(mean, 0):
             new_params /= mean
         else:
@@ -219,10 +221,10 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
     # ------------------------------------------------------------------
 
     def _record_iteration(self, iteration, n_iterations, block_preds,
-                          params_blocks, interaction_params, y, verbose):
+                          params_blocks, interaction_params, y, weights, verbose):
         """Compute loss, snapshot state, update best, optionally print."""
         predictions = vector_product_numexpr_dict_values(block_preds) * self.global_scalar_
-        loss = self.loss_function(predictions, y)
+        loss = self.loss_function(predictions, y, weights=weights)
 
         self.loss_history_.append(loss)
         self.coef_history_.append(copy.deepcopy(params_blocks))
@@ -239,21 +241,71 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
             print(f"Iteration {iteration+1}/{n_iterations}, Loss: {loss:.6e}")
 
     def _check_convergence(self, iteration, force_rounds, early_stopping_rounds, ftol):
-        """Return True if BCD should stop early."""
+        """Check whether BCD should stop early.
+
+        Returns a dict describing the termination reason, or ``None`` to
+        continue.  The dict is stored as ``self.convergence_info_``.
+        """
         if force_rounds is not None and iteration + 1 < force_rounds:
-            return False
+            return None
+
+        cur_loss = self.loss_history_[-1]
 
         if early_stopping_rounds is not None and len(self.loss_history_) > early_stopping_rounds:
-            if self.loss_history_[-1] >= self.loss_history_[-early_stopping_rounds]:
-                print(f"Early stopping at iteration {iteration+1} with Loss: {self.loss_history_[-1]:.4e}")
-                return True
+            ref_loss = self.loss_history_[-early_stopping_rounds]
+            if cur_loss >= ref_loss:
+                return {
+                    'reason': 'early_stopping',
+                    'iteration': iteration + 1,
+                    'current_loss': cur_loss,
+                    'reference_loss': ref_loss,
+                    'lookback': early_stopping_rounds,
+                    'best_iteration': self.best_iteration_ + 1,
+                    'best_loss': self.best_loss_,
+                }
 
         if ftol is not None and len(self.loss_history_) >= 5:
-            if abs(self.loss_history_[-1] / self.loss_history_[-5]) > 1 - ftol:
-                print(f"Converged at iteration {iteration+1} with Loss: {self.loss_history_[-1]:.4e}")
-                return True
+            ref_loss = self.loss_history_[-5]
+            rel_improvement = 1 - cur_loss / ref_loss
+            if 0 <= rel_improvement < ftol:
+                return {
+                    'reason': 'ftol',
+                    'iteration': iteration + 1,
+                    'current_loss': cur_loss,
+                    'reference_loss': ref_loss,
+                    'rel_improvement': rel_improvement,
+                    'ftol': ftol,
+                }
 
-        return False
+        return None
+
+    @staticmethod
+    def _format_convergence_info(info):
+        """Format a convergence_info_ dict into a human-readable string."""
+        if info is None:
+            return "Model has not converged yet."
+        reason = info['reason']
+        if reason == 'early_stopping':
+            return (
+                f"Early stopping at iteration {info['iteration']}: "
+                f"current loss {info['current_loss']:.6e} >= loss {info['reference_loss']:.6e} "
+                f"from {info['lookback']} iterations ago (no improvement). "
+                f"Best iteration was {info['best_iteration']} with loss {info['best_loss']:.6e}."
+            )
+        if reason == 'ftol':
+            return (
+                f"Converged at iteration {info['iteration']}: "
+                f"relative improvement over last 5 iterations = {info['rel_improvement']:.2e} "
+                f"< ftol={info['ftol']:.1e} "
+                f"(loss {info['reference_loss']:.6e} -> {info['current_loss']:.6e})."
+            )
+        if reason == 'max_iterations':
+            return (
+                f"Reached maximum iterations ({info['iteration']}). "
+                f"Final loss: {info['current_loss']:.6e}. "
+                f"Best iteration was {info['best_iteration']} with loss {info['best_loss']:.6e}."
+            )
+        return str(info)
 
     # ------------------------------------------------------------------
     # fit — finalization
@@ -264,7 +316,7 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
         if not self.interactions_:
             return
 
-        final_interaction_params = copy.deepcopy(self.interaction_params_history_[-1])
+        final_interaction_params = copy.deepcopy(self.best_interaction_params_)
 
         final_block_preds = {}
         for key in self.feature_groups_:
@@ -297,7 +349,7 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
                 scalars=scalars,
             )
 
-    def _compute_block_means(self, data_blocks, X):
+    def _compute_block_means(self, data_blocks, X, weights=None):
         """Recompute ``block_means_`` from final ``coef_`` (including A/E scalars for interactions)."""
         for key in self.feature_groups_:
             if key in self.interactions_:
@@ -305,7 +357,7 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
                 block_pred = self._predict_group(key, data_blocks[key], cat_series=X.orig[coef.by])
             else:
                 block_pred = data_blocks[key] @ self.coef_[key]
-            self.block_means_[key] = np.mean(block_pred)
+            self.block_means_[key] = np.average(block_pred, weights=weights) if weights is not None else np.mean(block_pred)
 
     # ------------------------------------------------------------------
     # fit (public entry point)
@@ -348,7 +400,7 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
         # y                 : ndarray(n_obs,)                  response (offset-adjusted if needed)
         # weights           : ndarray(n_obs,) | None           optional observation weights
         # full_prediction   : global_scalar_ * product(block_preds.values())
-        self._init_global_scalar(y, init_params)
+        self._init_global_scalar(y, init_params, weights)
         interaction_masks, interaction_params = self._init_interactions(
             orig_df, data_blocks, feature_groups, interaction_submodels or {})
         params_blocks = self._infer_regular_params(
@@ -357,6 +409,7 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
             data_blocks, params_blocks, interaction_params, interaction_masks)
 
         # ---- BCD iterations ----
+        self.global_scalar_step_history_.append((0, '_init', self.global_scalar_))
         for i in range(n_iterations):
             for group in feature_groups:
                 if group in self.interactions_:
@@ -365,16 +418,31 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
                 elif group not in self.submodels_:
                     self._step_regular_group(
                         group, data_blocks, block_preds, params_blocks, y, weights, cache_qr_decomp, use_svd)
+                self.global_scalar_step_history_.append((i + 1, group, self.global_scalar_))
 
-            self._record_iteration(i, n_iterations, block_preds, params_blocks, interaction_params, y, verbose)
-            if self._check_convergence(i, force_rounds, early_stopping_rounds, ftol):
+            self._record_iteration(i, n_iterations, block_preds, params_blocks, interaction_params, y, weights, verbose)
+            conv_info = self._check_convergence(i, force_rounds, early_stopping_rounds, ftol)
+            if conv_info is not None:
+                self.convergence_info_ = conv_info
+                if verbose > 0:
+                    print(self._format_convergence_info(conv_info))
                 break
+        else:
+            self.convergence_info_ = {
+                'reason': 'max_iterations',
+                'iteration': n_iterations,
+                'current_loss': self.loss_history_[-1],
+                'best_iteration': self.best_iteration_ + 1,
+                'best_loss': self.best_loss_,
+            }
+            if verbose > 0:
+                print(self._format_convergence_info(self.convergence_info_))
 
-        # ---- finalize ----
-        self.coef_ = copy.deepcopy(self.coef_history_[-1])
-        self.global_scalar_ = self.global_scalar_history_[-1]
+        # ---- finalize: restore best iteration ----
+        self.coef_ = copy.deepcopy(self.best_params_)
+        self.global_scalar_ = self.global_scalar_history_[self.best_iteration_]
         self._finalize_interaction_scalars(data_blocks, interaction_masks, y, weights)
-        self._compute_block_means(data_blocks, X)
+        self._compute_block_means(data_blocks, X, weights)
         return self
 
     # ------------------------------------------------------------------

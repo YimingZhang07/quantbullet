@@ -83,13 +83,15 @@ class LinearProductModelBCD(ABC):
         self.best_iteration_ = None
         self.global_scalar_ = 1.0
         self.global_scalar_history_ = []
+        self.global_scalar_step_history_ = []
         self.interaction_params_history_ = []
         self.block_means_ = {}
+        self.convergence_info_ = None
         if cache_qr_decomp:
             self.qr_decomp_cache_ = {}
 
     @abstractmethod
-    def loss_function(self, y_hat, y):
+    def loss_function(self, y_hat, y, weights=None):
         pass
     
     @property

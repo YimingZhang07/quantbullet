@@ -149,7 +149,7 @@ class LinearProductClassifierBCD( LinearProductClassifierBase, LinearProductMode
         LinearProductModelBCD.__init__(self)
         self.eps = eps
 
-    def loss_function(self, y_hat, y):
+    def loss_function(self, y_hat, y, weights=None):
         return log_loss(y_hat, y)
 
     @memorize_fit_args
