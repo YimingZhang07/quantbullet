@@ -286,7 +286,8 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
             other_preds = model.global_scalar_ * vector_product_numexpr_dict_values(
                 data=block_preds, exclude=feature,
             )
-            agg_weight = sample_weights * other_preds if sample_weights is not None else other_preds
+            # FOC weight for implied actuals is w * m^2 (see comment in plot_categorical_plots)
+            agg_weight = sample_weights * other_preds**2 if sample_weights is not None else other_preds
 
             coef = model.coef_.get(feature)
             if isinstance(coef, InteractionCoef):
@@ -511,88 +512,56 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         if hasattr(model, 'offset_y') and model.offset_y is not None:
             y_sample = y_sample + model.offset_y
 
-        if sample_weights is not None:
-            sample_weights = np.asarray(sample_weights, dtype=float).ravel()
+        w = np.asarray(sample_weights, dtype=float).ravel() if sample_weights is not None else np.ones(len(y_sample))
 
         block_preds = { feature: model.single_feature_group_predict( feature, X_sample, ignore_global_scale=True ) for feature in self.feature_groups_.keys() }
         for i, (feature, subfeatures) in enumerate(self.categorical_feature_groups.items()):
             ax = axes[i]
-            other_blocks_preds = model.global_scalar_ * vector_product_numexpr_dict_values( data=block_preds, exclude=feature )
+            m = model.global_scalar_ * vector_product_numexpr_dict_values( data=block_preds, exclude=feature )
             this_feature_preds = block_preds[ feature ]
 
             binned_df = pd.DataFrame({
                 "feature_bin": X_sample.orig[feature],
                 "feature_pred": this_feature_preds,
                 "y": y_sample,
-                "m": other_blocks_preds,
             })
-            if sample_weights is not None:
-                binned_df['w'] = sample_weights
 
             if agg_method == 'simple':
-                implied_actual = y_sample / other_blocks_preds
-                binned_df['implied_actual'] = implied_actual
-                if sample_weights is not None:
-                    binned_df['_wa'] = sample_weights * implied_actual
-                    agg_df = binned_df.groupby('feature_bin', observed=False).agg(
-                        _sum_wa=('_wa', 'sum'),
-                        _sum_w=('w', 'sum'),
-                        this_feature_preds_mean=('feature_pred', 'mean'),
-                        count=('implied_actual', 'count'),
-                    )
-                    agg_df['implied_actual_mean'] = np.where(
-                        np.isclose(agg_df['_sum_w'], 0), 0,
-                        agg_df['_sum_wa'] / agg_df['_sum_w'],
-                    )
-                    agg_df.drop(columns=['_sum_wa', '_sum_w'], inplace=True)
-                else:
-                    agg_df = binned_df.groupby( 'feature_bin', observed=False ).agg(
-                        implied_actual_mean         = ('implied_actual', 'mean'),
-                        this_feature_preds_mean     = ('feature_pred', 'mean'),
-                        count                       = ('implied_actual', 'count')
-                    )
+                binned_df['_wa'] = w * (y_sample / m)
+                binned_df['_wsum'] = w
+                agg_df = binned_df.groupby('feature_bin', observed=False).agg(
+                    _sum_wa=('_wa', 'sum'),
+                    _sum_w=('_wsum', 'sum'),
+                    this_feature_preds_mean=('feature_pred', 'mean'),
+                    count=('y', 'count'),
+                ).reset_index().set_index('feature_bin')
+                agg_df['implied_actual_mean'] = np.where(
+                    np.isclose(agg_df['_sum_w'], 0), 0,
+                    agg_df['_sum_wa'] / agg_df['_sum_w'],
+                )
+                agg_df.drop(columns=['_sum_wa', '_sum_w'], inplace=True)
+
             elif agg_method == 'weighted':
-                # NOTE: in the optimization, our regression target was
-                # y ~ scalar * ( sample_weights * other_blocks_preds * X ) @ coef
-                # the true weights are sample_weights * other_blocks_preds
-                # we were fitting with a weighted regression, and the weight is not the sample weights themselves
-                # if we plot the implied actuals using sample weights only we also get a biased plot
-                # the sum( weight * y ) / sum ( weight * other_blocks_preds ) can only be correct if the weight is the true weights we use at training
-                true_weights = sample_weights * other_blocks_preds
-                if sample_weights is not None:
-                    binned_df['_wy'] = true_weights * y_sample
-                    binned_df['_wm'] = true_weights * other_blocks_preds
-                    agg_df = (
-                        binned_df.groupby("feature_bin", observed=False)
-                        .agg(
-                            sum_wy=("_wy", "sum"),
-                            sum_wm=("_wm", "sum"),
-                            count=("y", "count"),
-                            this_feature_preds_mean=("feature_pred", "mean"),
-                        )
-                        .reset_index()
-                        .set_index("feature_bin")
+                # The BCD update solves WLS: min_beta sum_i w_i * (y_i - s * m_i * X_i @ beta)^2.
+                # The FOC-consistent binned implied-actual is sum(w*m*y) / sum(w*m^2).
+                binned_df['_wy'] = w * m * y_sample
+                binned_df['_wm'] = w * m * m
+                agg_df = (
+                    binned_df.groupby("feature_bin", observed=False)
+                    .agg(
+                        sum_wy=("_wy", "sum"),
+                        sum_wm=("_wm", "sum"),
+                        count=("y", "count"),
+                        this_feature_preds_mean=("feature_pred", "mean"),
                     )
-                    agg_df["implied_actual_mean"] = np.where(
-                        np.isclose(agg_df["sum_wm"], 0), 0, agg_df["sum_wy"] / agg_df["sum_wm"]
-                    )
-                    agg_df.drop(columns=["sum_wy", "sum_wm"], inplace=True)
-                else:
-                    agg_df = (
-                        binned_df.groupby("feature_bin", observed=False)
-                        .agg(
-                            sum_y=("y", "sum"),
-                            sum_m=("m", "sum"),
-                            count=("y", "count"),
-                            this_feature_preds_mean=("feature_pred", "mean"),
-                        )
-                        .reset_index()
-                        .set_index("feature_bin")
-                    )
-                    agg_df["implied_actual_mean"] = np.where(
-                        np.isclose(agg_df["sum_m"], 0), 0, agg_df["sum_y"] / agg_df["sum_m"]
-                    )
-                    agg_df.drop(columns=["sum_y", "sum_m"], inplace=True)
+                    .reset_index()
+                    .set_index("feature_bin")
+                )
+                agg_df["implied_actual_mean"] = np.where(
+                    np.isclose(agg_df["sum_wm"], 0), 0, agg_df["sum_wy"] / agg_df["sum_wm"]
+                )
+                agg_df.drop(columns=["sum_wy", "sum_wm"], inplace=True)
+
             else:
                 raise ValueError(f"Unknown agg_method: {agg_method}")
 
