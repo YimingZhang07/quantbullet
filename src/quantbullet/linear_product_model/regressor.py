@@ -149,7 +149,9 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
                                 interaction_params, interaction_masks, y, weights):
         """One BCD pass for an interaction group: per-category OLS, normalize, update.
 
-        Mutates *interaction_params*, *block_preds*, and ``self.global_scalar_`` in place.
+        Each category's coefficients are normalized independently to mean 1.
+        The per-category level differences are left for the categorical block
+        to absorb — ``global_scalar_`` is NOT modified here.
         """
         X_basis = data_blocks[group]
         fixed = vector_product_numexpr_dict_values(block_preds, exclude=group)
@@ -159,22 +161,20 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
             if hasattr(cat_coef, 'predict'):
                 continue
             mask = interaction_masks[group][cat_val]
-            interaction_params[group][cat_val] = ols_normal_equation(
+            new_coef = ols_normal_equation(
                 (self.global_scalar_ * mX)[mask],
                 np.asarray(y)[mask],
                 weights=weights[mask] if weights is not None else None)
 
-        combined = self._build_interaction_block_pred(group, X_basis, interaction_params, interaction_masks)
-        mean = self._absorb_block_mean(combined, weights)
+            cat_pred = X_basis[mask] @ new_coef
+            w_mask = weights[mask] if weights is not None else None
+            cat_mean = np.average(cat_pred, weights=w_mask) if w_mask is not None else np.mean(cat_pred)
+            if not np.isclose(cat_mean, 0):
+                new_coef = new_coef / cat_mean
+            interaction_params[group][cat_val] = new_coef
 
-        if not np.isclose(mean, 0):
-            for cat_val in interaction_params[group]:
-                coef = interaction_params[group][cat_val]
-                if not hasattr(coef, 'predict'):
-                    interaction_params[group][cat_val] = coef / mean
-            combined = self._build_interaction_block_pred(group, X_basis, interaction_params, interaction_masks)
-
-        block_preds[group] = combined
+        block_preds[group] = self._build_interaction_block_pred(
+            group, X_basis, interaction_params, interaction_masks)
 
     def _step_regular_group(self, group, data_blocks, block_preds, params_blocks,
                             y, weights, cache_qr_decomp, use_svd):
@@ -311,42 +311,14 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
     # fit — finalization
     # ------------------------------------------------------------------
 
-    def _finalize_interaction_scalars(self, data_blocks, interaction_masks, y, weights):
-        """Post-convergence: compute per-category A/E scalars, store InteractionCoef in coef_."""
+    def _store_interaction_coefs(self):
+        """Store best interaction params as InteractionCoef in coef_."""
         if not self.interactions_:
             return
-
-        final_interaction_params = copy.deepcopy(self.best_interaction_params_)
-
-        final_block_preds = {}
-        for key in self.feature_groups_:
-            if key not in self.interactions_:
-                final_block_preds[key] = data_blocks[key] @ self.coef_[key]
-            else:
-                final_block_preds[key] = self._build_interaction_block_pred(
-                    key, data_blocks[key], final_interaction_params, interaction_masks)
-
-        for parent, cat_coefs in final_interaction_params.items():
-            fixed = self.global_scalar_ * vector_product_numexpr_dict_values(
-                final_block_preds, exclude=parent)
-            scalars = {}
-            for cat_val, cat_coef in cat_coefs.items():
-                if hasattr(cat_coef, 'predict'):
-                    scalars[cat_val] = 1.0
-                    continue
-                mask = interaction_masks[parent][cat_val]
-                cat_pred = data_blocks[parent][mask] @ cat_coef
-                y_hat_c = fixed[mask] * cat_pred
-                y_c = y[mask]
-                if weights is not None:
-                    scalars[cat_val] = np.sum(weights[mask] * y_c) / np.sum(weights[mask] * y_hat_c)
-                else:
-                    scalars[cat_val] = np.sum(y_c) / np.sum(y_hat_c)
-
+        for parent, cat_coefs in copy.deepcopy(self.best_interaction_params_).items():
             self.coef_[parent] = InteractionCoef(
                 by=self.interactions_[parent],
                 categories=dict(cat_coefs),
-                scalars=scalars,
             )
 
     def _compute_block_means(self, data_blocks, X, weights=None):
@@ -374,6 +346,13 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
         self.feature_groups_ = feature_groups
         self.submodels_ = submodels or {}
         self.interactions_ = interactions or {}
+
+        for parent, cat_var in self.interactions_.items():
+            if cat_var not in feature_groups:
+                raise ValueError(
+                    f"Interaction by-variable '{cat_var}' must be included in feature_groups "
+                    f"as a separate categorical block (required for '{parent}' interaction)."
+                )
 
         # ---- 2) validate inputs and build canonical arrays ----
         orig_df = X.orig
@@ -441,7 +420,7 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
         # ---- finalize: restore best iteration ----
         self.coef_ = copy.deepcopy(self.best_params_)
         self.global_scalar_ = self.global_scalar_history_[self.best_iteration_]
-        self._finalize_interaction_scalars(data_blocks, interaction_masks, y, weights)
+        self._store_interaction_coefs()
         self._compute_block_means(data_blocks, X, weights)
         return self
 

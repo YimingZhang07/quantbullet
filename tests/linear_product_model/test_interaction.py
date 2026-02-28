@@ -6,6 +6,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
+from sklearn.preprocessing import OneHotEncoder
+
 from quantbullet.linear_product_model import (
     LinearProductRegressorBCD,
     LinearProductModelToolkit,
@@ -70,6 +72,7 @@ class TestInteraction(unittest.TestCase):
                 knots=list(np.arange(4, 17, 1)),
                 include_bias=True,
             ),
+            'x2': OneHotEncoder(),
             'x3': FlatRampTransformer(
                 knots=list(np.arange(1, 10, 1)),
                 include_bias=True,
@@ -78,6 +81,7 @@ class TestInteraction(unittest.TestCase):
 
         feature_spec = FeatureSpec(features=[
             Feature(name='x1', dtype=DataType.FLOAT, role=FeatureRole.MODEL_INPUT),
+            Feature(name='x2', dtype=DataType.CATEGORY, role=FeatureRole.MODEL_INPUT),
             Feature(name='x3', dtype=DataType.FLOAT, role=FeatureRole.MODEL_INPUT),
             Feature(name='y', dtype=DataType.FLOAT, role=FeatureRole.TARGET),
         ])
@@ -123,14 +127,6 @@ class TestInteraction(unittest.TestCase):
             "interaction_params_history_ length should match loss_history_",
         )
         self.assertIsNotNone(model.best_interaction_params_)
-
-        # --- A/E scalars should be close to 1.0 (BCD converges well, scalar is a fine-tune) ---
-        interaction_coef = model.coef_['x1']
-        for cat_val, scalar in interaction_coef.scalars.items():
-            self.assertTrue(
-                abs(scalar - 1.0) < 0.15,
-                f"A/E scalar for category '{cat_val}' = {scalar:.4f}, expected close to 1.0",
-            )
 
         # --- implied-actual plots with sample_weights ---
         fig, axes = tk.plot_implied_actuals(model, dcontainer, sample_weights=weights)

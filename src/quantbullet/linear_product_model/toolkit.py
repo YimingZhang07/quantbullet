@@ -284,11 +284,10 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
                 X_block = dc.get_expanded_array_for_feature_group(feature)
                 for cat_val, cat_coef in coef.categories.items():
                     mask = (cat_series == cat_val).values
-                    scalar = coef.scalars.get(cat_val, 1.0)
                     if hasattr(cat_coef, 'predict'):
-                        pred = scalar * cat_coef.predict(X_block[mask])
+                        pred = cat_coef.predict(X_block[mask])
                     else:
-                        pred = scalar * (X_block[mask] @ cat_coef)
+                        pred = X_block[mask] @ cat_coef
                     key = f"{feature}|{coef.by}={cat_val}"
                     result[key] = pd.DataFrame({
                         'feature_value': dc.orig[feature].values[mask],
