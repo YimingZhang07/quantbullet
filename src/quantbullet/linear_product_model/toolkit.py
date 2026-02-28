@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 # ===== Third-Party Imports =====
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 from sklearn.preprocessing import OneHotEncoder
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Table, TableStyle
 from reportlab.lib.pagesizes import landscape, letter
@@ -551,9 +552,16 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
                         count                       = ('implied_actual', 'count')
                     )
             elif agg_method == 'weighted':
+                # NOTE: in the optimization, our regression target was
+                # y ~ scalar * ( sample_weights * other_blocks_preds * X ) @ coef
+                # the true weights are sample_weights * other_blocks_preds
+                # we were fitting with a weighted regression, and the weight is not the sample weights themselves
+                # if we plot the implied actuals using sample weights only we also get a biased plot
+                # the sum( weight * y ) / sum ( weight * other_blocks_preds ) can only be correct if the weight is the true weights we use at training
+                true_weights = sample_weights * other_blocks_preds
                 if sample_weights is not None:
-                    binned_df['_wy'] = sample_weights * y_sample
-                    binned_df['_wm'] = sample_weights * other_blocks_preds
+                    binned_df['_wy'] = true_weights * y_sample
+                    binned_df['_wm'] = true_weights * other_blocks_preds
                     agg_df = (
                         binned_df.groupby("feature_bin", observed=False)
                         .agg(
@@ -612,6 +620,92 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
 
         close_unused_axes( axes )
         self.categorical_plot_axes = axes
+        return fig, axes
+
+    @staticmethod
+    def plot_convergence_diagnostics(
+        model: 'LinearProductModelBase',
+        figsize: tuple = (14, 9),
+    ):
+        """Plot a 2x2 convergence dashboard for a fitted multiplicative model.
+
+        Panels
+        ------
+        (0, 0) Loss curve over BCD iterations.
+        (0, 1) Absolute iteration-over-iteration loss change (log scale).
+        (1, 0) Global scalar at the end of each iteration.
+        (1, 1) Global scalar step-level trace — one marker per feature-group
+               update, with vertical lines separating iterations.
+
+        Parameters
+        ----------
+        model : LinearProductModelBase
+            A fitted model that exposes ``loss_history_``,
+            ``global_scalar_history_``, and ``global_scalar_step_history_``.
+        figsize : tuple
+            Figure size passed to ``plt.subplots``.
+
+        Returns
+        -------
+        fig, axes
+        """
+        loss_hist = model.loss_history_
+        scalar_hist = model.global_scalar_history_
+        iters = np.arange(1, len(loss_hist) + 1)
+
+        fig, axes = plt.subplots(2, 2, figsize=figsize)
+
+        # — loss curve —
+        axes[0, 0].plot(iters, loss_hist, marker='o', markersize=4, linewidth=1.5)
+        axes[0, 0].set_xlabel('Iteration')
+        axes[0, 0].set_ylabel('MSE Loss')
+        axes[0, 0].set_title('Loss History')
+        axes[0, 0].ticklabel_format(axis='y', style='sci', scilimits=(-2, 2))
+
+        # — iteration-over-iteration loss change —
+        if len(loss_hist) > 1:
+            deltas = np.abs(np.diff(loss_hist))
+            axes[0, 1].plot(iters[1:], deltas, marker='o', markersize=4,
+                            linewidth=1.5, color='tab:orange')
+            axes[0, 1].set_yscale('log')
+            axes[0, 1].set_xlabel('Iteration')
+            axes[0, 1].set_ylabel('|ΔLoss|')
+            axes[0, 1].set_title('Loss Change per Iteration')
+
+        # — global scalar per iteration —
+        axes[1, 0].plot(iters, scalar_hist, marker='o', markersize=4,
+                        linewidth=1.5, color='tab:green')
+        axes[1, 0].set_xlabel('Iteration')
+        axes[1, 0].set_ylabel('Global Scalar')
+        axes[1, 0].set_title('Global Scalar (end of iteration)')
+
+        # — global scalar step-level trace —
+        step_hist = model.global_scalar_step_history_
+        step_iters  = [s[0] for s in step_hist]
+        step_groups = [s[1] for s in step_hist]
+        step_values = [s[2] for s in step_hist]
+
+        unique_groups = list(dict.fromkeys(step_groups))
+        color_map = {g: plt.cm.tab10(i) for i, g in enumerate(unique_groups)}
+
+        ax = axes[1, 1]
+        for i, (it, grp, val) in enumerate(step_hist):
+            ax.plot(i, val, marker='o', markersize=5, color=color_map[grp])
+        ax.plot(range(len(step_values)), step_values,
+                linewidth=0.8, color='grey', alpha=0.5, zorder=0)
+
+        for i in range(1, len(step_hist)):
+            if step_iters[i] != step_iters[i - 1]:
+                ax.axvline(x=i, color='lightgrey', linestyle='--', linewidth=0.7)
+
+        for g in unique_groups:
+            ax.plot([], [], marker='o', linestyle='None', color=color_map[g], label=g)
+        ax.legend(fontsize=8, loc='best', ncol=max(1, len(unique_groups) // 4))
+        ax.set_xlabel('Step')
+        ax.set_ylabel('Global Scalar')
+        ax.set_title('Global Scalar (per-group step trace)')
+
+        fig.tight_layout()
         return fig, axes
 
     def generate_fitting_summary_pdf( self, model: LinearProductModelBase, report_name='Model-Report' ):
