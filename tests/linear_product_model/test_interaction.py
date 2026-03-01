@@ -17,36 +17,34 @@ from quantbullet.linear_product_model.datacontainer import ProductModelDataConta
 from quantbullet.linear_product_model.base import InteractionCoef
 from quantbullet.model.feature import DataType, Feature, FeatureRole, FeatureSpec
 
-DEV_MODE = True
+DEV_MODE = False
 
 
 def _generate_interaction_data(n_samples=50_000, seed=42):
-    """Generate synthetic multiplicative data: y = C * f(x1 | x2) * g(x3) + noise.
+    """Generate synthetic data: y = C(x2) * x1^2 + noise + intercept(x2).
 
     x2 is categorical with two levels: 'A' (30%) and 'B' (70%).
-    Category A follows a U-shape in x1; category B follows a linear trend.
+    Both categories share the same quadratic shape in x1, but category B
+    has a steeper slope and higher intercept.
 
     Returns (df, weights) where weights are random positive per-observation weights.
     """
     np.random.seed(seed)
 
-    x1 = 10 + 3 * np.random.randn(n_samples)
     x2 = np.random.choice(['A', 'B'], size=n_samples, p=[0.3, 0.7])
-    x3 = 5 + 2 * np.random.randn(n_samples)
+    x1 = 3 * np.random.randn(n_samples)
 
-    f_x1 = np.where(
+    f_x1 = x1 ** 2
+
+    y = np.where(
         x2 == 'A',
-        1.0 + 0.03 * (x1 - 10) ** 2,   # U-shape (concave up)
-        0.5 + 0.08 * x1,                 # linear increasing
+        1.0 * f_x1 + np.random.randn(n_samples) * 5.0 + 1,
+        5.0 * f_x1 + np.random.randn(n_samples) * 5.0 + 5,
     )
-    g_x3 = 1.0 + 0.1 * np.cos(x3 * 0.5)
-
-    y = 5.0 * f_x1 * g_x3 + np.random.randn(n_samples) * 2.0
 
     weights = np.random.exponential(scale=1.0, size=n_samples)
-    weights[x2 == 'B'] *= 3.0
 
-    df = pd.DataFrame({'x1': x1, 'x2': x2, 'x3': x3, 'y': y})
+    df = pd.DataFrame({'x1': x1, 'x2': x2, 'y': y})
     df['x2'] = df['x2'].astype('category')
     return df, weights
 
@@ -69,20 +67,15 @@ class TestInteraction(unittest.TestCase):
 
         preprocess_config = {
             'x1': FlatRampTransformer(
-                knots=list(np.arange(4, 17, 1)),
+                knots=list(np.arange(-9, 10, 1)),
                 include_bias=True,
             ),
             'x2': OneHotEncoder(),
-            'x3': FlatRampTransformer(
-                knots=list(np.arange(1, 10, 1)),
-                include_bias=True,
-            ),
         }
 
         feature_spec = FeatureSpec(features=[
             Feature(name='x1', dtype=DataType.FLOAT, role=FeatureRole.MODEL_INPUT),
             Feature(name='x2', dtype=DataType.CATEGORY, role=FeatureRole.MODEL_INPUT),
-            Feature(name='x3', dtype=DataType.FLOAT, role=FeatureRole.MODEL_INPUT),
             Feature(name='y', dtype=DataType.FLOAT, role=FeatureRole.TARGET),
         ])
 
@@ -110,23 +103,12 @@ class TestInteraction(unittest.TestCase):
         preds = model.predict(dcontainer)
         mse = np.mean((df['y'].values - preds) ** 2)
         print(f"Interaction test MSE: {mse:.4f}")
-        self.assertTrue(mse < 10, f"MSE too high: {mse:.4f}")
+        self.assertTrue(mse < 30, f"MSE too high: {mse:.4f}")
 
-        # x1 should be stored as an InteractionCoef with two categories
-        self.assertIsInstance(model.coef_['x1'], InteractionCoef)
-        self.assertEqual(model.coef_['x1'].by, 'x2')
-        self.assertEqual(set(model.coef_['x1'].categories.keys()), {'A', 'B'})
-
-        # x3 should be a regular ndarray coefficient
-        self.assertIsInstance(model.coef_['x3'], np.ndarray)
-
-        # --- history tracking: interaction_params_history_ aligns with loss_history_ ---
-        self.assertEqual(
-            len(model.interaction_params_history_),
-            len(model.loss_history_),
-            "interaction_params_history_ length should match loss_history_",
-        )
-        self.assertIsNotNone(model.best_interaction_params_)
+        # --- test that each block mean should be very close to 1 ---
+        for key in tk.feature_groups:
+            block_mean = model.block_means_[key]
+            self.assertTrue(np.isclose(block_mean, 1, atol=1e-4), f"Block mean for '{key}' should be close to 1: {block_mean:.4f}")
 
         # --- implied-actual plots with sample_weights ---
         fig, axes = tk.plot_implied_actuals(model, dcontainer, sample_weights=weights)

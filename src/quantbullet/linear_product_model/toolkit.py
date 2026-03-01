@@ -380,8 +380,8 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         lowess_frac: float = 0.3,
         n_cols: int = 3,
         figsize: tuple = (5, 4),
-        min_scatter_size: int = 10,
-        max_scatter_size: int = 500,
+        min_size: int = 20,
+        max_size: int = 100,
     ):
         """Plot implied actuals vs model predictions for each numerical feature.
 
@@ -442,7 +442,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
 
             sizes = scale_scatter_sizes(
                 show['count'],
-                min_size=min_scatter_size, max_size=max_scatter_size,
+                min_size=min_size, max_size=max_size,
                 global_min=global_min_count, global_max=global_max_count,
             )
             ax.scatter(
