@@ -311,15 +311,20 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         raw_data: dict[str, pd.DataFrame],
         bin_config: dict,
         n_quantile_groups: int,
+        loss: str = 'mse',
     ) -> dict[str, pd.DataFrame]:
         """Bin and aggregate per-feature data into implied actuals.
 
         Each observation carries ``y``, ``m`` (other blocks incl. scalar),
-        ``w`` (sample weight), and ``model_pred`` (block prediction).
+        ``w`` (sample weight), and ``model_pred`` (block prediction ``p``).
 
-        The **implied actual** — the diagnostic quantity plotted against
-        ``model_pred`` — is the FOC-consistent binned ratio
-        ``sum(w·m·y) / sum(w·m²)``, matching the BCD normal equations.
+        The **implied actual** is a FOC-consistent binned ratio whose formula
+        depends on the loss function used during fitting:
+
+        ``'mse'``:
+            ``sum(w·m·y) / sum(w·m²)`` — from the MSE normal equations.
+        ``'poisson'``:
+            ``sum(w·y/p) / sum(w·m/p)`` — from the Poisson deviance FOC.
 
         Returns
         -------
@@ -340,15 +345,23 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
             y = df['y'].values
             m = df['m'].values
             w = df['w'].values
-            model_pred = df['model_pred'].values
+            p = df['model_pred'].values
 
-            # FOC of min sum w*(y - m*X*beta)^2  →  sum(w*m*y) = sum(w*m^2 * X*beta)
-            # so the binned implied actual is sum(w*m*y) / sum(w*m^2).
+            if loss == 'mse':
+                numer = w * m * y
+                denom = w * m ** 2
+            elif loss == 'poisson':
+                p_safe = np.maximum(p, 1e-10)
+                numer = w * y / p_safe
+                denom = w * m / p_safe
+            else:
+                raise ValueError(f"Unknown loss '{loss}'.")
+
             agg = pd.DataFrame({
                 'bin_val': bin_vals,
-                '_numer': w * m * y,
-                '_denom': w * m ** 2,
-                'model_pred': model_pred,
+                '_numer': numer,
+                '_denom': denom,
+                'model_pred': p,
             }).groupby('bin_val', observed=True).agg(
                 _sum_numer=('_numer', 'sum'),
                 _sum_denom=('_denom', 'sum'),
@@ -385,9 +398,14 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
     ):
         """Plot implied actuals vs model predictions for each numerical feature.
 
-        The implied actual per bin is the FOC-consistent ratio
-        ``sum(w·m·y) / sum(w·m²)`` where *m* is the product of all other
-        blocks (incl. scalar) and *w* is the sample weight.
+        The implied actual per bin is a FOC-consistent ratio that depends on
+        the loss function used during fitting (auto-detected from ``model.loss_``):
+
+        - MSE: ``sum(w·m·y) / sum(w·m²)``
+        - Poisson: ``sum(w·y/p) / sum(w·m/p)``
+
+        where *m* is the product of all other blocks (incl. scalar),
+        *w* is the sample weight, and *p* is the block prediction.
 
         Parameters
         ----------
@@ -418,8 +436,9 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         """
         raw_data = self.compute_implied_actual_data(model, dcontainer, sample_frac, sample_weights)
         effective_config = {**self.implied_actual_bin_config, **(bin_config or {})}
+        loss = getattr(model, 'loss_', 'mse')
         per_feature = self._aggregate_implied_data(
-            raw_data, effective_config, n_quantile_groups,
+            raw_data, effective_config, n_quantile_groups, loss=loss,
         )
 
         data_caches = {}
@@ -496,19 +515,29 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
             y_sample = y_sample + model.offset_y
 
         w = np.asarray(sample_weights, dtype=float).ravel() if sample_weights is not None else np.ones(len(y_sample))
+        loss = getattr(model, 'loss_', 'mse')
 
         block_preds = { feature: model.single_feature_group_predict( feature, X_sample, ignore_global_scale=True ) for feature in self.feature_groups_.keys() }
         for i, (feature, subfeatures) in enumerate(self.categorical_feature_groups.items()):
             ax = axes[i]
             m = model.global_scalar_ * vector_product_numexpr_dict_values( data=block_preds, exclude=feature )
-            this_feature_preds = block_preds[ feature ]
+            p = block_preds[ feature ]
 
-            # FOC-consistent binned implied actual: sum(w*m*y) / sum(w*m^2)
+            if loss == 'mse':
+                numer = w * m * y_sample
+                denom = w * m ** 2
+            elif loss == 'poisson':
+                p_safe = np.maximum(p, 1e-10)
+                numer = w * y_sample / p_safe
+                denom = w * m / p_safe
+            else:
+                raise ValueError(f"Unknown loss '{loss}'.")
+
             binned_df = pd.DataFrame({
                 "feature_bin": X_sample.orig[feature],
-                "feature_pred": this_feature_preds,
-                "_numer": w * m * y_sample,
-                "_denom": w * m * m,
+                "feature_pred": p,
+                "_numer": numer,
+                "_denom": denom,
             })
             agg_df = (
                 binned_df.groupby("feature_bin", observed=False)
