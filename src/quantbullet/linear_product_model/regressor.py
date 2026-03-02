@@ -19,10 +19,20 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
         self.interactions_ = {}
 
     def loss_function(self, y_hat, y, weights=None):
-        residuals_sq = (y - y_hat) ** 2
+        loss_type = getattr(self, 'loss_', 'mse')
+
+        if loss_type == 'mse':
+            per_obs = (y - y_hat) ** 2
+        elif loss_type == 'poisson':
+            y_safe = np.maximum(y, 1e-10)
+            yhat_safe = np.maximum(y_hat, 1e-10)
+            per_obs = 2 * (y_safe * np.log(y_safe / yhat_safe) - (y - y_hat))
+        else:
+            raise ValueError(f"Unknown loss type: {loss_type}")
+
         if weights is not None:
-            return np.average(residuals_sq, weights=weights)
-        return np.mean(residuals_sq)
+            return np.average(per_obs, weights=weights)
+        return np.mean(per_obs)
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -155,26 +165,58 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
         """
         X_basis = data_blocks[group]
         fixed = vector_product_numexpr_dict_values(block_preds, exclude=group)
-        mX = X_basis * fixed[:, None]
 
         for cat_val, cat_coef in interaction_params[group].items():
             if hasattr(cat_coef, 'predict'):
                 continue
             mask = interaction_masks[group][cat_val]
-            new_coef = ols_normal_equation(
-                (self.global_scalar_ * mX)[mask],
-                np.asarray(y)[mask],
-                weights=weights[mask] if weights is not None else None)
+            X_c = X_basis[mask]
+            y_c = np.asarray(y)[mask]
+            w_c = weights[mask] if weights is not None else None
 
-            cat_pred = X_basis[mask] @ new_coef
-            w_mask = weights[mask] if weights is not None else None
-            cat_mean = np.average(cat_pred, weights=w_mask) if w_mask is not None else np.mean(cat_pred)
+            if self.loss_ == 'poisson':
+                m_c = np.maximum(self.global_scalar_ * fixed[mask], 1e-10)
+                p_c = np.maximum(X_c @ cat_coef, 1e-10)
+                w_base = w_c if w_c is not None else np.ones(mask.sum())
+                new_coef = ols_normal_equation(X_c, y_c / m_c, weights=w_base * m_c / p_c)
+            else:
+                mX_c = (self.global_scalar_ * X_basis * fixed[:, None])[mask]
+                new_coef = ols_normal_equation(mX_c, y_c, weights=w_c)
+
+            cat_pred = X_c @ new_coef
+            cat_mean = np.average(cat_pred, weights=w_c) if w_c is not None else np.mean(cat_pred)
             if not np.isclose(cat_mean, 0):
                 new_coef = new_coef / cat_mean
             interaction_params[group][cat_val] = new_coef
 
         block_preds[group] = self._build_interaction_block_pred(
             group, X_basis, interaction_params, interaction_masks)
+
+    def _solve_block_poisson(self, X_basis, fixed, y, weights, current_block_coef):
+        """One IRLS step for Poisson deviance: WLS on implied actual."""
+        m = np.maximum(self.global_scalar_ * fixed, 1e-10)
+        p = np.maximum(X_basis @ current_block_coef, 1e-10)
+        w = weights if weights is not None else np.ones(len(y))
+        return ols_normal_equation(X_basis, y / m, weights=w * m / p)
+
+    def _solve_block_mse(self, group, X_basis, fixed, y, weights, cache_qr_decomp, use_svd):
+        """Closed-form OLS for MSE loss, with optional QR cache or SVD backend."""
+        if cache_qr_decomp:
+            if weights is not None:
+                raise NotImplementedError("Weighted least squares with cached QR decomposition is not implemented yet.")
+            if group not in self.qr_decomp_cache_:
+                self.qr_decomp_cache_[group] = np.linalg.qr(X_basis)
+            Q, R = self.qr_decomp_cache_[group]
+            scaled_y = y / self.global_scalar_ / fixed
+            return np.linalg.solve(R, Q.T @ scaled_y)
+
+        mX = self.global_scalar_ * X_basis * fixed[:, None]
+        if use_svd:
+            if weights is not None:
+                raise NotImplementedError("Weighted least squares with SVD is not implemented yet.")
+            return np.linalg.lstsq(mX, y, rcond=None)[0]
+
+        return ols_normal_equation(mX, y, weights=weights)
 
     def _step_regular_group(self, group, data_blocks, block_preds, params_blocks,
                             y, weights, cache_qr_decomp, use_svd):
@@ -185,24 +227,10 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
         X_basis = data_blocks[group]
         fixed = vector_product_numexpr_dict_values(block_preds, exclude=group)
 
-        if not cache_qr_decomp:
-            mX = X_basis * fixed[:, None]
-            if use_svd:
-                if weights is not None:
-                    raise NotImplementedError("Weighted least squares with SVD is not implemented yet.")
-                new_params = np.linalg.lstsq(self.global_scalar_ * mX, y, rcond=None)[0]
-            else:
-                new_params = ols_normal_equation(self.global_scalar_ * mX, y, weights=weights)
+        if self.loss_ == 'poisson':
+            new_params = self._solve_block_poisson(X_basis, fixed, y, weights, params_blocks[group])
         else:
-            if weights is not None:
-                raise NotImplementedError("Weighted least squares with cached QR decomposition is not implemented yet.")
-            if group not in self.qr_decomp_cache_:
-                Q, R = np.linalg.qr(X_basis)
-                self.qr_decomp_cache_[group] = (Q, R)
-            else:
-                Q, R = self.qr_decomp_cache_[group]
-            scaled_y = y / self.global_scalar_ / fixed
-            new_params = np.linalg.solve(R, Q.T @ scaled_y)
+            new_params = self._solve_block_mse(group, X_basis, fixed, y, weights, cache_qr_decomp, use_svd)
 
         mean = self._absorb_block_mean(X_basis @ new_params, weights)
         if not np.isclose(mean, 0):
@@ -335,13 +363,18 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
     # fit (public entry point)
     # ------------------------------------------------------------------
 
+    _VALID_LOSSES = ('mse', 'poisson')
+
     @memorize_fit_args
     def fit( self, X: ProductModelDataContainer, feature_groups: Dict, submodels: Dict=None,
              interactions: Dict=None, interaction_submodels: Dict=None,
              init_params=None, early_stopping_rounds=5, n_iterations=20, force_rounds=5, verbose=1, ftol=1e-5,
-             cache_qr_decomp=False, offset_y=None, use_svd=False, weights=None ):
+             cache_qr_decomp=False, offset_y=None, use_svd=False, weights=None, loss: str = 'mse' ):
 
         # ---- 1) setup model state ----
+        if loss not in self._VALID_LOSSES:
+            raise ValueError(f"Unknown loss '{loss}'. Must be one of {self._VALID_LOSSES}.")
+        self.loss_ = loss
         self._reset_history( cache_qr_decomp=cache_qr_decomp )
         self.feature_groups_ = feature_groups
         self.submodels_ = submodels or {}
