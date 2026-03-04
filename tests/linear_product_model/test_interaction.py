@@ -165,6 +165,25 @@ class TestInteraction(unittest.TestCase):
         self.assertIsInstance(model.coef_['x1'], InteractionCoef)
         self.assertEqual(model.loss_, 'poisson')
 
+        # --- Poisson unbiasedness: weighted mean of fitted ≈ weighted mean of actual ---
+        y_true = df['y'].values
+        wmean_actual = np.average(y_true, weights=weights)
+        wmean_fitted = np.average(preds, weights=weights)
+        rel_err_overall = abs(wmean_fitted - wmean_actual) / wmean_actual
+        print(f"  Overall  weighted mean: actual={wmean_actual:.4f}, fitted={wmean_fitted:.4f}, rel_err={rel_err_overall:.6f}")
+        self.assertLess(rel_err_overall, 1e-4,
+                        f"Overall weighted mean bias too large: {rel_err_overall:.8f}")
+
+        for cat in sorted(df['x2'].unique()):
+            mask = (df['x2'] == cat).values
+            w_cat = weights[mask]
+            wm_actual = np.average(y_true[mask], weights=w_cat)
+            wm_fitted = np.average(preds[mask], weights=w_cat)
+            rel_err = abs(wm_fitted - wm_actual) / wm_actual
+            print(f"  Cat '{cat}' weighted mean: actual={wm_actual:.4f}, fitted={wm_fitted:.4f}, rel_err={rel_err:.8f}")
+            self.assertLess(rel_err, 1e-4,
+                            f"Weighted mean bias for category '{cat}' too large: {rel_err:.8f}")
+
 
 if __name__ == '__main__':
     unittest.main()

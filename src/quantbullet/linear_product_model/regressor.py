@@ -1,4 +1,3 @@
-import copy
 import numpy as np
 import pandas as pd
 import numexpr as ne
@@ -174,13 +173,14 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
             y_c = np.asarray(y)[mask]
             w_c = weights[mask] if weights is not None else None
 
+            fixed_c = fixed[mask]
             if self.loss_ == 'poisson':
-                m_c = np.maximum(self.global_scalar_ * fixed[mask], 1e-10)
+                m_c = np.maximum(self.global_scalar_ * fixed_c, 1e-10)
                 p_c = np.maximum(X_c @ cat_coef, 1e-10)
                 w_base = w_c if w_c is not None else np.ones(mask.sum())
                 new_coef = ols_normal_equation(X_c, y_c / m_c, weights=w_base * m_c / p_c)
             else:
-                mX_c = (self.global_scalar_ * X_basis * fixed[:, None])[mask]
+                mX_c = self.global_scalar_ * X_c * fixed_c[:, None]
                 new_coef = ols_normal_equation(mX_c, y_c, weights=w_c)
 
             cat_pred = X_c @ new_coef
@@ -232,21 +232,32 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
         else:
             new_params = self._solve_block_mse(group, X_basis, fixed, y, weights, cache_qr_decomp, use_svd)
 
-        mean = self._absorb_block_mean(X_basis @ new_params, weights)
+        raw_pred = X_basis @ new_params
+        mean = self._absorb_block_mean(raw_pred, weights)
         if not np.isclose(mean, 0):
             new_params /= mean
+            block_preds[group] = raw_pred / mean
         else:
             print(f"Warning: floating mean is close to zero for feature group {group}. Skipping normalization.")
+            block_preds[group] = raw_pred
 
         params_blocks[group] = new_params
-        block_preds[group] = self.forward(
-            params_blocks={group: new_params},
-            X_blocks={group: data_blocks[group]},
-            ignore_global_scale=True)
 
     # ------------------------------------------------------------------
     # fit — iteration bookkeeping
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _snapshot_params(params_blocks):
+        return {k: v.copy() for k, v in params_blocks.items()}
+
+    @staticmethod
+    def _snapshot_interaction_params(interaction_params):
+        return {
+            parent: {cat: (c.copy() if isinstance(c, np.ndarray) else c)
+                     for cat, c in cats.items()}
+            for parent, cats in interaction_params.items()
+        }
 
     def _record_iteration(self, iteration, n_iterations, block_preds,
                           params_blocks, interaction_params, y, weights, verbose):
@@ -255,14 +266,14 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
         loss = self.loss_function(predictions, y, weights=weights)
 
         self.loss_history_.append(loss)
-        self.coef_history_.append(copy.deepcopy(params_blocks))
-        self.interaction_params_history_.append(copy.deepcopy(interaction_params))
+        self.coef_history_.append(self._snapshot_params(params_blocks))
+        self.interaction_params_history_.append(self._snapshot_interaction_params(interaction_params))
         self.global_scalar_history_.append(self.global_scalar_)
 
         if loss <= self.best_loss_:
             self.best_loss_ = loss
-            self.best_params_ = copy.deepcopy(params_blocks)
-            self.best_interaction_params_ = copy.deepcopy(interaction_params)
+            self.best_params_ = self._snapshot_params(params_blocks)
+            self.best_interaction_params_ = self._snapshot_interaction_params(interaction_params)
             self.best_iteration_ = iteration
 
         if verbose > 0:
@@ -343,7 +354,8 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
         """Store best interaction params as InteractionCoef in coef_."""
         if not self.interactions_:
             return
-        for parent, cat_coefs in copy.deepcopy(self.best_interaction_params_).items():
+        snapshot = self._snapshot_interaction_params(self.best_interaction_params_)
+        for parent, cat_coefs in snapshot.items():
             self.coef_[parent] = InteractionCoef(
                 by=self.interactions_[parent],
                 categories=dict(cat_coefs),
@@ -451,7 +463,7 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
                 print(self._format_convergence_info(self.convergence_info_))
 
         # ---- finalize: restore best iteration ----
-        self.coef_ = copy.deepcopy(self.best_params_)
+        self.coef_ = self._snapshot_params(self.best_params_)
         self.global_scalar_ = self.global_scalar_history_[self.best_iteration_]
         self._store_interaction_coefs()
         self._compute_block_means(data_blocks, X, weights)
