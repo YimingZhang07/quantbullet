@@ -1,8 +1,7 @@
 import numpy as np
 import pandas as pd
-import numexpr as ne
 
-from typing import Dict, List, Optional, Union
+from typing import Dict
 from scipy.optimize import least_squares
 
 from .base import LinearProductModelBCD, LinearProductRegressorBase, InteractionCoef, memorize_fit_args
