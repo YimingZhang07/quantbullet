@@ -8,7 +8,7 @@ from scipy.optimize import least_squares
 from .base import LinearProductModelBCD, LinearProductRegressorBase, InteractionCoef, memorize_fit_args
 from .utils import init_betas_by_response_mean
 from .datacontainer import ProductModelDataContainer
-from ._acceleration import ols_normal_equation, vector_product_numexpr_dict_values
+from ._acceleration import ols_normal_equation, ols_normal_equation_scaled, vector_product_numexpr_dict_values
 
 
 class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelBCD ):
@@ -155,7 +155,8 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
     # ------------------------------------------------------------------
 
     def _step_interaction_group(self, group, data_blocks, block_preds,
-                                interaction_params, interaction_masks, y, weights):
+                                interaction_params, interaction_masks, y, weights,
+                                interaction_data_cache=None):
         """One BCD pass for an interaction group: per-category OLS, normalize, update.
 
         Each category's coefficients are normalized independently to mean 1.
@@ -164,14 +165,23 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
         """
         X_basis = data_blocks[group]
         fixed = vector_product_numexpr_dict_values(block_preds, exclude=group)
+        combined = np.ones(X_basis.shape[0], dtype=float)
 
         for cat_val, cat_coef in interaction_params[group].items():
-            if hasattr(cat_coef, 'predict'):
-                continue
             mask = interaction_masks[group][cat_val]
-            X_c = X_basis[mask]
-            y_c = np.asarray(y)[mask]
-            w_c = weights[mask] if weights is not None else None
+
+            if hasattr(cat_coef, 'predict'):
+                X_c = interaction_data_cache[group][cat_val]['X'] if interaction_data_cache else X_basis[mask]
+                combined[mask] = cat_coef.predict(X_c)
+                continue
+
+            if interaction_data_cache is not None:
+                cached = interaction_data_cache[group][cat_val]
+                X_c, y_c, w_c = cached['X'], cached['y'], cached['w']
+            else:
+                X_c = X_basis[mask]
+                y_c = np.asarray(y)[mask]
+                w_c = weights[mask] if weights is not None else None
 
             fixed_c = fixed[mask]
             if self.loss_ == 'poisson':
@@ -180,17 +190,19 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
                 w_base = w_c if w_c is not None else np.ones(mask.sum())
                 new_coef = ols_normal_equation(X_c, y_c / m_c, weights=w_base * m_c / p_c)
             else:
-                mX_c = self.global_scalar_ * X_c * fixed_c[:, None]
-                new_coef = ols_normal_equation(mX_c, y_c, weights=w_c)
+                new_coef = ols_normal_equation_scaled(
+                    X_c, y_c, self.global_scalar_ * fixed_c, weights=w_c)
 
             cat_pred = X_c @ new_coef
             cat_mean = np.average(cat_pred, weights=w_c) if w_c is not None else np.mean(cat_pred)
             if not np.isclose(cat_mean, 0):
                 new_coef = new_coef / cat_mean
+                combined[mask] = cat_pred / cat_mean
+            else:
+                combined[mask] = cat_pred
             interaction_params[group][cat_val] = new_coef
 
-        block_preds[group] = self._build_interaction_block_pred(
-            group, X_basis, interaction_params, interaction_masks)
+        block_preds[group] = combined
 
     def _solve_block_poisson(self, X_basis, fixed, y, weights, current_block_coef):
         """One IRLS step for Poisson deviance: WLS on implied actual."""
@@ -210,13 +222,14 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
             scaled_y = y / self.global_scalar_ / fixed
             return np.linalg.solve(R, Q.T @ scaled_y)
 
-        mX = self.global_scalar_ * X_basis * fixed[:, None]
         if use_svd:
             if weights is not None:
                 raise NotImplementedError("Weighted least squares with SVD is not implemented yet.")
+            mX = self.global_scalar_ * X_basis * fixed[:, None]
             return np.linalg.lstsq(mX, y, rcond=None)[0]
 
-        return ols_normal_equation(mX, y, weights=weights)
+        return ols_normal_equation_scaled(
+            X_basis, y, self.global_scalar_ * fixed, weights=weights)
 
     def _step_regular_group(self, group, data_blocks, block_preds, params_blocks,
                             y, weights, cache_qr_decomp, use_svd):
@@ -432,13 +445,25 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
         block_preds = self._init_block_preds(
             data_blocks, params_blocks, interaction_params, interaction_masks)
 
+        y_arr = np.asarray(y)
+        interaction_data_cache = {}
+        for group in self.interactions_:
+            interaction_data_cache[group] = {}
+            for cat_val, mask in interaction_masks[group].items():
+                interaction_data_cache[group][cat_val] = {
+                    'X': data_blocks[group][mask],
+                    'y': y_arr[mask],
+                    'w': weights[mask] if weights is not None else None,
+                }
+
         # ---- BCD iterations ----
         self.global_scalar_step_history_.append((0, '_init', self.global_scalar_))
         for i in range(n_iterations):
             for group in feature_groups:
                 if group in self.interactions_:
                     self._step_interaction_group(
-                        group, data_blocks, block_preds, interaction_params, interaction_masks, y, weights)
+                        group, data_blocks, block_preds, interaction_params, interaction_masks, y, weights,
+                        interaction_data_cache=interaction_data_cache)
                 elif group not in self.submodels_:
                     self._step_regular_group(
                         group, data_blocks, block_preds, params_blocks, y, weights, cache_qr_decomp, use_svd)
