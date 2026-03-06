@@ -149,7 +149,7 @@ class LinearProductClassifierBCD( LinearProductClassifierBase, LinearProductMode
         LinearProductModelBCD.__init__(self)
         self.eps = eps
 
-    def loss_function(self, y_hat, y):
+    def loss_function(self, y_hat, y, weights=None):
         return log_loss(y_hat, y)
 
     @memorize_fit_args
@@ -160,9 +160,9 @@ class LinearProductClassifierBCD( LinearProductClassifierBase, LinearProductMode
         
         if init_params is None:
             self.global_scalar_ = np.mean(y)
-            _, params_blocks = self.infer_init_params( init_params, data_blocks, np.ones_like(y) )
+            _, params_blocks = self.infer_init_params(init_params, data_blocks, np.ones_like(y))
         else:
-            _, params_blocks = self.infer_init_params( init_params, data_blocks, y)
+            _, params_blocks = self.infer_init_params(init_params, data_blocks, y)
 
 
         for i in range(n_iterations):

@@ -32,6 +32,29 @@ def ols_normal_equation(X, y, ridge=1e-8, weights=None):
     beta = np.linalg.solve(XtX, Xty)
     return beta
 
+def ols_normal_equation_scaled(X, y, scale, weights=None, ridge=1e-8):
+    """Solve scaled WLS in one pass: min ||sqrt(W) (diag(scale) X beta - y)||^2.
+
+    Equivalent to ``ols_normal_equation(X * scale[:, None], y, weights=weights)``
+    but builds only ONE n×p intermediate instead of two when weights are present.
+    """
+    d = scale ** 2
+    if weights is not None:
+        d = d * weights
+
+    Xw = X * np.sqrt(d)[:, None]
+    XtX = Xw.T @ Xw
+    if ridge > 0:
+        XtX[np.diag_indices_from(XtX)] += ridge
+
+    rhs = scale * y
+    if weights is not None:
+        rhs = rhs * weights
+    Xty = X.T @ rhs
+
+    return np.linalg.solve(XtX, Xty)
+
+
 def vector_product_numexpr_list(arrays: Sequence[np.ndarray]) -> np.ndarray:
     """
     Compute element-wise product of a sequence of vectors using numexpr.
@@ -69,6 +92,7 @@ def vector_product_numexpr_dict_values(
 
     arrays = [v for k, v in data.items() if k not in exclude]
     if not arrays:
-        raise ValueError("No arrays left after exclusion!")
+        ref = next(iter(data.values()))
+        return np.ones(len(ref), dtype=ref.dtype)
 
     return vector_product_numexpr_list(arrays)

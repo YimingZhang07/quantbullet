@@ -20,6 +20,22 @@ class FitMetadata:
     ftol               : float | None = None
     cache_qr_decomp    : bool  | None = None
 
+@dataclass
+class InteractionCoef:
+    """Per-category coefficients for a continuous-by-categorical interaction.
+
+    Each entry in ``categories`` is either an ndarray (OLS-fitted coefficients
+    sharing the same basis/knots) or an object with a ``.predict()`` method
+    (a frozen submodel whose predictions are held constant during BCD).
+
+    Each category's coefficients are independently normalized to mean 1 during
+    BCD, so this block carries only the per-category *shape*.  The per-category
+    *level* is absorbed by a separate categorical feature block for the ``by``
+    variable.
+    """
+    by: str
+    categories: dict         # {cat_val: ndarray | model_with_predict}
+
 def memorize_fit_args(func):
     """Decorator for fit methods to memorize some additional info about the input data X and y."""
     @functools.wraps(func)
@@ -59,15 +75,19 @@ class LinearProductModelBCD(ABC):
         self.loss_history_ = []
         self.best_loss_ = float('inf')
         self.best_params_ = None
+        self.best_interaction_params_ = None
         self.best_iteration_ = None
         self.global_scalar_ = 1.0
         self.global_scalar_history_ = []
+        self.global_scalar_step_history_ = []
+        self.interaction_params_history_ = []
         self.block_means_ = {}
+        self.convergence_info_ = None
         if cache_qr_decomp:
             self.qr_decomp_cache_ = {}
 
     @abstractmethod
-    def loss_function(self, y_hat, y):
+    def loss_function(self, y_hat, y, weights=None):
         pass
     
     @property
@@ -81,23 +101,30 @@ class LinearProductModelBCD(ABC):
         return self._coef_to_coef_dict(self.normalized_coef_)
     
     def _coef_to_coef_dict(self, coef):
-        """Convert coef_ dict to a nested dictionary with feature names."""
+        """Convert coef_ dict to a nested dictionary with feature names.
+
+        Interaction groups (InteractionCoef) are skipped -- they don't have a
+        single coefficient vector that maps 1-to-1 to expanded feature names.
+        """
         if self.feature_groups_ is None:
             raise ValueError("feature_groups_ is not set.")
         coef_dict = {}
         for group, features in self.feature_groups_.items():
-            coef_dict[group] = {features[i]: coef[group][i] for i in range(len(features))}
+            group_coef = coef.get(group)
+            if group_coef is None or isinstance(group_coef, InteractionCoef):
+                continue
+            coef_dict[group] = {features[i]: group_coef[i] for i in range(len(features))}
         return coef_dict
     
     @property
     def bias_one_coef_(self):
-        # assume the first feature in each group is the bias term
         if self.coef_ is None:
             raise ValueError("Model not fitted yet. Please call fit() first.")
         bias_one_coef = {}
         for group, coef in self.coef_.items():
-            bias_coef = coef[0]
-            bias_one_coef[group] = coef / bias_coef
+            if isinstance(coef, InteractionCoef):
+                continue
+            bias_one_coef[group] = coef / coef[0]
         return bias_one_coef
     
     @property
@@ -106,6 +133,8 @@ class LinearProductModelBCD(ABC):
             raise ValueError("Model not fitted yet. Please call fit() first.")
         normalized_coef = {}
         for group, coef in self.coef_.items():
+            if isinstance(coef, InteractionCoef):
+                continue
             block_mean = self.block_means_.get(group)
             normalized_coef[group] = coef / block_mean
         return normalized_coef
@@ -182,13 +211,20 @@ class LinearProductModelBase(ABC):
     
     @property
     def coef_dict(self):
-        """
-        Return the coefficients as a dictionary of dictionaries,
-        where keys are feature group names and values are dictionaries of feature names to coefficients.
+        """Return coefficients as ``{group: {feature_name: value}}``.
+
+        Interaction groups are skipped (use ``coef_[group].categories`` to
+        inspect per-category coefficients).
         """
         if self.feature_groups_ is None:
             raise ValueError("feature_groups_ is not set.")
-        return {group: dict(zip(self.feature_groups_[group], self.coef_[group])) for group in self.feature_groups_}
+        result = {}
+        for group in self.feature_groups_:
+            coef = self.coef_.get(group)
+            if coef is None or isinstance(coef, InteractionCoef):
+                continue
+            result[group] = dict(zip(self.feature_groups_[group], coef))
+        return result
     
     def _coef_dict_to_blocks(self, coef_dict):
         """Convert a dictionary of coefficients to a dictionary of blocks.
@@ -223,51 +259,63 @@ class LinearProductModelBase(ABC):
         return list(self.feature_groups_.keys())
 
     def infer_init_params(self, init_params, X_blocks, y):
-        """
-        Infer initial guess, depending on the type of init_params.
-        If init_params is None, it initializes based on the mean of the response variable.
-        If init_params is a scalar, it initializes all blocks with that value.
+        """Infer initial parameter guess from ``X_blocks`` structure.
+
+        All structural information (block names, per-block dimensions) is
+        derived from ``X_blocks`` directly, so this method has **no hidden
+        dependence** on ``self.feature_groups_``.
 
         Parameters
         ----------
         init_params : None, scalar, or np.ndarray
-            Initial parameters for the model.
-        X_blocks : dict
-            Dictionary of feature blocks, where keys are block names and values are feature matrices.
+            ``None`` → initialise so each block predicts ``mean(y)^(1/n_blocks)``.
+            Scalar  → fill every coefficient with that value.
+            Array   → use as-is (length must match total features).
+        X_blocks : dict[str, np.ndarray]
+            ``{group_name: design_matrix}``.  Keys define block ordering;
+            ``design_matrix.shape[1]`` defines per-block dimensionality.
         y : np.ndarray
-            Response variable for the model.
+            Response variable (used only when ``init_params is None``).
 
         Returns
         -------
-        init_params : np.ndarray
-            Flattened initial parameters for the model.
-        init_params_blocks : dict
-            Dictionary of initial parameters for each block, where keys are block names and values are parameter arrays.
+        flat_params : np.ndarray
+            All block coefficients concatenated in key order.
+        params_blocks : dict[str, np.ndarray]
+            ``{group_name: coefficient_vector}`` (same data, dict form).
         """
+        block_names = list(X_blocks.keys())
+        block_sizes = {key: X_blocks[key].shape[1] for key in block_names}
+        n_features = sum(block_sizes.values())
+
         if init_params is None:
-            # we cannot use 1s as initial parameters anymore, as this leads to >1 predicted values and clipped to 1 for all observations
-            # making it impossible to optimize;
-            # Therefore we initialize a constant value that on average predicts the true probability
             true_mean = np.mean(y)
-            n_blocks = len(self.block_names)
-            block_target = true_mean ** (1 / n_blocks)
-            init_params_blocks = { key: init_betas_by_response_mean(X_blocks[key], block_target) for key in self.block_names }
-            logger.debug(f"Using initial params: {init_params_blocks}")
-            init_params = self.flatten_params(init_params_blocks)
+            block_target = true_mean ** (1 / len(block_names))
+            params_blocks = {
+                key: init_betas_by_response_mean(X_blocks[key], block_target)
+                for key in block_names
+            }
+            logger.debug(f"Using initial params: {params_blocks}")
+        elif np.isscalar(init_params):
+            params_blocks = {
+                key: np.full(block_sizes[key], float(init_params), dtype=float)
+                for key in block_names
+            }
+        elif isinstance(init_params, np.ndarray):
+            if len(init_params) != n_features:
+                raise ValueError(
+                    f"init_params length {len(init_params)} does not match "
+                    f"number of features {n_features}.")
+            init_params = np.asarray(init_params, dtype=float)
+            params_blocks, start = {}, 0
+            for key in block_names:
+                params_blocks[key] = init_params[start: start + block_sizes[key]]
+                start += block_sizes[key]
         else:
-            if np.isscalar(init_params):
-                init_params_blocks = { key: np.full(len(self.feature_groups_[key]), float(init_params), dtype=float) for key in self.block_names }
-                init_params = self.flatten_params(init_params_blocks)
-            elif isinstance(init_params, np.ndarray):
-                if len(init_params) != self.n_features:
-                    raise ValueError(f"init_params length {len(init_params)} does not match number of features {self.n_features}.")
-                else:
-                    init_params = np.asarray(init_params, dtype=float)
-                    init_params_blocks = self.unflatten_params(init_params)
-            else:
-                raise ValueError("init_params must be None, a numpy array, or a scalar.")
-            
-        return init_params, init_params_blocks
+            raise ValueError("init_params must be None, a numpy array, or a scalar.")
+
+        flat_params = np.concatenate([params_blocks[key] for key in block_names])
+        return flat_params, params_blocks
 
     def leave_out_feature_group_predict( self, group_to_exclude, X : ProductModelDataContainer | pd.DataFrame, params_dict = None, ignore_global_scale=False ):
         """Predict the product of all other feature groups except the one specified."""
@@ -367,8 +415,45 @@ class LinearProductModelBase(ABC):
 class LinearProductRegressorBase(LinearProductModelBase):
     def __init__(self):
         super().__init__()
-        # we will allow a constant offset to the response variable
         self.offset_y = None
+
+    def _predict_group(self, group, X_block, cat_series=None):
+        """Predict one group's multiplicative contribution.
+
+        Dispatches based on the type stored in ``coef_[group]``:
+        - ``np.ndarray``: standard linear ``X_block @ coef``
+        - ``InteractionCoef``: per-category prediction assembled via masking
+        - Submodel (in ``submodels_``): ``submodel.predict(X_block)``
+
+        Parameters
+        ----------
+        group : str
+        X_block : np.ndarray
+            Design matrix for this group (n_obs, n_basis).
+        cat_series : array-like, optional
+            Categorical column values.  Required when ``coef_[group]`` is an
+            ``InteractionCoef``.
+        """
+        coef = self.coef_[group]
+        if isinstance(coef, InteractionCoef):
+            if cat_series is None:
+                raise ValueError(
+                    f"cat_series is required for interaction group '{group}' "
+                    f"(interaction by '{coef.by}')"
+                )
+            pred = np.ones(X_block.shape[0], dtype=float)
+            for cat_val, cat_coef in coef.categories.items():
+                mask = (cat_series == cat_val)
+                if hasattr(mask, 'values'):
+                    mask = mask.values
+                if hasattr(cat_coef, 'predict'):
+                    pred[mask] = cat_coef.predict(X_block[mask])
+                else:
+                    pred[mask] = X_block[mask] @ cat_coef
+            return pred
+        if hasattr(self, 'submodels_') and group in self.submodels_:
+            return self.submodels_[group].predict(X_block)
+        return np.dot(X_block, coef)
         
     def calculate_feature_group_se( self, feature_group, X, y ):
         """Calculate the standard error of the coefficients for a specific feature group."""

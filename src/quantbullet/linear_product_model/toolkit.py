@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 # ===== Third-Party Imports =====
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 from sklearn.preprocessing import OneHotEncoder
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Table, TableStyle
 from reportlab.lib.pagesizes import landscape, letter
@@ -235,26 +236,36 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         model,
         dcontainer: ProductModelDataContainer,
         sample_frac: float = 1,
+        sample_weights: np.ndarray | None = None,
     ) -> dict[str, pd.DataFrame]:
-        """Compute per-feature observation-level implied-actual data.
+        """Compute per-observation raw data for implied-actual diagnostics.
 
-        For each numerical feature block *f*, the implied actual is
-        ``y / (global_scalar * prod(other blocks))``, i.e. what this block
-        "should" output given the response and all other blocks.
+        For each numerical feature block *j*, stores the building blocks
+        needed to compute the binned implied actual downstream:
 
-        Returns
-        -------
-        dict[str, pd.DataFrame]
-            Keyed by feature name.  Each DataFrame has columns:
-            ``feature_value, implied_actual, model_pred, weight``.
+        - ``y`` : response (offset-adjusted)
+        - ``m`` : ``global_scalar * prod(other blocks)`` — everything except block *j*
+        - ``model_pred`` : block prediction ``X @ beta`` (incl. A/E scalar for interactions)
+        - ``w`` : sample weight (1.0 when not provided)
+        - ``feature_value`` : original feature value for this block
+
+        The actual implied-actual quantity (a binned ratio) is computed in
+        ``_aggregate_implied_data``, not here.
+
+        For interaction features the result is split by category: keys are
+        ``"feature|by_var=cat_val"``.
         """
+        from .base import InteractionCoef
+
         if dcontainer.response is None:
             raise ValueError("ProductModelDataContainer.response must be provided.")
 
         dc = dcontainer.sample(sample_frac) if sample_frac < 1 else dcontainer
-        y = dc.response
+        y = np.asarray(dc.response, dtype=float)
         if hasattr(model, 'offset_y') and model.offset_y is not None:
             y = y + model.offset_y
+
+        w = np.asarray(sample_weights, dtype=float).ravel() if sample_weights is not None else np.ones(len(y))
 
         block_preds = {
             feat: model.single_feature_group_predict(feat, dc, ignore_global_scale=True)
@@ -263,15 +274,36 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
 
         result: dict[str, pd.DataFrame] = {}
         for feature in self.numerical_feature_groups:
-            other_preds = model.global_scalar_ * vector_product_numexpr_dict_values(
+            m = model.global_scalar_ * vector_product_numexpr_dict_values(
                 data=block_preds, exclude=feature,
             )
-            result[feature] = pd.DataFrame({
-                'feature_value': dc.orig[feature].values,
-                'implied_actual': y / other_preds,
-                'model_pred': block_preds[feature],
-                'weight': other_preds,
-            })
+
+            coef = model.coef_.get(feature)
+            if isinstance(coef, InteractionCoef):
+                cat_series = dc.orig[coef.by]
+                X_block = dc.get_expanded_array_for_feature_group(feature)
+                for cat_val, cat_coef in coef.categories.items():
+                    mask = (cat_series == cat_val).values
+                    if hasattr(cat_coef, 'predict'):
+                        pred = cat_coef.predict(X_block[mask])
+                    else:
+                        pred = X_block[mask] @ cat_coef
+                    key = f"{feature}|{coef.by}={cat_val}"
+                    result[key] = pd.DataFrame({
+                        'feature_value': dc.orig[feature].values[mask],
+                        'y': y[mask],
+                        'm': m[mask],
+                        'model_pred': pred,
+                        'w': w[mask],
+                    })
+            else:
+                result[feature] = pd.DataFrame({
+                    'feature_value': dc.orig[feature].values,
+                    'y': y,
+                    'm': m,
+                    'model_pred': block_preds[feature],
+                    'w': w,
+                })
         return result
 
     def _aggregate_implied_data(
@@ -279,9 +311,20 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         raw_data: dict[str, pd.DataFrame],
         bin_config: dict,
         n_quantile_groups: int,
-        agg_method: str,
+        loss: str = 'mse',
     ) -> dict[str, pd.DataFrame]:
-        """Bin and aggregate per-feature implied-actual data.
+        """Bin and aggregate per-feature data into implied actuals.
+
+        Each observation carries ``y``, ``m`` (other blocks incl. scalar),
+        ``w`` (sample weight), and ``model_pred`` (block prediction ``p``).
+
+        The **implied actual** is a FOC-consistent binned ratio whose formula
+        depends on the loss function used during fitting:
+
+        ``'mse'``:
+            ``sum(w·m·y) / sum(w·m²)`` — from the MSE normal equations.
+        ``'poisson'``:
+            ``sum(w·y/p) / sum(w·m/p)`` — from the Poisson deviance FOC.
 
         Returns
         -------
@@ -292,40 +335,44 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         per_feature: dict[str, pd.DataFrame] = {}
 
         for feature, df in raw_data.items():
+            parent_feature = feature.split('|')[0] if '|' in feature else feature
             bin_vals = self._bin_feature_values(
-                df['feature_value'], bin_config.get(feature), n_quantile_groups,
+                df['feature_value'],
+                bin_config.get(feature, bin_config.get(parent_feature)),
+                n_quantile_groups,
             )
 
-            if agg_method == 'weighted':
-                y_orig = df['implied_actual'] * df['weight']
-                agg = pd.DataFrame({
-                    'bin_val': bin_vals,
-                    '_y_orig': y_orig,
-                    '_weight': df['weight'],
-                    'model_pred': df['model_pred'],
-                }).groupby('bin_val', observed=True).agg(
-                    _sum_y=('_y_orig', 'sum'),
-                    _sum_w=('_weight', 'sum'),
-                    model_pred=('model_pred', 'mean'),
-                    count=('_y_orig', 'count'),
-                ).reset_index()
-                agg['implied_actual'] = np.where(
-                    np.isclose(agg['_sum_w'], 0), 0,
-                    agg['_sum_y'] / agg['_sum_w'],
-                )
-                agg = agg.drop(columns=['_sum_y', '_sum_w'])
-            elif agg_method == 'simple':
-                agg = pd.DataFrame({
-                    'bin_val': bin_vals,
-                    'implied_actual': df['implied_actual'],
-                    'model_pred': df['model_pred'],
-                }).groupby('bin_val', observed=True).agg(
-                    implied_actual=('implied_actual', 'mean'),
-                    model_pred=('model_pred', 'mean'),
-                    count=('implied_actual', 'count'),
-                ).reset_index()
+            y = df['y'].values
+            m = df['m'].values
+            w = df['w'].values
+            p = df['model_pred'].values
+
+            if loss == 'mse':
+                numer = w * m * y
+                denom = w * m ** 2
+            elif loss == 'poisson':
+                p_safe = np.maximum(p, 1e-10)
+                numer = w * y / p_safe
+                denom = w * m / p_safe
             else:
-                raise ValueError(f"Unknown agg_method: {agg_method}")
+                raise ValueError(f"Unknown loss '{loss}'.")
+
+            agg = pd.DataFrame({
+                'bin_val': bin_vals,
+                '_numer': numer,
+                '_denom': denom,
+                'model_pred': p,
+            }).groupby('bin_val', observed=True).agg(
+                _sum_numer=('_numer', 'sum'),
+                _sum_denom=('_denom', 'sum'),
+                model_pred=('model_pred', 'mean'),
+                count=('_numer', 'count'),
+            ).reset_index()
+            agg['implied_actual'] = np.where(
+                np.isclose(agg['_sum_denom'], 0), 0,
+                agg['_sum_numer'] / agg['_sum_denom'],
+            )
+            agg.drop(columns=['_sum_numer', '_sum_denom'], inplace=True)
 
             agg['feature_name'] = feature
             per_feature[feature] = agg
@@ -336,8 +383,8 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         self,
         model,
         dcontainer: ProductModelDataContainer,
-        agg_method: str = 'weighted',
         sample_frac: float = 1,
+        sample_weights: np.ndarray | None = None,
         n_quantile_groups: int = 100,
         bin_config: dict | None = None,
         min_count: int = 0,
@@ -346,22 +393,26 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         lowess_frac: float = 0.3,
         n_cols: int = 3,
         figsize: tuple = (5, 4),
-        min_scatter_size: int = 10,
-        max_scatter_size: int = 500,
+        min_size: int = 20,
+        max_size: int = 100,
     ):
         """Plot implied actuals vs model predictions for each numerical feature.
 
-        For each feature block in a multiplicative model, the implied actual
-        is ``y / (global_scalar * product_of_other_blocks)`` -- i.e. what this
-        block "should" output given the response and all other blocks.
+        The implied actual per bin is a FOC-consistent ratio that depends on
+        the loss function used during fitting (auto-detected from ``model.loss_``):
+
+        - MSE: ``sum(w·m·y) / sum(w·m²)``
+        - Poisson: ``sum(w·y/p) / sum(w·m/p)``
+
+        where *m* is the product of all other blocks (incl. scalar),
+        *w* is the sample weight, and *p* is the block prediction.
 
         Parameters
         ----------
-        agg_method : str
-            ``'weighted'`` (default): sum(y) / sum(m) per bin -- a ratio of
-            totals that down-weights noisy individual observations.
-            ``'simple'``: mean(y/m) per bin -- unweighted average of
-            individual implied-actual ratios.
+        sample_weights : np.ndarray, optional
+            Per-observation weights (same as passed to ``model.fit()``).
+            When provided the binned implied actuals reflect the same
+            weighting the model was fitted with.
         bin_config : dict, optional
             Per-feature binning overrides, merged with
             ``self.implied_actual_bin_config``.  Values can be:
@@ -383,10 +434,11 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
             Smaller values follow the data more tightly; larger values
             produce a smoother reference.
         """
-        raw_data = self.compute_implied_actual_data(model, dcontainer, sample_frac)
+        raw_data = self.compute_implied_actual_data(model, dcontainer, sample_frac, sample_weights)
         effective_config = {**self.implied_actual_bin_config, **(bin_config or {})}
+        loss = getattr(model, 'loss_', 'mse')
         per_feature = self._aggregate_implied_data(
-            raw_data, effective_config, n_quantile_groups, agg_method,
+            raw_data, effective_config, n_quantile_groups, loss=loss,
         )
 
         data_caches = {}
@@ -409,7 +461,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
 
             sizes = scale_scatter_sizes(
                 show['count'],
-                min_size=min_scatter_size, max_size=max_scatter_size,
+                min_size=min_size, max_size=max_size,
                 global_min=global_min_count, global_max=global_max_count,
             )
             ax.scatter(
@@ -449,56 +501,60 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         self.implied_actual_plot_axes = axes
         return fig, axes
 
-    def plot_categorical_plots( self, model: LinearProductModelBase, dcontainer: ProductModelDataContainer, sample_frac=1, hspace=0.4, wspace=0.3, agg_method:str='weighted' ):
-        if hasattr( model, 'offset_y') and getattr( model, 'offset_y') is not None:
-            y = dcontainer.response + getattr( model, 'offset_y')
+    def plot_categorical_plots( self, model: LinearProductModelBase, dcontainer: ProductModelDataContainer,
+                                sample_frac=1, sample_weights: np.ndarray | None = None,
+                                hspace=0.4, wspace=0.3 ):
 
         n_features = len( self.categorical_feature_groups )
         fig, axes = get_grid_fig_axes( n_charts=n_features, n_cols=3 )
         fig.subplots_adjust(hspace=hspace, wspace=wspace)
         dcontainer_sample = dcontainer.sample(sample_frac) if sample_frac < 1 else dcontainer
         X_sample = dcontainer_sample
-        y_sample = dcontainer_sample.response
+        y_sample = np.asarray(dcontainer_sample.response, dtype=float)
+        if hasattr(model, 'offset_y') and model.offset_y is not None:
+            y_sample = y_sample + model.offset_y
+
+        w = np.asarray(sample_weights, dtype=float).ravel() if sample_weights is not None else np.ones(len(y_sample))
+        loss = getattr(model, 'loss_', 'mse')
 
         block_preds = { feature: model.single_feature_group_predict( feature, X_sample, ignore_global_scale=True ) for feature in self.feature_groups_.keys() }
         for i, (feature, subfeatures) in enumerate(self.categorical_feature_groups.items()):
             ax = axes[i]
-            other_blocks_preds = model.global_scalar_ * vector_product_numexpr_dict_values( data=block_preds, exclude=feature )
-            this_feature_preds = block_preds[ feature ]
+            m = model.global_scalar_ * vector_product_numexpr_dict_values( data=block_preds, exclude=feature )
+            p = block_preds[ feature ]
+
+            if loss == 'mse':
+                numer = w * m * y_sample
+                denom = w * m ** 2
+            elif loss == 'poisson':
+                p_safe = np.maximum(p, 1e-10)
+                numer = w * y_sample / p_safe
+                denom = w * m / p_safe
+            else:
+                raise ValueError(f"Unknown loss '{loss}'.")
 
             binned_df = pd.DataFrame({
                 "feature_bin": X_sample.orig[feature],
-                "feature_pred": this_feature_preds,
-                "y": y_sample,
-                "m": other_blocks_preds,
+                "feature_pred": p,
+                "_numer": numer,
+                "_denom": denom,
             })
-
-            if agg_method == 'simple':
-                implied_actual = y_sample / other_blocks_preds
-                binned_df['implied_actual'] = implied_actual
-                agg_df = binned_df.groupby( 'feature_bin', observed=False ).agg(
-                    implied_actual_mean         = ('implied_actual', 'mean'),
-                    this_feature_preds_mean     = ('feature_pred', 'mean'),
-                    count                       = ('implied_actual', 'count')
+            agg_df = (
+                binned_df.groupby("feature_bin", observed=False)
+                .agg(
+                    _sum_numer=("_numer", "sum"),
+                    _sum_denom=("_denom", "sum"),
+                    count=("_numer", "count"),
+                    this_feature_preds_mean=("feature_pred", "mean"),
                 )
-            elif agg_method == 'weighted':
-                agg_df = (
-                    binned_df.groupby("feature_bin", observed=False)
-                    .agg(
-                        sum_y=("y", "sum"),
-                        sum_m=("m", "sum"),
-                        count=("y", "count"),
-                        this_feature_preds_mean=("feature_pred", "mean"),
-                    )
-                    .reset_index()
-                    .set_index("feature_bin")
-                )
-                agg_df["implied_actual_mean"] = np.where(
-                    np.isclose(agg_df["sum_m"], 0), 0, agg_df["sum_y"] / agg_df["sum_m"]
-                )
-                agg_df.drop(columns=["sum_y", "sum_m"], inplace=True)
-            else:
-                raise ValueError(f"Unknown agg_method: {agg_method}")
+                .reset_index()
+                .set_index("feature_bin")
+            )
+            agg_df["implied_actual_mean"] = np.where(
+                np.isclose(agg_df["_sum_denom"], 0), 0,
+                agg_df["_sum_numer"] / agg_df["_sum_denom"],
+            )
+            agg_df.drop(columns=["_sum_numer", "_sum_denom"], inplace=True)
 
             # plot bar chart for each feature bin
             x = np.arange(len(agg_df.index))  # numeric positions
@@ -524,6 +580,92 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
 
         close_unused_axes( axes )
         self.categorical_plot_axes = axes
+        return fig, axes
+
+    @staticmethod
+    def plot_convergence_diagnostics(
+        model: 'LinearProductModelBase',
+        figsize: tuple = (14, 9),
+    ):
+        """Plot a 2x2 convergence dashboard for a fitted multiplicative model.
+
+        Panels
+        ------
+        (0, 0) Loss curve over BCD iterations.
+        (0, 1) Absolute iteration-over-iteration loss change (log scale).
+        (1, 0) Global scalar at the end of each iteration.
+        (1, 1) Global scalar step-level trace — one marker per feature-group
+               update, with vertical lines separating iterations.
+
+        Parameters
+        ----------
+        model : LinearProductModelBase
+            A fitted model that exposes ``loss_history_``,
+            ``global_scalar_history_``, and ``global_scalar_step_history_``.
+        figsize : tuple
+            Figure size passed to ``plt.subplots``.
+
+        Returns
+        -------
+        fig, axes
+        """
+        loss_hist = model.loss_history_
+        scalar_hist = model.global_scalar_history_
+        iters = np.arange(1, len(loss_hist) + 1)
+
+        fig, axes = plt.subplots(2, 2, figsize=figsize)
+
+        # — loss curve —
+        axes[0, 0].plot(iters, loss_hist, marker='o', markersize=4, linewidth=1.5)
+        axes[0, 0].set_xlabel('Iteration')
+        axes[0, 0].set_ylabel('MSE Loss')
+        axes[0, 0].set_title('Loss History')
+        axes[0, 0].ticklabel_format(axis='y', style='sci', scilimits=(-2, 2))
+
+        # — iteration-over-iteration loss change —
+        if len(loss_hist) > 1:
+            deltas = np.abs(np.diff(loss_hist))
+            axes[0, 1].plot(iters[1:], deltas, marker='o', markersize=4,
+                            linewidth=1.5, color='tab:orange')
+            axes[0, 1].set_yscale('log')
+            axes[0, 1].set_xlabel('Iteration')
+            axes[0, 1].set_ylabel('|ΔLoss|')
+            axes[0, 1].set_title('Loss Change per Iteration')
+
+        # — global scalar per iteration —
+        axes[1, 0].plot(iters, scalar_hist, marker='o', markersize=4,
+                        linewidth=1.5, color='tab:green')
+        axes[1, 0].set_xlabel('Iteration')
+        axes[1, 0].set_ylabel('Global Scalar')
+        axes[1, 0].set_title('Global Scalar (end of iteration)')
+
+        # — global scalar step-level trace —
+        step_hist = model.global_scalar_step_history_
+        step_iters  = [s[0] for s in step_hist]
+        step_groups = [s[1] for s in step_hist]
+        step_values = [s[2] for s in step_hist]
+
+        unique_groups = list(dict.fromkeys(step_groups))
+        color_map = {g: plt.cm.tab10(i) for i, g in enumerate(unique_groups)}
+
+        ax = axes[1, 1]
+        for i, (it, grp, val) in enumerate(step_hist):
+            ax.plot(i, val, marker='o', markersize=5, color=color_map[grp])
+        ax.plot(range(len(step_values)), step_values,
+                linewidth=0.8, color='grey', alpha=0.5, zorder=0)
+
+        for i in range(1, len(step_hist)):
+            if step_iters[i] != step_iters[i - 1]:
+                ax.axvline(x=i, color='lightgrey', linestyle='--', linewidth=0.7)
+
+        for g in unique_groups:
+            ax.plot([], [], marker='o', linestyle='None', color=color_map[g], label=g)
+        ax.legend(fontsize=8, loc='best', ncol=max(1, len(unique_groups) // 4))
+        ax.set_xlabel('Step')
+        ax.set_ylabel('Global Scalar')
+        ax.set_title('Global Scalar (per-group step trace)')
+
+        fig.tight_layout()
         return fig, axes
 
     def generate_fitting_summary_pdf( self, model: LinearProductModelBase, report_name='Model-Report' ):
