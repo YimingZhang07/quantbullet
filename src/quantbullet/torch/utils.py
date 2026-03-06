@@ -61,8 +61,11 @@ def train_model_lbfgs(
             lr=1.0,
         )
     """
+    trainable = [p for p in model.parameters() if p.requires_grad]
+    if not trainable:
+        raise ValueError("No trainable parameters found. Did you forget to unfreeze?")
     opt = torch.optim.LBFGS(
-        model.parameters(),
+        trainable,
         lr=lr,
         max_iter=max_iter,
         line_search_fn="strong_wolfe",
