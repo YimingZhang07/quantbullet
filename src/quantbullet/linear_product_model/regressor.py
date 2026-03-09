@@ -1,155 +1,573 @@
-import copy
 import numpy as np
 import pandas as pd
-import numexpr as ne
 
-from typing import Dict, List, Optional, Union
+from typing import Dict
 from scipy.optimize import least_squares
 
-from .base import LinearProductModelBCD, LinearProductRegressorBase, memorize_fit_args
+from .base import LinearProductModelBCD, LinearProductRegressorBase, InteractionCoef, memorize_fit_args
+from .utils import init_betas_by_response_mean
 from .datacontainer import ProductModelDataContainer
-from ._acceleration import ols_normal_equation, vector_product_numexpr_dict_values
+from ._acceleration import ols_normal_equation, ols_normal_equation_scaled, vector_product_numexpr_dict_values
+
 
 class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelBCD ):
     def __init__(self):
         LinearProductRegressorBase.__init__(self)
         LinearProductModelBCD.__init__(self)
-        self._mX_buffer = None
+        self.interactions_ = {}
 
-    def loss_function(self, y_hat, y):
-        return np.mean((y - y_hat) ** 2)
+    def loss_function(self, y_hat, y, weights=None):
+        loss_type = getattr(self, 'loss_', 'mse')
+
+        if loss_type == 'mse':
+            per_obs = (y - y_hat) ** 2
+        elif loss_type == 'poisson':
+            y_safe = np.maximum(y, 1e-10)
+            yhat_safe = np.maximum(y_hat, 1e-10)
+            per_obs = 2 * (y_safe * np.log(y_safe / yhat_safe) - (y - y_hat))
+        else:
+            raise ValueError(f"Unknown loss type: {loss_type}")
+
+        if weights is not None:
+            return np.average(per_obs, weights=weights)
+        return np.mean(per_obs)
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _build_interaction_block_pred(self, group, data_block, interaction_params, masks):
+        """Assemble the combined prediction vector for an interaction group.
+
+        Parameters
+        ----------
+        group : str
+            Feature group name that has an interaction, e.g. ``'x1'``.
+        data_block : np.ndarray, shape ``(n_obs, n_basis)``
+            Expanded basis matrix for this group (e.g. FlatRampTransformer
+            output).  Every row is one observation; columns are the knot-basis
+            features.  All observations are present — masking by category
+            happens inside this method.
+        interaction_params : dict[str, dict[Any, np.ndarray | model]]
+            Nested dict ``{group: {cat_val: coef}}``.
+            ``coef`` is either an ``np.ndarray`` of shape ``(n_basis,)`` (OLS
+            coefficients for that category) or a frozen submodel with a
+            ``.predict()`` method.
+        masks : dict[str, dict[Any, np.ndarray]]
+            Nested dict ``{group: {cat_val: bool_mask}}``.
+            ``bool_mask`` is a boolean array of shape ``(n_obs,)`` — True for
+            observations belonging to that category.  The masks across
+            categories are mutually exclusive and collectively exhaustive.
+
+        Returns
+        -------
+        np.ndarray, shape ``(n_obs,)``
+            Per-observation prediction for this block.  Observation *i* gets
+            ``data_block[i] @ coef_c`` where *c* is its category.
+        """
+        combined = np.ones(data_block.shape[0], dtype=float)
+        for cat_val, cat_coef in interaction_params[group].items():
+            m = masks[group][cat_val]
+            if hasattr(cat_coef, 'predict'):
+                combined[m] = cat_coef.predict(data_block[m])
+            else:
+                combined[m] = data_block[m] @ cat_coef
+        return combined
+
+    def _absorb_block_mean(self, block_pred, weights=None):
+        """Compute (weighted) mean of *block_pred*; if non-zero, absorb into ``global_scalar_``.
+
+        Returns the mean so the caller can decide whether to divide params.
+        """
+        mean = np.average(block_pred, weights=weights) if weights is not None else np.mean(block_pred)
+        if not np.isclose(mean, 0):
+            self.global_scalar_ *= mean
+        return mean
+
+    def _resolve_blocks_and_orig(self, X):
+        """Dispatch X type → (orig_df, get_block_fn)."""
+        if isinstance(X, ProductModelDataContainer):
+            return X.orig, X.get_expanded_array_for_feature_group
+        elif isinstance(X, pd.DataFrame):
+            return X, lambda g: X[self.feature_groups_[g]].values
+        raise ValueError("Invalid input type. Expected ProductModelDataContainer or pd.DataFrame.")
+
+    # ------------------------------------------------------------------
+    # fit — initialisation helpers
+    # ------------------------------------------------------------------
+
+    def _init_interactions(self, orig_df, data_blocks, feature_groups, interaction_submodels):
+        """Build ``interaction_masks`` and ``interaction_params`` from raw categorical columns."""
+        interaction_masks = {}
+        interaction_params = {}
+        for parent, cat_var in self.interactions_.items():
+            if parent not in feature_groups:
+                raise ValueError(f"Interaction parent '{parent}' not found in feature_groups.")
+            categories = sorted(orig_df[cat_var].dropna().unique(), key=str)
+            parent_subs = interaction_submodels.get(parent, {})
+            interaction_masks[parent] = {}
+            interaction_params[parent] = {}
+            for cat_val in categories:
+                interaction_masks[parent][cat_val] = (orig_df[cat_var] == cat_val).values
+                if cat_val in parent_subs:
+                    interaction_params[parent][cat_val] = parent_subs[cat_val]
+                else:
+                    interaction_params[parent][cat_val] = init_betas_by_response_mean(data_blocks[parent], 1.0)
+        return interaction_masks, interaction_params
+
+    def _init_global_scalar(self, y, init_params, weights=None):
+        """Initialize the model-level scalar before block-level parameter inference.
+
+        For default initialization (``init_params is None``), block params are inferred
+        around a unit target, so the response level is carried by ``global_scalar_``.
+        """
+        if init_params is None:
+            self.global_scalar_ = np.average(y, weights=weights) if weights is not None else np.mean(y)
+
+    def _infer_regular_params(self, feature_groups, data_blocks, y, init_params):
+        """Infer coefficient vectors for regular (non-interaction) groups."""
+        regular_data = {
+            group: data_blocks[group]
+            for group in feature_groups
+            if group not in self.interactions_
+        }
+        target_y = np.ones_like(y, dtype=float) if init_params is None else y
+        _, params_blocks = self.infer_init_params(init_params, regular_data, target_y)
+        return params_blocks
+
+    def _init_block_preds(self, data_blocks, params_blocks, interaction_params, interaction_masks):
+        """Compute initial single-block predictions for every group."""
+        block_preds = {}
+        for key in self.feature_groups_:
+            if key in self.interactions_:
+                block_preds[key] = self._build_interaction_block_pred(
+                    key, data_blocks[key], interaction_params, interaction_masks)
+            else:
+                block_preds[key] = self.forward(
+                    params_blocks={key: params_blocks[key]},
+                    X_blocks={key: data_blocks[key]},
+                    ignore_global_scale=True)
+        return block_preds
+
+    # ------------------------------------------------------------------
+    # fit — BCD step methods
+    # ------------------------------------------------------------------
+
+    def _step_interaction_group(self, group, data_blocks, block_preds,
+                                interaction_params, interaction_masks, y, weights,
+                                interaction_data_cache=None):
+        """One BCD pass for an interaction group: per-category OLS, normalize, update.
+
+        Each category's coefficients are normalized independently to mean 1.
+        The per-category level differences are left for the categorical block
+        to absorb — ``global_scalar_`` is NOT modified here.
+        """
+        X_basis = data_blocks[group]
+        fixed = vector_product_numexpr_dict_values(block_preds, exclude=group)
+        combined = np.ones(X_basis.shape[0], dtype=float)
+
+        for cat_val, cat_coef in interaction_params[group].items():
+            mask = interaction_masks[group][cat_val]
+
+            if hasattr(cat_coef, 'predict'):
+                X_c = interaction_data_cache[group][cat_val]['X'] if interaction_data_cache else X_basis[mask]
+                combined[mask] = cat_coef.predict(X_c)
+                continue
+
+            if interaction_data_cache is not None:
+                cached = interaction_data_cache[group][cat_val]
+                X_c, y_c, w_c = cached['X'], cached['y'], cached['w']
+            else:
+                X_c = X_basis[mask]
+                y_c = np.asarray(y)[mask]
+                w_c = weights[mask] if weights is not None else None
+
+            fixed_c = fixed[mask]
+            if self.loss_ == 'poisson':
+                m_c = np.maximum(self.global_scalar_ * fixed_c, 1e-10)
+                p_c = np.maximum(X_c @ cat_coef, 1e-10)
+                w_base = w_c if w_c is not None else np.ones(mask.sum())
+                new_coef = ols_normal_equation(X_c, y_c / m_c, weights=w_base * m_c / p_c)
+            else:
+                new_coef = ols_normal_equation_scaled(
+                    X_c, y_c, self.global_scalar_ * fixed_c, weights=w_c)
+
+            cat_pred = X_c @ new_coef
+            cat_mean = np.average(cat_pred, weights=w_c) if w_c is not None else np.mean(cat_pred)
+            if not np.isclose(cat_mean, 0):
+                new_coef = new_coef / cat_mean
+                combined[mask] = cat_pred / cat_mean
+            else:
+                combined[mask] = cat_pred
+            interaction_params[group][cat_val] = new_coef
+
+        block_preds[group] = combined
+
+    def _solve_block_poisson(self, X_basis, fixed, y, weights, current_block_coef):
+        """One IRLS step for Poisson deviance: WLS on implied actual."""
+        m = np.maximum(self.global_scalar_ * fixed, 1e-10)
+        p = np.maximum(X_basis @ current_block_coef, 1e-10)
+        w = weights if weights is not None else np.ones(len(y))
+        return ols_normal_equation(X_basis, y / m, weights=w * m / p)
+
+    def _solve_block_mse(self, group, X_basis, fixed, y, weights, cache_qr_decomp, use_svd):
+        """Closed-form OLS for MSE loss, with optional QR cache or SVD backend."""
+        if cache_qr_decomp:
+            if weights is not None:
+                raise NotImplementedError("Weighted least squares with cached QR decomposition is not implemented yet.")
+            if group not in self.qr_decomp_cache_:
+                self.qr_decomp_cache_[group] = np.linalg.qr(X_basis)
+            Q, R = self.qr_decomp_cache_[group]
+            scaled_y = y / self.global_scalar_ / fixed
+            return np.linalg.solve(R, Q.T @ scaled_y)
+
+        if use_svd:
+            if weights is not None:
+                raise NotImplementedError("Weighted least squares with SVD is not implemented yet.")
+            mX = self.global_scalar_ * X_basis * fixed[:, None]
+            return np.linalg.lstsq(mX, y, rcond=None)[0]
+
+        return ols_normal_equation_scaled(
+            X_basis, y, self.global_scalar_ * fixed, weights=weights)
+
+    def _step_regular_group(self, group, data_blocks, block_preds, params_blocks,
+                            y, weights, cache_qr_decomp, use_svd):
+        """One BCD pass for a regular group: OLS, normalize, update.
+
+        Mutates *params_blocks*, *block_preds*, and ``self.global_scalar_`` in place.
+        """
+        X_basis = data_blocks[group]
+        fixed = vector_product_numexpr_dict_values(block_preds, exclude=group)
+
+        if self.loss_ == 'poisson':
+            new_params = self._solve_block_poisson(X_basis, fixed, y, weights, params_blocks[group])
+        else:
+            new_params = self._solve_block_mse(group, X_basis, fixed, y, weights, cache_qr_decomp, use_svd)
+
+        raw_pred = X_basis @ new_params
+        mean = self._absorb_block_mean(raw_pred, weights)
+        if not np.isclose(mean, 0):
+            new_params /= mean
+            block_preds[group] = raw_pred / mean
+        else:
+            print(f"Warning: floating mean is close to zero for feature group {group}. Skipping normalization.")
+            block_preds[group] = raw_pred
+
+        params_blocks[group] = new_params
+
+    # ------------------------------------------------------------------
+    # fit — iteration bookkeeping
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _snapshot_params(params_blocks):
+        return {k: v.copy() for k, v in params_blocks.items()}
+
+    @staticmethod
+    def _snapshot_interaction_params(interaction_params):
+        return {
+            parent: {cat: (c.copy() if isinstance(c, np.ndarray) else c)
+                     for cat, c in cats.items()}
+            for parent, cats in interaction_params.items()
+        }
+
+    def _record_iteration(self, iteration, n_iterations, block_preds,
+                          params_blocks, interaction_params, y, weights, verbose):
+        """Compute loss, snapshot state, update best, optionally print."""
+        predictions = vector_product_numexpr_dict_values(block_preds) * self.global_scalar_
+        loss = self.loss_function(predictions, y, weights=weights)
+
+        self.loss_history_.append(loss)
+        self.coef_history_.append(self._snapshot_params(params_blocks))
+        self.interaction_params_history_.append(self._snapshot_interaction_params(interaction_params))
+        self.global_scalar_history_.append(self.global_scalar_)
+
+        if loss <= self.best_loss_:
+            self.best_loss_ = loss
+            self.best_params_ = self._snapshot_params(params_blocks)
+            self.best_interaction_params_ = self._snapshot_interaction_params(interaction_params)
+            self.best_iteration_ = iteration
+
+        if verbose > 0:
+            print(f"Iteration {iteration+1}/{n_iterations}, Loss: {loss:.6e}")
+
+    def _check_convergence(self, iteration, force_rounds, early_stopping_rounds, ftol):
+        """Check whether BCD should stop early.
+
+        Returns a dict describing the termination reason, or ``None`` to
+        continue.  The dict is stored as ``self.convergence_info_``.
+        """
+        if force_rounds is not None and iteration + 1 < force_rounds:
+            return None
+
+        cur_loss = self.loss_history_[-1]
+
+        if early_stopping_rounds is not None and len(self.loss_history_) > early_stopping_rounds:
+            ref_loss = self.loss_history_[-early_stopping_rounds]
+            if cur_loss >= ref_loss:
+                return {
+                    'reason': 'early_stopping',
+                    'iteration': iteration + 1,
+                    'current_loss': cur_loss,
+                    'reference_loss': ref_loss,
+                    'lookback': early_stopping_rounds,
+                    'best_iteration': self.best_iteration_ + 1,
+                    'best_loss': self.best_loss_,
+                }
+
+        if ftol is not None and len(self.loss_history_) >= 5:
+            ref_loss = self.loss_history_[-5]
+            rel_improvement = 1 - cur_loss / ref_loss
+            if 0 <= rel_improvement < ftol:
+                return {
+                    'reason': 'ftol',
+                    'iteration': iteration + 1,
+                    'current_loss': cur_loss,
+                    'reference_loss': ref_loss,
+                    'rel_improvement': rel_improvement,
+                    'ftol': ftol,
+                }
+
+        return None
+
+    @staticmethod
+    def _format_convergence_info(info):
+        """Format a convergence_info_ dict into a human-readable string."""
+        if info is None:
+            return "Model has not converged yet."
+        reason = info['reason']
+        if reason == 'early_stopping':
+            return (
+                f"Early stopping at iteration {info['iteration']}: "
+                f"current loss {info['current_loss']:.6e} >= loss {info['reference_loss']:.6e} "
+                f"from {info['lookback']} iterations ago (no improvement). "
+                f"Best iteration was {info['best_iteration']} with loss {info['best_loss']:.6e}."
+            )
+        if reason == 'ftol':
+            return (
+                f"Converged at iteration {info['iteration']}: "
+                f"relative improvement over last 5 iterations = {info['rel_improvement']:.2e} "
+                f"< ftol={info['ftol']:.1e} "
+                f"(loss {info['reference_loss']:.6e} -> {info['current_loss']:.6e})."
+            )
+        if reason == 'max_iterations':
+            return (
+                f"Reached maximum iterations ({info['iteration']}). "
+                f"Final loss: {info['current_loss']:.6e}. "
+                f"Best iteration was {info['best_iteration']} with loss {info['best_loss']:.6e}."
+            )
+        return str(info)
+
+    # ------------------------------------------------------------------
+    # fit — finalization
+    # ------------------------------------------------------------------
+
+    def _store_interaction_coefs(self):
+        """Store best interaction params as InteractionCoef in coef_."""
+        if not self.interactions_:
+            return
+        snapshot = self._snapshot_interaction_params(self.best_interaction_params_)
+        for parent, cat_coefs in snapshot.items():
+            self.coef_[parent] = InteractionCoef(
+                by=self.interactions_[parent],
+                categories=dict(cat_coefs),
+            )
+
+    def _compute_block_means(self, data_blocks, X, weights=None):
+        """Recompute ``block_means_`` from final ``coef_`` (including A/E scalars for interactions)."""
+        for key in self.feature_groups_:
+            if key in self.interactions_:
+                coef = self.coef_[key]
+                block_pred = self._predict_group(key, data_blocks[key], cat_series=X.orig[coef.by])
+            else:
+                block_pred = data_blocks[key] @ self.coef_[key]
+            self.block_means_[key] = np.average(block_pred, weights=weights) if weights is not None else np.mean(block_pred)
+
+    # ------------------------------------------------------------------
+    # fit (public entry point)
+    # ------------------------------------------------------------------
+
+    _VALID_LOSSES = ('mse', 'poisson')
 
     @memorize_fit_args
-    def fit( self, X: ProductModelDataContainer, feature_groups:Dict, submodels: Dict=None,
+    def fit( self, X: ProductModelDataContainer, feature_groups: Dict, submodels: Dict=None,
+             interactions: Dict=None, interaction_submodels: Dict=None,
              init_params=None, early_stopping_rounds=5, n_iterations=20, force_rounds=5, verbose=1, ftol=1e-5,
-             cache_qr_decomp=False, offset_y = None, use_svd=False, weights=None ):
+             cache_qr_decomp=False, offset_y=None, use_svd=False, weights=None, loss: str = 'mse' ):
+
+        # ---- 1) setup model state ----
+        if loss not in self._VALID_LOSSES:
+            raise ValueError(f"Unknown loss '{loss}'. Must be one of {self._VALID_LOSSES}.")
+        self.loss_ = loss
         self._reset_history( cache_qr_decomp=cache_qr_decomp )
         self.feature_groups_ = feature_groups
         self.submodels_ = submodels or {}
+        self.interactions_ = interactions or {}
+
+        for parent, cat_var in self.interactions_.items():
+            if cat_var not in feature_groups:
+                raise ValueError(
+                    f"Interaction by-variable '{cat_var}' must be included in feature_groups "
+                    f"as a separate categorical block (required for '{parent}' interaction)."
+                )
+
+        # ---- 2) validate inputs and build canonical arrays ----
+        orig_df = X.orig
         data_blocks = X.get_expanded_array_dict( list( feature_groups.keys() ) )
-        # make sure weights is a 1d and numpy array
+
         if weights is not None:
             weights = np.asarray(weights).ravel()
             if weights.ndim != 1 or weights.shape[0] != X.shape[0]:
                 raise ValueError("Weights must be a 1D array with the same length as the number of observations.")
-        
+
         if X.response is None:
             raise ValueError("Response variable is not provided in the data container.")
         y = X.response
-
         if offset_y is not None:
             self.offset_y = offset_y
             y = y + offset_y
 
-        if init_params is None:
-            # absorb the mean of y to the global scaler and then init the block params so that they give a prediction of 1.
-            # the function infer_init_params will simply use the mean of y here, so a constant vector is good.
-            self.global_scalar_ = np.mean(y)
-            _, params_blocks = self.infer_init_params(init_params, data_blocks, np.ones_like(y))
-        else:
-            _, params_blocks = self.infer_init_params(init_params, data_blocks, y)
+        # ---- 3) initialize global level and block-level states ----
+        # data_blocks       : {str: ndarray(n_obs, n_basis)}   expanded design matrices (read-only)
+        # interaction_masks : {str: {cat: bool(n_obs,)}}       per-category row masks
+        # interaction_params: {str: {cat: ndarray(n_basis,)}}  interaction-group coefficients
+        # params_blocks     : {str: ndarray(n_basis,)}         regular-group coefficients
+        # block_preds       : {str: ndarray(n_obs,)}           cached block predictions (without scalar)
+        # y                 : ndarray(n_obs,)                  response (offset-adjusted if needed)
+        # weights           : ndarray(n_obs,) | None           optional observation weights
+        # full_prediction   : global_scalar_ * product(block_preds.values())
+        self._init_global_scalar(y, init_params, weights)
+        interaction_masks, interaction_params = self._init_interactions(
+            orig_df, data_blocks, feature_groups, interaction_submodels or {})
+        params_blocks = self._infer_regular_params(
+            feature_groups, data_blocks, y, init_params)
+        block_preds = self._init_block_preds(
+            data_blocks, params_blocks, interaction_params, interaction_masks)
 
-        block_preds = { key: self.forward( params_blocks={ key: params_blocks[ key ] }, 
-                                           X_blocks={ key: data_blocks[ key ] },
-                                           ignore_global_scale=True ) for key in feature_groups }
+        y_arr = np.asarray(y)
+        interaction_data_cache = {}
+        for group in self.interactions_:
+            interaction_data_cache[group] = {}
+            for cat_val, mask in interaction_masks[group].items():
+                interaction_data_cache[group][cat_val] = {
+                    'X': data_blocks[group][mask],
+                    'y': y_arr[mask],
+                    'w': weights[mask] if weights is not None else None,
+                }
 
+        # ---- BCD iterations ----
+        self.global_scalar_step_history_.append((0, '_init', self.global_scalar_))
         for i in range(n_iterations):
-            for feature_group in feature_groups:
-                if feature_group not in self.submodels_:
-                    floating_data = data_blocks[ feature_group ]
-                    # We hope to maintain the average output of each feature group is 1
-                    # so the global scaler is not used to scale the floating data util the actual regression step
-                    fixed_predictions = vector_product_numexpr_dict_values( block_preds, exclude=feature_group )
+            for group in feature_groups:
+                if group in self.interactions_:
+                    self._step_interaction_group(
+                        group, data_blocks, block_preds, interaction_params, interaction_masks, y, weights,
+                        interaction_data_cache=interaction_data_cache)
+                elif group not in self.submodels_:
+                    self._step_regular_group(
+                        group, data_blocks, block_preds, params_blocks, y, weights, cache_qr_decomp, use_svd)
+                self.global_scalar_step_history_.append((i + 1, group, self.global_scalar_))
 
-                    if not cache_qr_decomp:
-                        mX = floating_data * fixed_predictions[:, None]
-                        if use_svd:
-                            if weights is not None:
-                                raise NotImplementedError("Weighted least squares with SVD is not implemented yet.")
-                            floating_params = np.linalg.lstsq( self.global_scalar_ * mX, y, rcond=None)[0]
-                        else:
-                            floating_params = ols_normal_equation( self.global_scalar_ * mX, y, weights=weights )
-                    else:
-                        if weights is not None:
-                            raise NotImplementedError("Weighted least squares with cached QR decomposition is not implemented yet.")
-                        # use the cached QR decomposition to solve the least squares problem so that we do not need to recompute the inverse of X'X every time
-                        # the downside is we need to put the global scaler and fixed predictions into the y cause they will change every iteration
-                        if feature_group not in self.qr_decomp_cache_:
-                            Q, R = np.linalg.qr( floating_data )
-                            self.qr_decomp_cache_[feature_group] = (Q, R)
-                        else:
-                            Q, R = self.qr_decomp_cache_[feature_group]
-                        scaled_y = y / self.global_scalar_ / fixed_predictions
-                        floating_params = np.linalg.solve( R, Q.T @ scaled_y )
-                        # even we reuse the QR decomposition, we still need to scale the floating data here to make sure the global scaler is correctly updated
-                        mX = floating_data * fixed_predictions[:, None]
-
-                    # normalize the floating parameters by its mean so that each block's prediction has a mean of 1
-                    floating_predictions = mX @ floating_params
-                    floating_mean = np.mean(floating_predictions)
-                    
-                    if not np.isclose(floating_mean, 0):
-                        floating_params /= floating_mean
-                        self.global_scalar_ = self.global_scalar_ * floating_mean
-                    else:
-                        print(f"Warning: floating mean is close to zero for feature group {feature_group} at iteration {i}. Skipping normalization.")
-                    
-                    params_blocks[feature_group] = floating_params
-
-                    # update the block predictions
-                    block_preds[ feature_group ] = self.forward( params_blocks={ feature_group: params_blocks[ feature_group ] }, 
-                                            X_blocks={ feature_group: data_blocks[ feature_group ] },
-                                            ignore_global_scale=True )
-
-                else:
-                    # submodels are fitted already, and we don't need any actions
-                    pass
-              
-            # track the training progress  
-            predictions = vector_product_numexpr_dict_values( block_preds ) * self.global_scalar_
-            loss = self.loss_function( predictions, y )
-            self.loss_history_.append( loss )
-            self.coef_history_.append( copy.deepcopy(params_blocks) )
-            self.global_scalar_history_.append( self.global_scalar_ )
-            
-            # track the best parameters
-            if loss <= self.best_loss_:
-                self.best_loss_ = loss
-                self.best_params_ = copy.deepcopy(params_blocks)
-                self.best_iteration_ = i
-            
+            self._record_iteration(i, n_iterations, block_preds, params_blocks, interaction_params, y, weights, verbose)
+            conv_info = self._check_convergence(i, force_rounds, early_stopping_rounds, ftol)
+            if conv_info is not None:
+                self.convergence_info_ = conv_info
+                if verbose > 0:
+                    print(self._format_convergence_info(conv_info))
+                break
+        else:
+            self.convergence_info_ = {
+                'reason': 'max_iterations',
+                'iteration': n_iterations,
+                'current_loss': self.loss_history_[-1],
+                'best_iteration': self.best_iteration_ + 1,
+                'best_loss': self.best_loss_,
+            }
             if verbose > 0:
-                print(f"Iteration {i+1}/{n_iterations}, Loss: {loss:.6e}")
+                print(self._format_convergence_info(self.convergence_info_))
 
-            # don't check for early stopping if we're forcing a certain number of rounds
-            if force_rounds is not None and i + 1 < force_rounds:
-                continue
-
-            # add the early stopping condition
-            if early_stopping_rounds is not None and len(self.loss_history_) > early_stopping_rounds:
-                if self.loss_history_[-1] >= self.loss_history_[-early_stopping_rounds]:
-                    print(f"Early stopping at iteration {i+1} with Loss: {loss:.4e}")
-                    break
-                
-            if ftol is not None and len(self.loss_history_) >= 5:
-                if abs(self.loss_history_[-1] / self.loss_history_[-5]) > 1 - ftol:
-                    print(f"Converged at iteration {i+1} with Loss: {loss:.4e}")
-                    break
-                
-        # NOTE The optimal loss does not indicate that the model converges. we care more about the shape of the curves after convergence
-        # it could happen that the first few iterations yield the best loss, but we really care the last few stable results.
-        self.coef_ = copy.deepcopy( self.coef_history_[ -1 ] )
-        self.global_scalar_ = self.global_scalar_history_[ -1 ]
-
-        # archive the mean of each block's predictions
-        for key in feature_groups:
-            block_params = self.coef_[key]
-            block_data = data_blocks[key]
-            block_pred = self.forward({key: block_params}, {key: block_data}, ignore_global_scale=True)
-            block_mean = np.mean(block_pred)
-            self.block_means_[key] = block_mean
-            
+        # ---- finalize: restore best iteration ----
+        self.coef_ = self._snapshot_params(self.best_params_)
+        self.global_scalar_ = self.global_scalar_history_[self.best_iteration_]
+        self._store_interaction_coefs()
+        self._compute_block_means(data_blocks, X, weights)
         return self
+
+    # ------------------------------------------------------------------
+    # predict  (override to handle InteractionCoef in coef_)
+    # ------------------------------------------------------------------
+
+    def predict(self, X: ProductModelDataContainer | pd.DataFrame):
+        if self.feature_groups_ is None or self.coef_ is None:
+            raise ValueError("Model not fitted yet. Please call fit() first.")
+
+        if not self.interactions_:
+            return super().predict(X)
+
+        orig, get_block = self._resolve_blocks_and_orig(X)
+
+        n_obs = X.shape[0]
+        result = np.ones(n_obs, dtype=float) * self.global_scalar_
+
+        for group in self.feature_groups_:
+            X_block = get_block(group)
+            coef = self.coef_.get(group)
+            if coef is None:
+                continue
+            if isinstance(coef, InteractionCoef):
+                result *= self._predict_group(group, X_block, cat_series=orig[coef.by])
+            elif hasattr(self, 'submodels_') and group in self.submodels_:
+                result *= self.submodels_[group].predict(X_block)
+            else:
+                result *= X_block @ coef
+
+        if self.offset_y is not None:
+            result -= self.offset_y
+        return result
+
+    # ------------------------------------------------------------------
+    # single / leave-out  (override to handle interactions)
+    # ------------------------------------------------------------------
+
+    def single_feature_group_predict(self, group_to_include, X, params_dict=None, ignore_global_scale=True):
+        coef = self.coef_.get(group_to_include)
+        if not isinstance(coef, InteractionCoef):
+            return super().single_feature_group_predict(group_to_include, X, params_dict, ignore_global_scale)
+
+        orig, get_block = self._resolve_blocks_and_orig(X)
+        return self._predict_group(group_to_include, get_block(group_to_include), cat_series=orig[coef.by])
+
+    def leave_out_feature_group_predict(self, group_to_exclude, X,
+                                        params_dict=None, ignore_global_scale=False):
+        if not self.interactions_:
+            return super().leave_out_feature_group_predict(
+                group_to_exclude, X, params_dict, ignore_global_scale)
+
+        if group_to_exclude not in self.feature_groups_:
+            raise ValueError(f"Feature group '{group_to_exclude}' not found in feature_groups_.")
+
+        orig, get_block = self._resolve_blocks_and_orig(X)
+
+        n_obs = X.shape[0]
+        result = np.ones(n_obs, dtype=float)
+        if not ignore_global_scale:
+            result *= self.global_scalar_
+
+        for group in self.feature_groups_:
+            if group == group_to_exclude:
+                continue
+            X_block = get_block(group)
+            coef = self.coef_.get(group)
+            if coef is None:
+                continue
+            if isinstance(coef, InteractionCoef):
+                result *= self._predict_group(group, X_block, cat_series=orig[coef.by])
+            elif hasattr(self, 'submodels_') and group in self.submodels_:
+                result *= self.submodels_[group].predict(X_block)
+            else:
+                result *= X_block @ coef
+
+        return result
 
 
 class LinearProductRegressorScipy(LinearProductRegressorBase):

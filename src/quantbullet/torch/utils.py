@@ -24,6 +24,7 @@ def train_model_lbfgs(
     early_stopping: bool = False,
     patience: int = 10,
     min_delta: float = 0.0,
+    projection_fn: Callable | None = None,
 ) -> list:
     """
     Generic LBFGS training loop.
@@ -43,6 +44,9 @@ def train_model_lbfgs(
         early_stopping: Stop if loss doesn't improve for `patience` steps
         patience: Number of steps to wait before stopping
         min_delta: Minimum loss improvement to reset patience
+        projection_fn: Optional callback invoked (with torch.no_grad) after
+                       each optimizer step, e.g. to enforce constraints like
+                       sum-to-zero centering on additive model components
         
     Returns:
         losses: List of loss values at each step
@@ -61,8 +65,11 @@ def train_model_lbfgs(
             lr=1.0,
         )
     """
+    trainable = [p for p in model.parameters() if p.requires_grad]
+    if not trainable:
+        raise ValueError("No trainable parameters found. Did you forget to unfreeze?")
     opt = torch.optim.LBFGS(
-        model.parameters(),
+        trainable,
         lr=lr,
         max_iter=max_iter,
         line_search_fn="strong_wolfe",
@@ -85,6 +92,11 @@ def train_model_lbfgs(
             return loss
         
         loss = opt.step(closure)
+
+        if projection_fn is not None:
+            with torch.no_grad():
+                projection_fn()
+
         loss_val = loss.item()
         losses.append(loss_val)
 
@@ -105,4 +117,67 @@ def train_model_lbfgs(
                 )
             break
     
+    return losses
+
+
+def train_model_adam(
+    model: nn.Module,
+    loss_fn: nn.Module,
+    forward_fn: Callable,
+    steps: int = 500,
+    lr: float = 0.01,
+    log_every: int = 50,
+    verbose: bool = True,
+    early_stopping: bool = False,
+    patience: int = 30,
+    min_delta: float = 0.0,
+    projection_fn: Callable | None = None,
+) -> list:
+    """
+    Adam training loop for high-dimensional parameters (e.g. daily delta curves).
+
+    Same interface as train_model_lbfgs but uses Adam, which scales better
+    to thousands of parameters where LBFGS's Hessian approximation is poor.
+    """
+    trainable = [p for p in model.parameters() if p.requires_grad]
+    if not trainable:
+        raise ValueError("No trainable parameters found. Did you forget to unfreeze?")
+    opt = torch.optim.Adam(trainable, lr=lr)
+
+    losses = []
+    best_loss = float("inf")
+    no_improve_steps = 0
+
+    for step in range(1, steps + 1):
+        model.train()
+        opt.zero_grad(set_to_none=True)
+        yhat, y = forward_fn(model)
+        loss = loss_fn(yhat, y)
+        loss.backward()
+        opt.step()
+
+        if projection_fn is not None:
+            with torch.no_grad():
+                projection_fn()
+
+        loss_val = loss.item()
+        losses.append(loss_val)
+
+        if loss_val + min_delta < best_loss:
+            best_loss = loss_val
+            no_improve_steps = 0
+        else:
+            no_improve_steps += 1
+
+        if verbose and step % log_every == 0:
+            print(f"[Adam] Step {step:04d}/{steps} | Loss: {loss_val:.6f}")
+
+        if early_stopping and no_improve_steps >= patience:
+            if verbose:
+                print(
+                    f"[Adam] Early stopping at step {step:04d} | "
+                    f"Best loss: {best_loss:.6f}"
+                )
+            break
+
     return losses
