@@ -93,31 +93,59 @@ class CLOSpreadModel(nn.Module):
             self.bias += mean_val
 
 
-class ShiftTiltDelta(nn.Module):
+class BasisDelta(nn.Module):
     """
-    Per-day, per-bucket shift + tilt adjustment on the MVOC curve.
+    Per-day, per-bucket MVOC adjustment using fixed basis functions.
 
-    delta_{t,b}(m) = S_{t,b} + T_{t,b} * (z_bar - z)
+    delta_{t,b}(m) = w_shift                         (parallel shift)
+                   + w_tilt  * (z_bar - z)            (asymmetric tilt)
+                   + sum_k w_bend_k * relu(z_k - z)   (bends at user-specified knots)
 
-    where z = normalised MVOC in [0, 1], z_bar = normalised mean MVOC.
-    The tilt term (z_bar - z) is larger at low MVOC and ~0 at the mean,
-    making low-quality assets more sensitive to daily market moves.
+    Basis functions are fixed (non-learnable); only the per-day per-bucket
+    weights are trained.  Knots should be placed densely in the sensitive
+    MVOC region (e.g. [0.99, 1.00, 1.01, 1.02]).
 
-    Regularisation:
-      - Temporal smoothness: adjacent days should have similar S and T
-      - Shrinkage: S and T decay to 0 when data is sparse (fallback to structural)
+    Subsumes ShiftTiltDelta as the special case with bend_knots=[].
     """
 
-    def __init__(self, n_days: int, n_buckets: int, mvoc_lo: float, mvoc_hi: float, mvoc_mean: float):
+    def __init__(
+        self,
+        n_days: int,
+        n_buckets: int,
+        mvoc_lo: float,
+        mvoc_hi: float,
+        mvoc_mean: float,
+        bend_knots: np.ndarray | list[float] | None = None,
+    ):
         super().__init__()
         self.n_days = n_days
         self.n_buckets = n_buckets
-        self.shift = nn.Parameter(torch.zeros(n_days, n_buckets))
-        self.tilt = nn.Parameter(torch.zeros(n_days, n_buckets))
+
+        span = max(mvoc_hi - mvoc_lo, 1e-12)
         self.register_buffer('mvoc_lo', torch.tensor(mvoc_lo, dtype=torch.float32))
         self.register_buffer('mvoc_hi', torch.tensor(mvoc_hi, dtype=torch.float32))
-        span = max(mvoc_hi - mvoc_lo, 1e-12)
         self.register_buffer('z_bar', torch.tensor((mvoc_mean - mvoc_lo) / span, dtype=torch.float32))
+
+        n_bends = 0
+        if bend_knots is not None and len(bend_knots) > 0:
+            knots_01 = (np.asarray(bend_knots, dtype=np.float64) - mvoc_lo) / span
+            self.register_buffer('bend_z', torch.tensor(knots_01, dtype=torch.float32))
+            n_bends = len(knots_01)
+        else:
+            self.register_buffer('bend_z', torch.zeros(0))
+
+        self.n_bases = 2 + n_bends
+        self.weights = nn.Parameter(torch.zeros(n_days, n_buckets, self.n_bases))
+
+    def _build_bases(self, z: torch.Tensor) -> torch.Tensor:
+        """Evaluate all basis functions at normalised MVOC z.  Returns (N, n_bases)."""
+        bases = [
+            torch.ones_like(z),
+            self.z_bar - z,
+        ]
+        for k in range(self.bend_z.shape[0]):
+            bases.append(torch.relu(self.bend_z[k] - z))
+        return torch.cat(bases, dim=1)
 
     def forward(
         self,
@@ -131,16 +159,14 @@ class ShiftTiltDelta(nn.Module):
         span = (self.mvoc_hi - self.mvoc_lo).clamp(min=1e-12)
         z = ((mvoc_col - self.mvoc_lo) / span).clamp(0.0, 1.0)
 
-        s = self.shift[d, b].view(-1, 1)
-        t = self.tilt[d, b].view(-1, 1)
-        return s + t * (self.z_bar - z)
+        bases = self._build_bases(z)
+        w = self.weights[d, b]
+        return (bases * w).sum(dim=1, keepdim=True)
 
     def time_penalty(self, lambda_smooth: float = 1.0, lambda_shrink: float = 0.1) -> torch.Tensor:
-        """Temporal smoothness + shrinkage to zero."""
-        smooth = shrink = torch.tensor(0.0, device=self.shift.device)
-        for p in [self.shift, self.tilt]:
-            smooth = smooth + (p[1:] - p[:-1]).pow(2).mean()
-            shrink = shrink + p.pow(2).mean()
+        """Temporal smoothness + shrinkage to zero on all basis weights."""
+        smooth = (self.weights[1:] - self.weights[:-1]).pow(2).mean()
+        shrink = self.weights.pow(2).mean()
         return lambda_smooth * smooth + lambda_shrink * shrink
 
     @torch.no_grad()
