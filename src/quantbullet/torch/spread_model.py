@@ -178,3 +178,92 @@ class BasisDelta(nn.Module):
     ) -> torch.Tensor:
         """Compute per-sample delta values (for visualization)."""
         return self.forward(mvoc, day_idx, bucket_idx)
+
+
+class GaussianBasisDelta(nn.Module):
+    """
+    Per-day, per-bucket MVOC adjustment using local Gaussian RBF bases.
+
+    delta_{t,b}(m) = w_shift + sum_k w_k * exp(-(z - z_k)^2 / (2 * sigma_k^2))
+
+    Each Gaussian bump is centred at a user-specified MVOC knot and has
+    local support (~3 sigma).  Far from all knots the delta decays to
+    w_shift, avoiding the extrapolation problem of relu-based approaches.
+
+    Parameters
+    ----------
+    centers : array-like
+        MVOC values for the RBF centres (actual feature space, not normalised).
+    sigma : float or array-like
+        Width of each Gaussian.  Scalar → same width for all.  In MVOC units.
+    """
+
+    def __init__(
+        self,
+        n_days: int,
+        n_buckets: int,
+        mvoc_lo: float,
+        mvoc_hi: float,
+        centers: np.ndarray | list[float],
+        sigma: float | np.ndarray | list[float] = 0.01,
+    ):
+        super().__init__()
+        self.n_days = n_days
+        self.n_buckets = n_buckets
+
+        span = max(mvoc_hi - mvoc_lo, 1e-12)
+        self.register_buffer('mvoc_lo', torch.tensor(mvoc_lo, dtype=torch.float32))
+        self.register_buffer('mvoc_hi', torch.tensor(mvoc_hi, dtype=torch.float32))
+
+        centers_01 = (np.asarray(centers, dtype=np.float64) - mvoc_lo) / span
+        self.register_buffer('centers_z', torch.tensor(centers_01, dtype=torch.float32))
+
+        if isinstance(sigma, (int, float)):
+            sigma_01 = np.full(len(centers_01), float(sigma) / span)
+        else:
+            sigma_01 = np.asarray(sigma, dtype=np.float64) / span
+        self.register_buffer('sigma_z', torch.tensor(sigma_01, dtype=torch.float32))
+
+        self.n_rbf = len(centers_01)
+        self.n_bases = 1 + self.n_rbf
+        self.weights = nn.Parameter(torch.zeros(n_days, n_buckets, self.n_bases))
+
+    def _build_bases(self, z: torch.Tensor) -> torch.Tensor:
+        """Evaluate bases at normalised MVOC z.  Returns (N, 1 + n_rbf)."""
+        bases = [torch.ones_like(z)]
+        for k in range(self.n_rbf):
+            diff = (z - self.centers_z[k]) / self.sigma_z[k]
+            bases.append(torch.exp(-0.5 * diff.pow(2)))
+        return torch.cat(bases, dim=1)
+
+    def forward(
+        self,
+        mvoc: torch.Tensor,
+        day_idx: torch.Tensor,
+        bucket_idx: torch.Tensor,
+    ) -> torch.Tensor:
+        d = day_idx.view(-1)
+        b = bucket_idx.view(-1)
+        mvoc_col = mvoc.view(-1, 1) if mvoc.ndim == 1 else mvoc
+        span = (self.mvoc_hi - self.mvoc_lo).clamp(min=1e-12)
+        z = ((mvoc_col - self.mvoc_lo) / span).clamp(0.0, 1.0)
+
+        bases = self._build_bases(z)
+        w = self.weights[d, b]
+        return (bases * w).sum(dim=1, keepdim=True)
+
+    def time_penalty(self, lambda_smooth: float = 1.0, lambda_shrink: float = 0.1) -> torch.Tensor:
+        """Temporal smoothness + shrinkage to zero on all basis weights."""
+        smooth = (self.weights[1:] - self.weights[:-1]).pow(2).mean()
+        shrink = self.weights.pow(2).mean()
+        return lambda_smooth * smooth + lambda_shrink * shrink
+
+    @torch.no_grad()
+    def compute_effect(
+        self,
+        mvoc: torch.Tensor,
+        day_idx: torch.Tensor,
+        bucket_idx: torch.Tensor,
+    ) -> torch.Tensor:
+        """Compute per-sample delta values (for visualization)."""
+        return self.forward(mvoc, day_idx, bucket_idx)
