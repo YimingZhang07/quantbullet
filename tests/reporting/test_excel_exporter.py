@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 from quantbullet.reporting.excel_exporter import ExcelExporter
 from quantbullet.reporting.columns import ColumnFormat, ColumnMeta, ColumnSchema
+from quantbullet.reporting.converters import convert_pdf_schema_to_excel_schema
 from quantbullet.reporting.pdf_text_report import PdfTextReport, PdfColumnFormat, PdfColumnMeta
 
 class TestExcelExporter(unittest.TestCase):
@@ -53,18 +54,6 @@ class TestExcelExporter(unittest.TestCase):
         report.add_df_table( df=df, schema=schema )
         report.save()
 
-        # test convert the pdf schema to excel schema
-        def convert_pdf_schema_to_excel_schema( pdf_schema ):
-            columns = []
-            for col in pdf_schema:
-                columns.append( ColumnMeta( name=col.name, display_name=col.display_name, format=ColumnFormat(
-                    decimals=col.format.decimals,
-                    comma=col.format.comma,
-                    percent=col.format.percent,
-                    transformer=col.format.transformer,
-                ) ) )
-            return ColumnSchema( columns=columns )
-        
         excel_schema = convert_pdf_schema_to_excel_schema( schema )
         exporter = ExcelExporter( filename=str( Path(self.cache_dir) / "test_report_converted.xlsx" ) )
         exporter.add_sheet( sheet_name="TestSheet", df = df, schema=excel_schema )
