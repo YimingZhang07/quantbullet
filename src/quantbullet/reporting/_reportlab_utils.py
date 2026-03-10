@@ -97,11 +97,25 @@ def make_diverging_colormap(low_color=(0.8, 0, 0), mid_color=(1, 1, 1), high_col
 
     return _map
 
+COLORMAP_PRESETS: dict[str, Callable] = {
+    "red_to_green": make_diverging_colormap(
+        low_color=(0.9, 0.3, 0.3), mid_color=(1, 1, 1), high_color=(0.3, 0.8, 0.4),
+    ),
+    "green_to_red": make_diverging_colormap(
+        low_color=(0.3, 0.8, 0.4), mid_color=(1, 1, 1), high_color=(0.9, 0.3, 0.3),
+    ),
+    "red_0_green": make_diverging_colormap(
+        low_color="#f8696b", mid_color=(1, 1, 1), high_color="#63be7b", vmid=0,
+    ),
+    "green_0_red": make_diverging_colormap(
+        low_color="#63be7b", mid_color=(1, 1, 1), high_color="#f8696b", vmid=0,
+    )
+}
+
 @dataclass
 class PdfColumnFormat( BaseColumnFormat ):
     formatter: Optional[Callable[[Any], str]] = None  # e.g., lambda x: f"${x:,.2f}"
-    colormap: Optional[Callable[[float, float, float], colors.Color]] = None  # colormap takes (val, vmin, vmax) and returns a ReportLab Color
-    named_colormap: Optional[str] = None # we use a few predefined colormaps by name
+    colormap: Optional[Callable[[float, float, float], colors.Color] | str] = None
     headerbgcolor: tuple[float, float, float] | colors.Color | None = None
     align: Optional[str] = None  # e.g., "LEFT", "CENTER", "RIGHT"
     header_align: Optional[str] = None  # align header independently if needed
@@ -110,10 +124,14 @@ class PdfColumnFormat( BaseColumnFormat ):
     missing_label: Optional[str] = None
 
     def __post_init__(self):
-        if self.named_colormap == "red_white_green":
-            self.colormap = make_diverging_colormap( high_color="#63be7b", mid_color=(1,1,1), low_color="#f8696b" )
-        elif self.named_colormap == "white_green":
-            self.colormap = make_diverging_colormap( high_color="#63be7b", mid_color=(1,1,1), low_color=(1,1,1) )
+        if isinstance(self.colormap, str):
+            preset = COLORMAP_PRESETS.get(self.colormap)
+            if preset is None:
+                raise ValueError(
+                    f"Unknown colormap preset {self.colormap!r}. "
+                    f"Available: {sorted(COLORMAP_PRESETS)}"
+                )
+            self.colormap = preset
 
 @dataclass
 class PdfColumnMeta(  BaseColumnMeta ):
