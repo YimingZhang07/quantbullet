@@ -107,3 +107,50 @@ class TestPDFTextReport(unittest.TestCase):
         report.add_df_table( test_df, schema=schema )
 
         report.save()
+
+    def test_convenience_methods(self):
+        pdf_path = str(Path(self.cache_dir) / "test_convenience.pdf")
+        report = PdfTextReport(file_path=pdf_path, report_title="Convenience API Test")
+
+        # add_heading — all three levels
+        report.add_heading("Level 1 Heading")
+        report.add_heading("Level 2 Heading", level=2)
+        report.add_heading("Special chars: A & B < C > D", level=3)
+        report.add_heading("No bookmark heading", level=2, bookmark=False)
+
+        # add_body
+        report.add_body("This is a body paragraph with <b>bold</b> and <i>italic</i> text.")
+        report.add_body("Another paragraph.", font_size=10, space_after=12)
+
+        # add_kv_line — single pair
+        report.add_kv_line("MAE", "31.2 bps")
+
+        # add_kv_line — multiple pairs via dict
+        report.add_kv_line({"MAE": "31.2 bps", "RMSE": "45.1 bps", "R2": "0.55"})
+
+        # add_kv_line — custom separator
+        report.add_kv_line({"Alpha": "0.05", "Beta": "0.95"}, separator=" / ")
+
+        # add_list — unordered
+        report.add_list([
+            "First bullet item",
+            "Second with <b>bold</b>",
+            "Third item",
+        ])
+
+        # add_list — ordered
+        report.add_list([
+            "<b>Signal:</b> Pearson r = 0.124",
+            "<b>Partial corr:</b> r = 0.085",
+            "<b>IV:</b> 0.0312",
+        ], ordered=True)
+
+        report.add_page_break()
+        report.add_heading("Page 2: Mixed Content", level=1)
+        report.add_body("Body text after a heading on page 2.")
+        report.add_kv_line("Metric", "42.0")
+        report.add_list(["Item A", "Item B"], ordered=False, font_size=10)
+
+        report.save()
+        self.assertTrue(Path(pdf_path).exists())
+        self.assertGreater(Path(pdf_path).stat().st_size, 0)

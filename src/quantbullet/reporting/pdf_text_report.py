@@ -26,6 +26,8 @@ from reportlab.lib.units import inch
 from reportlab.platypus import (
     Flowable,
     Image,
+    ListFlowable,
+    ListItem,
     PageBreak,
     Paragraph,
     Preformatted,
@@ -393,6 +395,177 @@ class PdfTextReport:
         )
         p = Paragraph(text, style=style)
         self.story.append(p)
+        self.story.append(Spacer(1, space_after))
+
+    # ---------------------------------------------------------------------------
+    # Convenience text helpers
+    # ---------------------------------------------------------------------------
+
+    @staticmethod
+    def _escape_html(text: str) -> str:
+        """Escape ``&``, ``<``, ``>`` so plain text is safe inside ReportLab XML."""
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    _HEADING_SIZES = {1: 14, 2: 12, 3: 10}
+
+    def add_heading(
+        self,
+        text: str,
+        level: int = 1,
+        bookmark: bool = True,
+        space_after: int = 6,
+    ):
+        """Add a bold section heading with optional PDF bookmark.
+
+        Parameters
+        ----------
+        text : str
+            Plain-text heading content (``&``, ``<``, ``>`` are auto-escaped).
+        level : int, optional
+            Heading level: 1 (largest, 14pt), 2 (12pt), or 3 (10pt).
+        bookmark : bool, optional
+            If True, a PDF outline bookmark is registered at this position.
+        space_after : int, optional
+            Vertical space after the heading in points.
+        """
+        font_size = self._HEADING_SIZES.get(level, 10)
+        safe = self._escape_html(text)
+
+        if bookmark:
+            bookmark_level = max(level - 1, 0)
+            self.add_bookmark(text, level=bookmark_level)
+
+        style = ParagraphStyle(
+            name="HeadingStyle",
+            fontName="Helvetica-Bold",
+            fontSize=font_size,
+        )
+        self.story.append(Paragraph(safe, style))
+        self.story.append(Spacer(1, space_after))
+
+    def add_body(
+        self,
+        text: str,
+        font_size: int = 9,
+        space_after: int = 6,
+        alignment: int = 0,
+        left_indent: int = 0,
+    ):
+        """Add a body-text paragraph with sensible report defaults.
+
+        This is a thin wrapper around :meth:`add_text` with smaller font size
+        and tighter spacing suited for report body content.  The *text* may
+        contain ReportLab inline markup (``<b>``, ``<i>``, ``<br/>``, etc.).
+
+        Parameters
+        ----------
+        text : str
+            Paragraph content (may include ReportLab XML markup).
+        font_size : int, optional
+            Font size in points (default 9).
+        space_after : int, optional
+            Vertical space after the paragraph in points (default 6).
+        alignment : int, optional
+            0 = left, 1 = centre, 2 = right (default 0).
+        left_indent : int, optional
+            Left indent in points (default 0).
+        """
+        self.add_text(
+            text,
+            font_size=font_size,
+            space_after=space_after,
+            alignment=alignment,
+            left_indent=left_indent,
+        )
+
+    def add_kv_line(
+        self,
+        label_or_pairs: "str | dict[str, str]",
+        value: str | None = None,
+        *,
+        separator: str = " &nbsp;|&nbsp; ",
+        font_size: int = 9,
+        space_after: int = 4,
+    ):
+        """Add one or more **bold label : value** pairs on a single line.
+
+        Two calling conventions are supported::
+
+            report.add_kv_line("MAE", "31.2 bps")
+            report.add_kv_line({"MAE": "31.2 bps", "RMSE": "45.1 bps"})
+
+        Parameters
+        ----------
+        label_or_pairs : str or dict
+            A single label string (requires *value*) **or** a ``{label: value}``
+            dict for multiple pairs rendered on one line.
+        value : str, optional
+            The value string when *label_or_pairs* is a single label.
+        separator : str, optional
+            HTML separator inserted between multiple pairs.
+        font_size : int, optional
+            Font size in points (default 9).
+        space_after : int, optional
+            Vertical space after the line in points (default 4).
+        """
+        if isinstance(label_or_pairs, dict):
+            pairs = label_or_pairs
+        else:
+            if value is None:
+                raise ValueError("value is required when label_or_pairs is a string")
+            pairs = {label_or_pairs: value}
+
+        fragments = [f"<b>{k}:</b> {v}" for k, v in pairs.items()]
+        html = separator.join(fragments)
+        self.add_text(html, font_size=font_size, space_after=space_after)
+
+    def add_list(
+        self,
+        items: list[str],
+        ordered: bool = False,
+        font_size: int = 9,
+        space_after: int = 6,
+        left_indent: int = 18,
+        bullet_font_size: int | None = None,
+    ):
+        """Add a bulleted or numbered list.
+
+        Parameters
+        ----------
+        items : list of str
+            List items.  Each may contain ReportLab inline markup.
+        ordered : bool, optional
+            ``True`` for a numbered list, ``False`` for bullets (default).
+        font_size : int, optional
+            Font size for item text (default 9).
+        space_after : int, optional
+            Vertical space after the whole list in points (default 6).
+        left_indent : int, optional
+            Left indent for the list in points (default 18).
+        bullet_font_size : int, optional
+            Font size for the bullet / number.  Defaults to *font_size*.
+        """
+        if bullet_font_size is None:
+            bullet_font_size = font_size
+
+        style = ParagraphStyle(
+            name="ListItemStyle",
+            fontName="Helvetica",
+            fontSize=font_size,
+            leading=font_size * 1.4,
+        )
+
+        list_items = [ListItem(Paragraph(item, style)) for item in items]
+
+        lf = ListFlowable(
+            list_items,
+            bulletType="1" if ordered else "bullet",
+            bulletFontSize=bullet_font_size,
+            leftIndent=left_indent,
+            bulletOffsetY=-1,
+            start=1 if ordered else None,
+        )
+        self.story.append(lf)
         self.story.append(Spacer(1, space_after))
 
     def add_matplotlib_figure(self, fig, width_fraction=1, space_after=12, dpi=600, reserve_height=0):
