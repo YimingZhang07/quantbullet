@@ -1,6 +1,5 @@
 ---
-description: Python environment and virtual environment rules
-globs: "**/*.py"
+alwaysApply: true
 ---
 # Rules
 - **Environment**: ALWAYS use the local virtual environment `.venv`.

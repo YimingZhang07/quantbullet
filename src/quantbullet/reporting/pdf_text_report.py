@@ -46,6 +46,7 @@ from ._reportlab_utils import (
     multi_index_df_to_table_data,
 )
 from .formatters import number2string
+from .utils import copy_axis
 
 class _BookmarkFlowable(Flowable):
     """Zero-size flowable that registers a PDF bookmark and outline entry."""
@@ -612,6 +613,81 @@ class PdfTextReport:
         plt.close(fig)
         self.story.append(Spacer(1, space_after))
         
+    def add_matplotlib_figure_paged(
+        self,
+        fig,
+        n_cols: int,
+        width_fraction: float = 0.95,
+        space_after: float = 12,
+        dpi: int = 150,
+        title: str | None = None,
+    ):
+        """Add a multi-panel figure, automatically splitting across pages if needed.
+
+        Parameters
+        ----------
+        fig : matplotlib.figure.Figure
+            Source figure with a grid of subplots.
+        n_cols : int
+            Number of subplot columns in the grid.
+        title : str, optional
+            Suptitle added to every page (with page numbering when split).
+        """
+        import math
+
+        visible_axes = [ax for ax in fig.get_axes() if ax.get_visible()]
+        if not visible_axes:
+            plt.close(fig)
+            return
+
+        n_axes = len(visible_axes)
+        n_rows_total = math.ceil(n_axes / n_cols)
+
+        fig_w, fig_h = fig.get_size_inches()
+        per_row_h = fig_h / max(n_rows_total, 1)
+        per_col_w = fig_w / max(n_cols, 1)
+
+        _, available_h = self.get_page_dimensions()
+        available_h_inches = available_h / 72.0
+        max_rows_per_page = max(1, int(available_h_inches / per_row_h))
+
+        if n_rows_total <= max_rows_per_page:
+            if title:
+                fig.suptitle(title, fontsize=13, y=1.02)
+            self.add_matplotlib_figure(fig, width_fraction, space_after, dpi)
+            return
+
+        rows = []
+        for i in range(0, n_axes, n_cols):
+            rows.append(visible_axes[i : i + n_cols])
+
+        for page_idx in range(0, len(rows), max_rows_per_page):
+            chunk = rows[page_idx : page_idx + max_rows_per_page]
+            n_rows_chunk = len(chunk)
+            new_fig, new_axes = plt.subplots(
+                n_rows_chunk, n_cols,
+                figsize=(per_col_w * n_cols, per_row_h * n_rows_chunk),
+                squeeze=False,
+            )
+            for r, row_axes in enumerate(chunk):
+                for c, src_ax in enumerate(row_axes):
+                    copy_axis(src_ax, new_axes[r][c])
+                for c in range(len(row_axes), n_cols):
+                    new_axes[r][c].set_visible(False)
+
+            if title:
+                page_num = page_idx // max_rows_per_page + 1
+                total_pages = math.ceil(len(rows) / max_rows_per_page)
+                suffix = f" ({page_num}/{total_pages})" if total_pages > 1 else ""
+                new_fig.suptitle(title + suffix, fontsize=13, y=1.02)
+
+            new_fig.tight_layout()
+            self.add_matplotlib_figure(new_fig, width_fraction, space_after, dpi)
+            if page_idx + max_rows_per_page < len(rows):
+                self.add_page_break()
+
+        plt.close(fig)
+
     # -----------------
     # Page dimensions
     # -----------------

@@ -43,6 +43,8 @@ def apply_condition( df: DataFrame, col: str, op: str, val: Any ):
         return series <= val
     elif op == "in":
         return series.isin(val)
+    elif op == "not in":
+        return ~series.isin(val)
     elif op == "between":
         return (series >= val[0]) & (series <= val[1])
     elif op == "isnull":
