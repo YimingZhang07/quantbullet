@@ -21,8 +21,8 @@ import torch
 import torch.nn as nn
 
 from ..hinge import Hinge
-from ..utils import freeze, unfreeze, train_model_lbfgs
-from ..customized import EpsilonInsensitiveLoss
+from ..train_utils import freeze, unfreeze, train_model_lbfgs
+from ..losses import EpsilonInsensitiveLoss
 from ..preprocessing import DataPreprocessor
 from .spread_model import CLOSpreadModel, BondMemory, KernelSmoothDelta
 

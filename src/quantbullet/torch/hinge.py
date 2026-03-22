@@ -231,7 +231,7 @@ class Hinge(nn.Module):
 
     def plot(self, n_points: int = 200, ax=None, show_knots: bool = True):
         """Plot the hinge curve.  See ``quantbullet.torch.plot.plot_hinge``."""
-        from .plot import plot_hinge
+        from .plot_utils import plot_hinge
         return plot_hinge(self, n_points=n_points, ax=ax, show_knots=show_knots)
 
     def __repr__(self) -> str:
