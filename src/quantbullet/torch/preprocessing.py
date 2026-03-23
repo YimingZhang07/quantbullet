@@ -164,8 +164,6 @@ class DataPreprocessor:
         for rule in self.scoring_rules:
             col, op, val = rule
             if col not in df.columns:
-                scorable[:] = False
-                reasons = reasons + f"column '{col}' missing, "
                 continue
             try:
                 mask = apply_condition(df, col, op, val)
