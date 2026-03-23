@@ -39,7 +39,9 @@ from reportlab.platypus import (
 
 from ._reportlab_utils import (
     PdfColumnFormat,
+    PdfColumnGroup,
     PdfColumnMeta,
+    _flatten_schema,
     apply_heatmap,
     build_table_from_df,
     make_diverging_colormap,
@@ -189,7 +191,9 @@ class PdfTextReport:
             The midpoint value for the colormap, by default None.
         """
         tbl = build_table_from_df( df, schema, col_widths=col_widths )
-        nrows, ncols = len(df) + 1, len(schema)
+        flat_cols, group_spans = _flatten_schema(schema)
+        header_offset = 2 if group_spans else 1
+        nrows, ncols = len(df) + header_offset, len(flat_cols)
 
         # deal with the heatmap if needed
         if heatmap_all:
@@ -219,7 +223,8 @@ class PdfTextReport:
         table_widths = None
 
         # even if the table is broken down, we still need to compute the colormap vmin/vmax
-        for col_schema in schema:
+        flat_cols, _ = _flatten_schema(schema)
+        for col_schema in flat_cols:
             if col_schema.format.colormap is not None:
                 # we need to compute vmin and vmax for the colormap
                 col_values = df[ col_schema.name ].dropna().values

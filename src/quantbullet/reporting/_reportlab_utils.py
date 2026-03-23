@@ -138,6 +138,35 @@ class PdfColumnMeta(  BaseColumnMeta ):
     # override the format type
     format: PdfColumnFormat = field( default_factory=PdfColumnFormat )
 
+
+@dataclass
+class PdfColumnGroup:
+    """Group of columns that share a merged header row."""
+    label: str
+    columns: list[PdfColumnMeta] = field(default_factory=list)
+    bgcolor: str | tuple | colors.Color | None = None
+    bold: bool = False
+
+
+def _flatten_schema(schema):
+    """Flatten a mixed list of PdfColumnMeta and PdfColumnGroup into a flat column list and group spans.
+
+    Returns (flat_cols, group_spans) where group_spans is a list of
+    (start_col_idx, end_col_idx, label, bgcolor, bold) tuples.
+    """
+    flat_cols = []
+    group_spans = []
+    for item in schema:
+        if isinstance(item, PdfColumnGroup):
+            start = len(flat_cols)
+            flat_cols.extend(item.columns)
+            end = len(flat_cols) - 1
+            group_spans.append((start, end, item.label, item.bgcolor, item.bold))
+        else:
+            flat_cols.append(item)
+    return flat_cols, group_spans
+
+
 def safe_color(c, default=colors.white):
     """Ensure ReportLab color is finite and valid."""
     if c is None:
@@ -219,32 +248,42 @@ def apply_heatmap(table_data, row_range, col_range, cmap, vmid=None):
                 continue
     return styles
 
-def build_table_from_df( df: pd.DataFrame, schema: list[PdfColumnMeta], col_widths: list[float] = None ) -> Table:
+def build_table_from_df( df: pd.DataFrame, schema, col_widths: list[float] = None ) -> Table:
     """Turn DataFrame + schema into a styled ReportLab Table.
-    
+
     Parameters
     ----------
     df : pd.DataFrame
         The data to display.
-    schema : list of PdfColumnMeta
-        Metadata for each column, including formatting and colormap info.
+    schema : list of PdfColumnMeta or PdfColumnGroup
+        Metadata for each column.  ``PdfColumnGroup`` items are flattened
+        and produce a merged group-header row above the column headers.
 
     Returns
     -------
     Table
         A ReportLab Table object ready for inclusion in a PDF.
     """
-    # --- Build data matrix (header + rows)
-    # Take the label if exists, else name as the header of the column
-    headers = [col.display_name or col.name for col in schema]
-    table_data = [headers]
+    flat_cols, group_spans = _flatten_schema(schema)
+    has_groups = len(group_spans) > 0
+    header_offset = 2 if has_groups else 1
+
+    # --- Build header rows
+    col_headers = [col.display_name or col.name for col in flat_cols]
+
+    if has_groups:
+        group_row = [""] * len(flat_cols)
+        for start, end, label, _, _ in group_spans:
+            group_row[start] = label
+        table_data = [group_row, col_headers]
+    else:
+        table_data = [col_headers]
 
     # Precompute vmin/vmax for each col needing a colormap
     vmin_vmax = {}
-    for col in schema:
+    for col in flat_cols:
         if col.format.colormap:
             series = pd.to_numeric(df[col.name], errors="coerce")
-            # use the specified vmin/vmax if provided, else compute from data
             vmin = col.format.vmin if col.format.vmin is not None else series.min()
             vmax = col.format.vmax if col.format.vmax is not None else series.max()
             vmin_vmax[col.name] = (vmin, vmax)
@@ -252,13 +291,12 @@ def build_table_from_df( df: pd.DataFrame, schema: list[PdfColumnMeta], col_widt
     # Process each row and each cell with appropriate formatting
     for _, row in df.iterrows():
         row_data = []
-        for col in schema:
+        for col in flat_cols:
             val = row[col.name]
 
             if pd.isna(val):
                 display_val = col.format.missing_label if col.format.missing_label is not None else ""
             else:
-                # transformer always comes the first
                 if col.format.transformer:
                     val = col.format.transformer(val)
 
@@ -272,20 +310,44 @@ def build_table_from_df( df: pd.DataFrame, schema: list[PdfColumnMeta], col_widt
         table_data.append(row_data)
 
     # --- Build ReportLab table
+    repeat_rows = header_offset
     if col_widths is not None:
-        tbl = Table( table_data, repeatRows=1, colWidths=col_widths )
+        tbl = Table( table_data, repeatRows=repeat_rows, colWidths=col_widths )
     else:
-        tbl = Table( table_data, repeatRows=1 )
-        
-    style = TableStyle([
-        ("GRID", (0,0), (-1,-1), 0.5, colors.black),
-        ("BACKGROUND", (0,0), (-1,0), colors.lightgrey),  # header
-        ("ALIGN", (0,0), (-1,-1), "CENTER"),
-    ])
+        tbl = Table( table_data, repeatRows=repeat_rows )
+
+    style_cmds = [
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+    ]
+
+    if has_groups:
+        style_cmds.append(("BACKGROUND", (0, 0), (-1, 0), colors.Color(0.85, 0.85, 0.85)))
+        style_cmds.append(("BACKGROUND", (0, 1), (-1, 1), colors.lightgrey))
+
+        for start, end, label, bgcolor, bold in group_spans:
+            if start < end:
+                style_cmds.append(("SPAN", (start, 0), (end, 0)))
+            if bold:
+                style_cmds.append(("FONTNAME", (start, 0), (end, 0), "Helvetica-Bold"))
+            if bgcolor is not None:
+                style_cmds.append(("BACKGROUND", (start, 0), (end, 0), to_reportlab_color(bgcolor)))
+                style_cmds.append(("BACKGROUND", (start, 1), (end, 1), to_reportlab_color(bgcolor)))
+
+        grouped_cols = set()
+        for start, end, _, _, _ in group_spans:
+            grouped_cols.update(range(start, end + 1))
+        for col_idx in range(len(flat_cols)):
+            if col_idx not in grouped_cols:
+                style_cmds.append(("SPAN", (col_idx, 0), (col_idx, 1)))
+    else:
+        style_cmds.append(("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey))
+
+    style = TableStyle(style_cmds)
 
     # --- Apply colormap cell backgrounds
-    for row_idx, (_, row) in enumerate(df.iterrows(), start=1):
-        for col_idx, col in enumerate(schema):
+    for row_idx, (_, row) in enumerate(df.iterrows(), start=header_offset):
+        for col_idx, col in enumerate(flat_cols):
             if col.format.colormap:
                 vmin, vmax = vmin_vmax[col.name]
                 val = row[col.name]
@@ -294,27 +356,28 @@ def build_table_from_df( df: pd.DataFrame, schema: list[PdfColumnMeta], col_widt
                     style.add("BACKGROUND", (col_idx, row_idx), (col_idx, row_idx), bgcolor)
 
     # --- Apply column alignment overrides
-    for col_idx, col in enumerate(schema):
+    col_header_row = header_offset - 1
+    for col_idx, col in enumerate(flat_cols):
         if col.format.align:
-            style.add("ALIGN", (col_idx, 1), (col_idx, -1), col.format.align)
+            style.add("ALIGN", (col_idx, header_offset), (col_idx, -1), col.format.align)
         header_align = col.format.header_align or col.format.align
         if header_align:
-            style.add("ALIGN", (col_idx, 0), (col_idx, 0), header_align)
+            style.add("ALIGN", (col_idx, col_header_row), (col_idx, col_header_row), header_align)
 
     tbl.setStyle(style)
 
-    # --- Apply header background color if specified
-    for col_idx, col in enumerate(schema):
+    # --- Apply per-column header background color if specified (on the column header row)
+    for col_idx, col in enumerate(flat_cols):
         if col.format.headerbgcolor is not None:
             header_bgcolor = to_reportlab_color(col.format.headerbgcolor)
             tbl.setStyle(
                 TableStyle(
                     [
-                        ("BACKGROUND", (col_idx, 0), (col_idx, 0), header_bgcolor),
+                        ("BACKGROUND", (col_idx, col_header_row), (col_idx, col_header_row), header_bgcolor),
                     ]
                 )
             )
-            
+
     return tbl
 
 def multi_index_df_to_table_data(df: pd.DataFrame):

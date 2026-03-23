@@ -1,11 +1,12 @@
-from ._reportlab_utils import PdfColumnMeta
+from ._reportlab_utils import PdfColumnMeta, _flatten_schema
 from .columns import ColumnFormat, ColumnMeta, ColumnSchema
 
 
-def convert_pdf_schema_to_excel_schema(pdf_schema: list[PdfColumnMeta]) -> ColumnSchema:
-    """Convert a list of PdfColumnMeta into an Excel-compatible ColumnSchema."""
+def convert_pdf_schema_to_excel_schema(pdf_schema) -> ColumnSchema:
+    """Convert a list of PdfColumnMeta (or PdfColumnGroup) into an Excel-compatible ColumnSchema."""
+    flat_cols, _ = _flatten_schema(pdf_schema)
     columns = []
-    for col in pdf_schema:
+    for col in flat_cols:
         excel_fmt = ColumnFormat(
             decimals=col.format.decimals,
             comma=col.format.comma,
