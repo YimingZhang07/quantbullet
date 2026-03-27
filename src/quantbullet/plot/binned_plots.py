@@ -6,7 +6,8 @@ import pandas as pd
 
 from quantbullet.plot.colors import EconomistBrandColor as EBC
 from quantbullet.plot.cycles import ECONOMIST_LINE_COLORS
-from quantbullet.plot.theme import ECONOMIST_THEME, PlotTheme
+from quantbullet.plot.theme import PlotTheme, MINIMAL_THEME
+from quantbullet.plot.formatter import PlotFormatter
 from quantbullet.plot.utils import get_grid_fig_axes, scale_scatter_sizes, pretty_int_breaks, close_unused_axes
 
 
@@ -162,8 +163,10 @@ def draw_act_vs_pred(
             zorder=4,
         )
     
-    theme = theme or ECONOMIST_THEME
-    theme.apply(ax, title=title)
+    theme = theme or MINIMAL_THEME
+    PlotFormatter.apply_theme(ax, theme)
+    if title:
+        PlotFormatter.set_title(ax, title)
 
     return ax
 
