@@ -1,13 +1,16 @@
-import pandas as pd
-import numpy as np
+from __future__ import annotations
+
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-from quantbullet.plot.utils import get_grid_fig_axes, scale_scatter_sizes, pretty_int_breaks, close_unused_axes
+import numpy as np
+import pandas as pd
+
 from quantbullet.plot.colors import EconomistBrandColor as EBC
 from quantbullet.plot.cycles import ECONOMIST_LINE_COLORS
+from quantbullet.plot.theme import ECONOMIST_THEME, PlotTheme
+from quantbullet.plot.utils import get_grid_fig_axes, scale_scatter_sizes, pretty_int_breaks, close_unused_axes
 
 
-def prepare_binned_data(df, x_col, act_col, pred_cols, facet_col=None, weight_col=None, bins=None, n_bins=10, min_count=0, min_size=20, max_size=100):
+def prepare_binned_data(df, x_col, act_col, pred_cols, facet_col=None, weight_col=None, bins=None, n_bins=10, bin_step=None, min_count=0, min_size=20, max_size=100):
     """
     Parameters
     ----------
@@ -15,6 +18,10 @@ def prepare_binned_data(df, x_col, act_col, pred_cols, facet_col=None, weight_co
         - None (default): Use quantile binning with n_bins
         - False or 'discrete': Group by exact x values (no binning)
         - array-like: Custom bin edges for pd.cut()
+    bin_step : float, optional
+        When given, x values are rounded to the nearest multiple of
+        *bin_step* (e.g. 0.005, 1, 1000) and each unique rounded value
+        becomes a bin.  Takes priority over *bins* and *n_bins*.
     min_count : int
         Drop bins with fewer than this many observations after aggregation.
     """
@@ -34,7 +41,9 @@ def prepare_binned_data(df, x_col, act_col, pred_cols, facet_col=None, weight_co
         tmp['facet'] = df[facet_col]
 
     # Binning logic
-    if bins is False or bins == 'discrete':
+    if bin_step is not None:
+        tmp['bin_val'] = np.round(tmp['x'] / bin_step) * bin_step
+    elif bins is False or bins == 'discrete':
         # Discrete mode: group by exact x values (no binning)
         tmp['bin'] = tmp['x']
         tmp['bin_val'] = tmp['x']
@@ -106,6 +115,7 @@ def draw_act_vs_pred(
     pred_labels=None,
     pred_colors=None,
     y_transform=None,
+    theme: PlotTheme | None = None,
 ):
     # Drop rows where act_mean is NaN
     agg_df = agg_df[agg_df["act_mean"].notna()]
@@ -152,17 +162,9 @@ def draw_act_vs_pred(
             zorder=4,
         )
     
-    # Professional styling
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
-    ax.set_axisbelow(True)
-    
-    if title:
-        ax.set_title(title, fontsize=11, fontweight='600', pad=10)
-    
-    ax.tick_params(labelsize=9)
-    
+    theme = theme or ECONOMIST_THEME
+    theme.apply(ax, title=title)
+
     return ax
 
 
@@ -213,6 +215,7 @@ def plot_binned_actual_vs_pred(
     pred_colors=None,
     y_transform=None,
     align_ylim=False,
+    theme: PlotTheme | None = None,
     **kwargs,
 ):
     """
@@ -232,6 +235,8 @@ def plot_binned_actual_vs_pred(
         Function to transform y-values (both actual and predicted) before plotting.
         Useful for unit conversions (e.g., monthly to annualized).
         Example: `lambda x: x * 12` to annualize monthly values.
+    theme : PlotTheme, optional
+        Visual theme for the axes. Defaults to ECONOMIST_THEME.
     """
     # 1. Get data and scaling metadata
     pred_cols = [pred_col] if isinstance(pred_col, str) else list(pred_col)
@@ -274,11 +279,12 @@ def plot_binned_actual_vs_pred(
             ax_obj, data,
             pred_mean_cols=meta['pred_mean_cols'],
             title=str(val) if val else f"{act_col} vs {', '.join(pred_cols)}",
-            show_legend=(i == 0), # Model legend on first plot
+            show_legend=(i == 0),
             act_label=act_col,
             pred_labels={pred: pred for pred in pred_cols},
             pred_colors=pred_colors,
             y_transform=y_transform,
+            theme=theme,
         )
     if close_unused:
         close_unused_axes(axes)
