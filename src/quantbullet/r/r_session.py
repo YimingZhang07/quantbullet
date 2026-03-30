@@ -82,7 +82,15 @@ class RSessionManager:
             return self._session
 
         if self._config.r_home is not None:
-            os.environ["R_HOME"] = _resolve_r_home(self._config.r_home)
+            resolved = _resolve_r_home(self._config.r_home)
+            os.environ["R_HOME"] = resolved
+            r_bin = Path(resolved) / "bin"
+            r_bin_x64 = r_bin / "x64"
+            extra = os.pathsep.join(
+                str(p) for p in (r_bin_x64, r_bin) if p.is_dir()
+            )
+            if extra:
+                os.environ["PATH"] = extra + os.pathsep + os.environ.get("PATH", "")
 
         # must be set before importing rpy2
         os.environ.setdefault("RPY2_CFFI_MODE", "ABI")
@@ -97,6 +105,9 @@ class RSessionManager:
                 "R backend is not available. "
                 "Install R + rpy2 and ensure R_HOME/Rscript is configured."
             ) from e
+
+        if self._config.r_home is not None:
+            ro.r('.libPaths(c(file.path(R.home(), "library")))')
 
         if self._config.use_renv:
             ro.r("renv::load()")

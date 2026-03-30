@@ -12,6 +12,7 @@ from quantbullet.model.gam import (
     load_partial_dependence_json,
     format_term_name,
     parse_term_name,
+    plot_partial_dependence as _plot_partial_dependence,
 )
 from quantbullet.model.smooth_fit import make_monotone_predictor_pchip
 
@@ -199,6 +200,15 @@ class GAMReplayModel:
         elif isinstance(data, FactorTermData):
             return format_term_name("f", data.feature)
         return "unknown"
+
+    def plot_partial_dependence(self, **kwargs):
+        """Plot partial dependence for each term.
+
+        Delegates to the module-level :func:`~quantbullet.model.gam.plot_partial_dependence`.
+        Accepts the same keyword arguments (``n_cols``, ``suptitle``, ``scale_y_axis``,
+        ``te_plot_style``, ``width``, ``height``).
+        """
+        return _plot_partial_dependence(self.term_data, **kwargs)
 
     def decompose(self, X: pd.DataFrame) -> Dict[str, Any]:
         """

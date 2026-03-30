@@ -663,143 +663,24 @@ class WrapperGAM:
             metadata=metadata,
         )
 
-    def plot_partial_dependence(self, n_cols=3, suptitle=None, scale_y_axis=True, te_plot_style="heatmap"):
-        """
-        Plot partial dependence for each feature.
+    def plot_partial_dependence(self, n_cols=3, suptitle=None, scale_y_axis=True, te_plot_style="heatmap", width=5, height=4):
+        """Plot partial dependence for each feature.
 
-        Works with:
-        - spline_term: s(feature)
-        - spline_term with by: s(feature, by=indicator)  (including expanded by-categorical dummies)
-        - tensor_term: te(...)
-        - factor_term: f(category)
+        Delegates to the module-level :func:`plot_partial_dependence`.
         """
         if self.gam_ is None:
             raise ValueError("Model not fit yet. Call fit() before plotting.")
 
-        # Get structured data for all features
         pdep_data = self.get_partial_dependence_data()
-        feature_names = list(self.feature_term_map_.keys())
-
-        with use_economist_cycle():
-            fig, axes = get_grid_fig_axes(n_charts=len(feature_names), n_cols=n_cols)
-        fig.subplots_adjust(hspace=0.4, wspace=0.3)
-
-        continuous_axes = []
-
-        def get_data_for_feature(fname):
-            if fname in pdep_data:
-                return pdep_data[fname]
-            # check for interaction keys
-            for k, v in pdep_data.items():
-                if isinstance(k, tuple) and k[0] == fname:
-                    return v
-            return None
-
-        for i_feat, feature_name in enumerate(feature_names):
-            ax = axes.flat[i_feat]
-            
-            term_data = get_data_for_feature(feature_name)
-
-            if term_data is None:
-                ax.set_title(f"{feature_name} (no term data)")
-                ax.axis("off")
-                continue
-
-            # ----------------------------
-            # Case A: Spline By Group
-            # ----------------------------
-            if isinstance(term_data, SplineByGroupTermData):
-                by_name = term_data.by_feature
-
-                for label, curves in term_data.group_curves.items():
-                    x_grid = curves['x']
-                    y_vals = curves['y']
-                    ax.plot(x_grid, y_vals, label=label)
-                    
-                    if 'conf_lower' in curves and 'conf_upper' in curves:
-                         ax.fill_between(x_grid, curves['conf_lower'], curves['conf_upper'], alpha=0.15)
-
-                ax.set_xlabel(f"{feature_name} (by {by_name})", fontdict={'fontsize': 12})
-                ax.set_ylabel("Partial Dependence", fontdict={'fontsize': 12})
-                ax.legend(title=by_name)
-                continuous_axes.append(ax)
-
-            # ----------------------------
-            # Case B: Simple Spline
-            # ----------------------------
-            elif isinstance(term_data, SplineTermData):
-                ax.plot(term_data.x, term_data.y, color=EconomistBrandColor.CHICAGO_45)
-                
-                if term_data.conf_lower is not None and term_data.conf_upper is not None:
-                    ax.fill_between(term_data.x, term_data.conf_lower, term_data.conf_upper, 
-                                    alpha=0.2, color=EconomistBrandColor.CHICAGO_45)
-                
-                ax.set_xlabel(feature_name, fontdict={'fontsize': 12})
-                ax.set_ylabel("Partial Dependence", fontdict={'fontsize': 12})
-                continuous_axes.append(ax)
-
-            # ----------------------------
-            # Case C: Tensor Term
-            # ----------------------------
-            elif isinstance(term_data, TensorTermData):
-                x_col_name = term_data.feature_x
-                z_col_name = term_data.feature_y
-                
-                # We need meshgrid for plotting, but data has 1D arrays for axes
-                X1, X2 = np.meshgrid(term_data.x, term_data.y, indexing='ij')
-                Z = term_data.z
-                
-                plot_tensor(ax, X1, X2, Z, style=te_plot_style)
-
-                ax.set_xlabel(x_col_name, fontsize=12)
-                ax.set_ylabel(z_col_name, fontsize=12)
-                ax.set_title(f"{x_col_name} x {z_col_name} (tensor surface)", fontsize=12)
-
-            # ----------------------------
-            # Case D: Factor Term
-            # ----------------------------
-            elif isinstance(term_data, FactorTermData):
-                # Original used errorbar with CIs. Now we just have values.
-                labels = term_data.categories
-                pdep = term_data.values
-                
-                if term_data.conf_lower is not None and term_data.conf_upper is not None:
-                    yerr = [pdep - term_data.conf_lower, term_data.conf_upper - pdep]
-                    ax.errorbar(labels, pdep, yerr=yerr,
-                                fmt='o', capsize=5,
-                                color=EconomistBrandColor.CHICAGO_45)
-                else:
-                    ax.plot(labels, pdep, 'o', color=EconomistBrandColor.CHICAGO_45)
-                    
-                ax.axhline(0, color='gray', linestyle='--', linewidth=1)
-                ax.set_xlabel(feature_name, fontdict={'fontsize': 12})
-                ax.set_ylabel("Partial Dependence", fontdict={'fontsize': 12})
-
-            else:
-                ax.set_title(f"{feature_name} (unknown type)")
-                ax.axis("off")
-
-        # ---------- scale y axis across continuous plots ----------
-        if scale_y_axis and continuous_axes:
-            y_mins = []
-            y_maxs = []
-            for ax in continuous_axes:
-                # get_ylim() might include autoscaling padding, better to check data limits if possible
-                # but standard approach is check ax limits
-                lims = ax.get_ylim()
-                y_mins.append(lims[0])
-                y_maxs.append(lims[1])
-            
-            if y_mins and y_maxs:
-                global_y_min, global_y_max = min(y_mins), max(y_maxs)
-                for ax in continuous_axes:
-                    ax.set_ylim(global_y_min, global_y_max)
-
-        if suptitle:
-            plt.suptitle(suptitle, fontsize=14)
-
-        close_unused_axes(axes)
-        return fig, axes
+        return plot_partial_dependence(
+            pdep_data,
+            n_cols=n_cols,
+            suptitle=suptitle,
+            scale_y_axis=scale_y_axis,
+            te_plot_style=te_plot_style,
+            width=width,
+            height=height,
+        )
 
     def __getattr__(self, name):
         """
@@ -1261,3 +1142,93 @@ def plot_tensor(
         cb.set_label(colorbar_label)
 
     return ax
+
+
+def plot_partial_dependence(
+    pdep_data: Dict[Union[str, "Tuple[str, str]"], "GAMTermData"],
+    *,
+    n_cols: int = 3,
+    suptitle: Optional[str] = None,
+    scale_y_axis: bool = True,
+    te_plot_style: str = "heatmap",
+    width: float = 5,
+    height: float = 4,
+):
+    """Plot partial dependence from a term-data dict (shared by WrapperGAM and GAMReplayModel).
+
+    Parameters
+    ----------
+    pdep_data : dict
+        Mapping returned by ``get_partial_dependence_data()``.
+    n_cols, suptitle, scale_y_axis, te_plot_style, width, height
+        Layout and style options.
+
+    Returns
+    -------
+    fig, axes
+    """
+    keys = list(pdep_data.keys())
+
+    with use_economist_cycle():
+        fig, axes = get_grid_fig_axes(n_charts=len(keys), n_cols=n_cols, width=width, height=height)
+    fig.subplots_adjust(hspace=0.4, wspace=0.3)
+
+    continuous_axes: list = []
+
+    for i, key in enumerate(keys):
+        ax = axes.flat[i]
+        td = pdep_data[key]
+        feature_name = key if isinstance(key, str) else key[0]
+
+        if isinstance(td, SplineByGroupTermData):
+            for label, curves in td.group_curves.items():
+                ax.plot(curves["x"], curves["y"], label=label)
+                if curves.get("conf_lower") is not None and curves.get("conf_upper") is not None:
+                    ax.fill_between(curves["x"], curves["conf_lower"], curves["conf_upper"], alpha=0.15)
+            ax.set_xlabel(f"{td.feature} (by {td.by_feature})", fontdict={"fontsize": 12})
+            ax.set_ylabel("Partial Dependence", fontdict={"fontsize": 12})
+            ax.legend(title=td.by_feature)
+            continuous_axes.append(ax)
+
+        elif isinstance(td, SplineTermData):
+            ax.plot(td.x, td.y, color=EconomistBrandColor.CHICAGO_45)
+            if td.conf_lower is not None and td.conf_upper is not None:
+                ax.fill_between(td.x, td.conf_lower, td.conf_upper,
+                                alpha=0.2, color=EconomistBrandColor.CHICAGO_45)
+            ax.set_xlabel(feature_name, fontdict={"fontsize": 12})
+            ax.set_ylabel("Partial Dependence", fontdict={"fontsize": 12})
+            continuous_axes.append(ax)
+
+        elif isinstance(td, TensorTermData):
+            X1, X2 = np.meshgrid(td.x, td.y, indexing="ij")
+            plot_tensor(ax, X1, X2, td.z, style=te_plot_style)
+            ax.set_xlabel(td.feature_x, fontsize=12)
+            ax.set_ylabel(td.feature_y, fontsize=12)
+            ax.set_title(f"{td.feature_x} x {td.feature_y} (tensor surface)", fontsize=12)
+
+        elif isinstance(td, FactorTermData):
+            if td.conf_lower is not None and td.conf_upper is not None:
+                yerr = [td.values - td.conf_lower, td.conf_upper - td.values]
+                ax.errorbar(td.categories, td.values, yerr=yerr,
+                            fmt="o", capsize=5, color=EconomistBrandColor.CHICAGO_45)
+            else:
+                ax.plot(td.categories, td.values, "o", color=EconomistBrandColor.CHICAGO_45)
+            ax.axhline(0, color="gray", linestyle="--", linewidth=1)
+            ax.set_xlabel(feature_name, fontdict={"fontsize": 12})
+            ax.set_ylabel("Partial Dependence", fontdict={"fontsize": 12})
+
+        else:
+            ax.set_title(f"{feature_name} (unknown type)")
+            ax.axis("off")
+
+    if scale_y_axis and continuous_axes:
+        y_min = min(a.get_ylim()[0] for a in continuous_axes)
+        y_max = max(a.get_ylim()[1] for a in continuous_axes)
+        for a in continuous_axes:
+            a.set_ylim(y_min, y_max)
+
+    if suptitle:
+        plt.suptitle(suptitle, fontsize=14)
+
+    close_unused_axes(axes)
+    return fig, axes
