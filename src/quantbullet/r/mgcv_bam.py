@@ -4,9 +4,8 @@ from pathlib import Path
 from typing import Optional, Union, Literal, Dict, Tuple, Any
 import pandas as pd
 import numpy as np
-from rpy2.rinterface import NULL as R_NULL
 
-from .r_session import get_r
+from .r_session import get_r, source_r_file
 from .rpy_convert import py_df_to_r, r_array_to_py, r_generic_types_to_py
 from .mgcv_utils import components_to_term_data
 
@@ -17,6 +16,12 @@ from quantbullet.model.gam import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _r_null():
+    from rpy2.rinterface import NULL
+
+    return NULL
 
 
 class MgcvBamWrapper:
@@ -46,8 +51,7 @@ class MgcvBamWrapper:
             raise FileNotFoundError(f"mgcv.R not found at: {r_file}")
 
         # Use forward slashes for R on Windows
-        r_path = r_file.as_posix()
-        r.ro.r(f'source("{r_path}")')
+        source_r_file(r_file)
 
         self._bam_fit               = r.ro.globalenv["fit_gam_api"]
         self._bam_fit_pinned_data   = r.ro.globalenv["fit_gam_pinned_data_api"]
@@ -440,8 +444,8 @@ class MgcvBamWrapper:
                 type=type,
                 chunk_size=chunk_size,
                 newdata_guaranteed=newdata_guaranteed,
-                discrete=R_NULL if discrete is None else discrete,
-                n_threads=R_NULL if n_threads is None else n_threads,
+                discrete=_r_null() if discrete is None else discrete,
+                n_threads=_r_null() if n_threads is None else n_threads,
                 gc_level=gc_level
             )
             timing['r_predict'] = time.perf_counter() - t0
@@ -460,8 +464,8 @@ class MgcvBamWrapper:
                 type=type,
                 chunk_size=chunk_size,
                 newdata_guaranteed=newdata_guaranteed,
-                discrete=R_NULL if discrete is None else discrete,
-                n_threads=R_NULL if n_threads is None else n_threads,
+                discrete=_r_null() if discrete is None else discrete,
+                n_threads=_r_null() if n_threads is None else n_threads,
                 gc_level=gc_level
             )
             timing['r_predict'] = time.perf_counter() - t0

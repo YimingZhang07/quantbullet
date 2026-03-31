@@ -12,7 +12,7 @@ from typing import Optional, Union, List
 
 import pandas as pd
 
-from .r_session import get_r
+from .r_session import get_r, source_r_file
 from .rpy_convert import py_df_to_r, py_obj_to_r
 
 logger = logging.getLogger(__name__)
@@ -57,7 +57,7 @@ class RPlots:
         if not r_file.exists():
             raise FileNotFoundError(f"plots.R not found at: {r_file}")
 
-        r.ro.r(f'source("{r_file.as_posix()}")')
+        source_r_file(r_file)
 
         # Bind R functions
         self._plot_binned = r.ro.globalenv["plot_binned_actual_vs_pred"]
