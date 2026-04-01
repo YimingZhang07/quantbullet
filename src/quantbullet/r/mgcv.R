@@ -572,13 +572,13 @@ plot_gam_smooth_pages_api <- function(
   pages  = 1,
   rug    = FALSE,
   scheme = 1,
-  scale  = FALSE,
+  scale_y_axis = FALSE,
   ...
 ) {
-  scale_val <- if (is.logical(scale)) {
-    ifelse(scale, 0, -1)
+  scale_val <- if (is.logical(scale_y_axis)) {
+    ifelse(scale_y_axis, -1, 0)
   } else {
-    as.numeric(scale)
+    as.numeric(scale_y_axis)
   }
 
   plot.gam(
@@ -601,7 +601,7 @@ plot_gam_smooth_api <- function(
   pages  = 1,
   rug    = FALSE,
   scheme = 1,
-  scale  = FALSE,
+  scale_y_axis = FALSE,
   ...
 ) {
   ext <- tolower(tools::file_ext(fpath))
@@ -650,7 +650,7 @@ plot_gam_smooth_api <- function(
     pages = pages,
     rug = rug,
     scheme = scheme,
-    scale = scale,
+    scale_y_axis = scale_y_axis,
     ...
   )
   invisible(TRUE)
@@ -673,7 +673,7 @@ model_report_pdf_api <- function(
   pages  = 1,
   rug    = FALSE,
   scheme = 1,
-  scale  = FALSE,
+  scale_y_axis = FALSE,
   include_header = TRUE
 ) {
   ext <- tolower(tools::file_ext(fpath))
@@ -695,7 +695,7 @@ model_report_pdf_api <- function(
     pages = pages,
     rug = rug,
     scheme = scheme,
-    scale = scale
+    scale_y_axis = scale_y_axis
   )
 
   # Summary page last

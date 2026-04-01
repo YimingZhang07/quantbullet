@@ -639,7 +639,7 @@ class MgcvBamWrapper:
         width: int = 3200,
         height: int = 2400,
         dpi: int = 300,
-        scale: bool = False,
+        scale_y_axis: bool = False,
     ) -> str:
         """
         Plot model's smooth terms and save to file.
@@ -650,6 +650,8 @@ class MgcvBamWrapper:
             width: Width in pixels (for raster) or device units (for vector)
             height: Height in pixels (for raster) or device units (for vector)
             dpi: Resolution for raster formats
+            scale_y_axis: If True, all panels share the same y-axis range.
+                If False (default), each panel scales independently.
             
         Returns:
             Path to the saved plot
@@ -673,7 +675,7 @@ class MgcvBamWrapper:
             width=width,
             height=height,
             dpi=dpi,
-            scale=scale,
+            scale_y_axis=scale_y_axis,
         )
 
         logger.debug(f"Saved plot to {out_fpath}")
@@ -689,10 +691,14 @@ class MgcvBamWrapper:
         include_header: bool = True,
         rug: bool = False,
         scheme: int = 1,
-        scale: bool = False,
+        scale_y_axis: bool = False,
     ) -> str:
         """
         Save a PDF report with smooth pages first, then model summary text.
+
+        Args:
+            scale_y_axis: If True, all smooth panels share the same y-axis range.
+                If False (default), each panel scales independently.
         """
         self._ensure_fitted()
 
@@ -713,7 +719,7 @@ class MgcvBamWrapper:
             include_header=include_header,
             rug=rug,
             scheme=scheme,
-            scale=scale,
+            scale_y_axis=scale_y_axis,
         )
 
         logger.debug(f"Saved report to {out_fpath}")
@@ -724,7 +730,7 @@ class MgcvBamWrapper:
         width: int = 3200,
         height: int = 2400,
         dpi: int = 300,
-        scale: bool = False,
+        scale_y_axis: bool = False,
     ) -> None:
         """
         Plot model's smooth terms inline in Jupyter notebook.
@@ -763,7 +769,7 @@ class MgcvBamWrapper:
                 width=width,
                 height=height,
                 dpi=dpi,
-                scale=scale,
+                scale_y_axis=scale_y_axis,
             )
 
             # Display inline in Jupyter
