@@ -799,6 +799,39 @@ class MgcvBamWrapper:
             return "\n".join(str(x) for x in smy)
         return str(smy)
 
+    def gam_check(self) -> None:
+        """Run mgcv's ``gam.check()`` on the fitted model.
+
+        Prints diagnostic text (k-index tests, convergence info) and
+        displays the standard 4-panel residual plot inline in Jupyter.
+        """
+        self._ensure_fitted()
+
+        try:
+            from IPython.display import Image, display
+            has_ipython = True
+        except ImportError:
+            has_ipython = False
+
+        r = self.r_
+
+        if has_ipython:
+            import tempfile, os
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+                tmp_path = f.name
+            try:
+                r.ro.r('png')(filename=tmp_path, width=2400, height=1800, res=200)
+                r.ro.r('gam.check')(self.model_r_)
+                r.ro.r('dev.off')()
+                display(Image(filename=tmp_path))
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+        else:
+            r.ro.r('gam.check')(self.model_r_)
+
     def stop_cluster(self) -> None:
         """
         Stop the R parallel cluster and free resources.
