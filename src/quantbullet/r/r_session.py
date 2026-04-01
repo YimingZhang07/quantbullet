@@ -89,17 +89,25 @@ class RSessionManager:
         use_renv: bool = True,
     ) -> None:
         """Store backend options.  Must be called before :meth:`get_session`."""
-        if self._session is not None:
-            raise RuntimeError(
-                "Cannot configure R after the session is already initialised. "
-                "Call configure_r() before the first get_r()."
-            )
-        self._config = RConfig(
+        import warnings
+
+        new_config = RConfig(
             r_home=r_home,
             lib_paths=tuple(lib_paths) if lib_paths is not None else None,
             include_r_home_library=include_r_home_library,
             use_renv=use_renv,
         )
+        if self._session is not None:
+            if new_config == self._config:
+                return
+            warnings.warn(
+                "R session is already initialised; ignoring new configuration. "
+                "Restart the Python process to apply different R settings.",
+                RuntimeWarning,
+                stacklevel=3,
+            )
+            return
+        self._config = new_config
 
     def get_session(self) -> RSession:
         """Return the live session, booting R on first call."""
