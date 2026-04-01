@@ -1,437 +1,24 @@
-import json
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from quantbullet.model.feature import DataType
 from pygam import LinearGAM, s, f, te
-from quantbullet.plot import (
-    EconomistBrandColor,
-    get_grid_fig_axes
-)
-from quantbullet.plot.utils import close_unused_axes
-from quantbullet.plot.cycles import use_economist_cycle
 from scipy.interpolate import RegularGridInterpolator
-from dataclasses import dataclass, fields
-from typing import List, Dict, Union, Tuple, Optional, Any
-from quantbullet.utils.serialize import to_json_value
+from typing import Dict, Union, Tuple, Optional, Any
 
-def _maybe_array(value: Optional[Any]) -> Optional[np.ndarray]:
-    if value is None:
-        return None
-    return np.asarray(value)
-
-def _term_key_from_data(data: "GAMTermData") -> Union[str, Tuple[str, str]]:
-    if isinstance(data, SplineTermData):
-        return data.feature
-    if isinstance(data, FactorTermData):
-        return data.feature
-    if isinstance(data, SplineByGroupTermData):
-        return (data.feature, data.by_feature)
-    if isinstance(data, TensorTermData):
-        return (data.feature_x, data.feature_y)
-    raise ValueError(f"Unknown term data type: {type(data)}")
-
-
-# =============================================================================
-# Term Name Formatting/Parsing Utilities
-# =============================================================================
-# Format: {type}__{feature}[__{by_feature}__{by_level}]
-# Examples:
-#   s__age              -> spline on age
-#   s__age__level__B    -> spline on age, by level=B
-#   f__level            -> factor on level
-#   te__x1__x2          -> tensor on x1, x2
-
-def format_term_name(
-    term_type: str,
-    feature: str,
-    by_feature: Optional[str] = None,
-    by_level: Optional[str] = None,
-    feature2: Optional[str] = None,
-) -> str:
-    """
-    Format a term name using the standard convention.
-    
-    Parameters
-    ----------
-    term_type : str
-        Term type: 's' (spline), 'f' (factor), 'te' (tensor)
-    feature : str
-        Main feature name
-    by_feature : str, optional
-        For spline-by-group terms, the grouping variable
-    by_level : str, optional
-        For spline-by-group terms, the specific level
-    feature2 : str, optional
-        For tensor terms, the second feature
-        
-    Returns
-    -------
-    str
-        Formatted term name like 's__age' or 's__age__level__B'
-    """
-    if term_type == "te" and feature2:
-        return f"te__{feature}__{feature2}"
-    if by_feature and by_level:
-        return f"{term_type}__{feature}__{by_feature}__{by_level}"
-    return f"{term_type}__{feature}"
-
-
-def parse_term_name(name: str) -> Dict[str, str]:
-    """
-    Parse a term name back to its components.
-    
-    Parameters
-    ----------
-    name : str
-        Term name like 's__age' or 's__age__level__B'
-        
-    Returns
-    -------
-    dict
-        Dictionary with keys: type, feature, and optionally by_feature, by_level, or feature2
-        
-    Examples
-    --------
-    >>> parse_term_name('s__age')
-    {'type': 's', 'feature': 'age'}
-    
-    >>> parse_term_name('s__age__level__B')
-    {'type': 's', 'feature': 'age', 'by_feature': 'level', 'by_level': 'B'}
-    
-    >>> parse_term_name('te__x1__x2')
-    {'type': 'te', 'feature': 'x1', 'feature2': 'x2'}
-    """
-    parts = name.split("__")
-    
-    if len(parts) < 2:
-        raise ValueError(f"Invalid term name format: {name}")
-    
-    term_type = parts[0]
-    result = {"type": term_type, "feature": parts[1]}
-    
-    if term_type == "te" and len(parts) == 3:
-        result["feature2"] = parts[2]
-    elif len(parts) == 4:
-        result["by_feature"] = parts[2]
-        result["by_level"] = parts[3]
-    
-    return result
-
-@dataclass
-class GAMTermData:
-    """Base class for GAM term partial dependence data."""
-    term_type: str = "base"
-
-    def to_dict(self) -> Dict[str, Any]:
-        raw = {f.name: getattr(self, f.name) for f in fields(self)}
-        return {k: to_json_value(v) for k, v in raw.items()}
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "GAMTermData":
-        term_type = data.get("term_type")
-        if term_type == "spline":
-            return SplineTermData.from_dict(data)
-        if term_type == "spline_by_category":
-            return SplineByGroupTermData.from_dict(data)
-        if term_type == "tensor":
-            return TensorTermData.from_dict(data)
-        if term_type == "factor":
-            return FactorTermData.from_dict(data)
-        raise ValueError(f"Unknown term_type: {term_type}")
-
-@dataclass
-class SplineTermData(GAMTermData):
-    """Data for a simple spline term s(x)."""
-    feature: str = ""
-    x: np.ndarray = None
-    y: np.ndarray = None
-    conf_lower: np.ndarray = None
-    conf_upper: np.ndarray = None
-    term_type: str = "spline"
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "SplineTermData":
-        return cls(
-            feature=data.get("feature", ""),
-            x=_maybe_array(data.get("x")),
-            y=_maybe_array(data.get("y")),
-            conf_lower=_maybe_array(data.get("conf_lower")),
-            conf_upper=_maybe_array(data.get("conf_upper")),
-            term_type=data.get("term_type", "spline"),
-        )
-
-@dataclass
-class SplineByGroupTermData(GAMTermData):
-    """Data for a spline term interacted with a categorical s(x, by=cat)."""
-    feature: str = ""
-    by_feature: str = ""
-    # map group_label -> {'x': np.ndarray, 'y': np.ndarray, 'conf_lower': np.ndarray, 'conf_upper': np.ndarray}
-    group_curves: Dict[str, Dict[str, np.ndarray]] = None
-    term_type: str = "spline_by_category"
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "SplineByGroupTermData":
-        group_curves = data.get("group_curves")
-        if group_curves is not None:
-            group_curves = {
-                label: {k: _maybe_array(v) for k, v in curves.items()}
-                for label, curves in group_curves.items()
-            }
-        return cls(
-            feature=data.get("feature", ""),
-            by_feature=data.get("by_feature", ""),
-            group_curves=group_curves,
-            term_type=data.get("term_type", "spline_by_category"),
-        )
-
-@dataclass
-class TensorTermData(GAMTermData):
-    """Data for a tensor product term te(x, y)."""
-    feature_x: str = ""
-    feature_y: str = ""
-    x: np.ndarray = None
-    y: np.ndarray = None
-    z: np.ndarray = None
-    # Tensor terms usually just return surface Z in pygam, no CI by default for meshgrid
-    term_type: str = "tensor"
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "TensorTermData":
-        return cls(
-            feature_x=data.get("feature_x", ""),
-            feature_y=data.get("feature_y", ""),
-            x=_maybe_array(data.get("x")),
-            y=_maybe_array(data.get("y")),
-            z=_maybe_array(data.get("z")),
-            term_type=data.get("term_type", "tensor"),
-        )
-
-@dataclass
-class FactorTermData(GAMTermData):
-    """Data for a categorical factor term f(cat)."""
-    feature: str = ""
-    categories: List[str] = None
-    values: np.ndarray = None
-    conf_lower: np.ndarray = None
-    conf_upper: np.ndarray = None
-    term_type: str = "factor"
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "FactorTermData":
-        categories = data.get("categories")
-        if categories is not None:
-            categories = list(categories)
-        return cls(
-            feature=data.get("feature", ""),
-            categories=categories,
-            values=_maybe_array(data.get("values")),
-            conf_lower=_maybe_array(data.get("conf_lower")),
-            conf_upper=_maybe_array(data.get("conf_upper")),
-            term_type=data.get("term_type", "factor"),
-        )
-
-def export_partial_dependence_payload(
-    term_data: Dict[Union[str, Tuple[str, str]], GAMTermData],
-    intercept: float = 0.0,
-    metadata: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-    terms = [value.to_dict() for value in term_data.values()]
-    payload = {
-        "intercept": float(intercept),
-        "terms": terms,
-    }
-    if metadata is not None:
-        payload["metadata"] = to_json_value(metadata)
-    return payload
-
-def dump_partial_dependence_json(
-    term_data: Dict[Union[str, Tuple[str, str]], GAMTermData],
-    path: str,
-    intercept: float = 0.0,
-    metadata: Optional[Dict[str, Any]] = None,
-    indent: int = 2,
-) -> Dict[str, Any]:
-    payload = export_partial_dependence_payload(
-        term_data=term_data,
-        intercept=intercept,
-        metadata=metadata,
-    )
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=indent, ensure_ascii=True)
-    return payload
-
-def load_partial_dependence_json(
-    path: str,
-) -> Tuple[Dict[Union[str, Tuple[str, str]], GAMTermData], float, Optional[Dict[str, Any]]]:
-    with open(path, "r", encoding="utf-8") as f:
-        payload = json.load(f)
-    term_data = {}
-    for entry in payload.get("terms", []):
-        data = GAMTermData.from_dict(entry)
-        key = _term_key_from_data(data)
-        term_data[key] = data
-
-    intercept = float(payload.get("intercept", 0.0))
-    metadata = payload.get("metadata")
-    return term_data, intercept, metadata
-
-
-def center_partial_dependence(
-    term_data: Dict[Union[str, Tuple[str, str]], GAMTermData],
-    intercept: float,
-) -> Tuple[Dict[Union[str, Tuple[str, str]], GAMTermData], float]:
-    """
-    Center partial dependence curves so each curve averages to approximately
-    zero, absorbing the offsets into the intercept.
-
-    Prediction invariant is preserved:
-    ``y = intercept + sum(f_i) = (intercept + sum(offset_i)) + sum(f_i - offset_i)``
-
-    For by-group spline terms, each group curve is centered independently and
-    the per-group offsets are folded into an existing or new ``FactorTermData``
-    keyed by the ``by_feature``.
-
-    Parameters
-    ----------
-    term_data : dict
-        Mapping returned by ``get_partial_dependence_data()``.
-    intercept : float
-        The original model intercept.
-
-    Returns
-    -------
-    (centered_term_data, new_intercept) : tuple
-        Deep-copied term data with centered curves, and the adjusted intercept.
-    """
-    new_data: Dict[Union[str, Tuple[str, str]], GAMTermData] = {}
-    intercept_offset = 0.0
-    # by_feature -> {group_label: accumulated_offset}
-    by_feature_offsets: Dict[str, Dict[str, float]] = {}
-
-    # ------------------------------------------------------------------
-    # Pass 1: center each term, collecting by-group offsets on the side
-    # ------------------------------------------------------------------
-    for key, td in term_data.items():
-
-        if isinstance(td, SplineTermData):
-            offset = float(np.mean(td.y))
-            new_data[key] = SplineTermData(
-                feature=td.feature,
-                x=td.x.copy(),
-                y=td.y - offset,
-                conf_lower=td.conf_lower - offset if td.conf_lower is not None else None,
-                conf_upper=td.conf_upper - offset if td.conf_upper is not None else None,
-            )
-            intercept_offset += offset
-
-        elif isinstance(td, FactorTermData):
-            offset = float(np.mean(td.values))
-            new_data[key] = FactorTermData(
-                feature=td.feature,
-                categories=list(td.categories),
-                values=td.values - offset,
-                conf_lower=td.conf_lower - offset if td.conf_lower is not None else None,
-                conf_upper=td.conf_upper - offset if td.conf_upper is not None else None,
-            )
-            intercept_offset += offset
-
-        elif isinstance(td, TensorTermData):
-            offset = float(np.mean(td.z))
-            new_data[key] = TensorTermData(
-                feature_x=td.feature_x,
-                feature_y=td.feature_y,
-                x=td.x.copy(),
-                y=td.y.copy(),
-                z=td.z - offset,
-            )
-            intercept_offset += offset
-
-        elif isinstance(td, SplineByGroupTermData):
-            new_curves: Dict[str, Dict[str, np.ndarray]] = {}
-            by_feat = td.by_feature
-
-            if by_feat not in by_feature_offsets:
-                by_feature_offsets[by_feat] = {}
-
-            for label, curves in td.group_curves.items():
-                x = curves["x"]
-                y = curves["y"]
-                offset = float(np.mean(y))
-
-                by_feature_offsets[by_feat].setdefault(label, 0.0)
-                by_feature_offsets[by_feat][label] += offset
-
-                new_curves[label] = {
-                    "x": x.copy(),
-                    "y": y - offset,
-                    "conf_lower": (
-                        curves["conf_lower"] - offset
-                        if curves.get("conf_lower") is not None
-                        else None
-                    ),
-                    "conf_upper": (
-                        curves["conf_upper"] - offset
-                        if curves.get("conf_upper") is not None
-                        else None
-                    ),
-                }
-
-            new_data[key] = SplineByGroupTermData(
-                feature=td.feature,
-                by_feature=td.by_feature,
-                group_curves=new_curves,
-            )
-
-        else:
-            new_data[key] = td
-
-    # ------------------------------------------------------------------
-    # Pass 2: fold by-group offsets into existing or new FactorTermData,
-    #         then re-center so the factor still averages to zero.
-    # ------------------------------------------------------------------
-    for by_feat, group_offsets in by_feature_offsets.items():
-        if by_feat in new_data and isinstance(new_data[by_feat], FactorTermData):
-            existing = new_data[by_feat]
-            feature_name = existing.feature
-            categories = list(existing.categories)
-            values = existing.values.copy()
-            conf_lower = existing.conf_lower.copy() if existing.conf_lower is not None else None
-            conf_upper = existing.conf_upper.copy() if existing.conf_upper is not None else None
-            for i, cat in enumerate(categories):
-                cat_str = str(cat)
-                if cat_str in group_offsets:
-                    values[i] += group_offsets[cat_str]
-                    if conf_lower is not None:
-                        conf_lower[i] += group_offsets[cat_str]
-                    if conf_upper is not None:
-                        conf_upper[i] += group_offsets[cat_str]
-        else:
-            feature_name = by_feat
-            categories = sorted(group_offsets.keys())
-            values = np.array([group_offsets[c] for c in categories])
-            conf_lower = None
-            conf_upper = None
-
-        # Re-center: the absorbed offsets introduce a non-zero mean
-        residual = float(np.mean(values))
-        values = values - residual
-        if conf_lower is not None:
-            conf_lower = conf_lower - residual
-        if conf_upper is not None:
-            conf_upper = conf_upper - residual
-        intercept_offset += residual
-
-        new_data[by_feat] = FactorTermData(
-            feature=feature_name,
-            categories=categories,
-            values=values,
-            conf_lower=conf_lower,
-            conf_upper=conf_upper,
-        )
-
-    new_intercept = intercept + intercept_offset
-    return new_data, new_intercept
+from .terms import (
+    GAMTermData,
+    SplineTermData,
+    SplineByGroupTermData,
+    TensorTermData,
+    FactorTermData,
+    format_term_name,
+)
+from .utils import (
+    dump_partial_dependence_json,
+    center_partial_dependence,
+)
+from .plot import plot_partial_dependence
 
 
 class WrapperGAM:
@@ -706,12 +293,9 @@ class WrapperGAM:
                     is_group_by_cat = all_have_by and all_look_like_dummies
 
                 if is_group_by_cat:
-                    # Plot multiple curves on same axis, one per dummy level
-                    # All share the same x feature column index:
                     key = (feature_name, by_name)
                     curves = {}
                     
-                    # Use grid from first term to get x range
                     x_col_idx = int(self.gam_.terms[idxs[0]].feature)
                     Xg = self.gam_.generate_X_grid(term=idxs[0])
                     x_vals = Xg[:, x_col_idx]
@@ -719,11 +303,6 @@ class WrapperGAM:
                     x_grid = np.linspace(x_min, x_max, grid_size)
                     
                     for ti in idxs:
-                        # if we have term 1 cross with four dummies, then we have s(0, by=1), s(0, by=2), s(0, by=3), s(0, by=4)
-                        # say we are at term s(0, by=3)
-                        # t = 2, we are at the third term of the formula
-                        # x_col_idx = 0, the main continuous feature is still at column 0
-                        # by_col_idx = 3, the dummy column for this term is at column 3
                         t = self.gam_.terms[ti]
                         by_col_idx = int(t.by)
                         by_colname = _get_colname(by_col_idx)
@@ -866,14 +445,11 @@ class WrapperGAM:
         Delegate attribute/method access to the underlying GAM model, but avoid
         recursion if `gam_` is not yet set (e.g., during unpickling).
         """
-        # Try to fetch gam_ without invoking __getattr__ again
         try:
             gam = object.__getattribute__(self, "gam_")
         except AttributeError:
-            # `gam_` isn't available yet; behave like a normal missing attribute
             raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'") from None
 
-        # Delegate to the underlying model
         try:
             return getattr(gam, name)
         except AttributeError:
@@ -961,7 +537,6 @@ class WrapperGAM:
         Z = self.gam_.partial_dependence(term=ti, X=XX, meshgrid=True)
 
         X1, X2 = XX[0], XX[1]
-        # The returned X1, X2 are 2D meshgrid arrays; we need to return 1D arrays for each axis
         x1_grid = X1[:, 0]
         x2_grid = X2[0, :]
         return x1_grid, x2_grid, Z
@@ -1021,11 +596,9 @@ class WrapperGAM:
         if self.gam_ is None:
             raise ValueError("Model not fit yet.")
 
-        # 1) build design matrix in training column order
         Xd = self._prepare_design_matrix_predict(X)
         Xd_np = np.asarray(Xd)
 
-        # 2) prediction
         pred = self.gam_.predict(Xd_np)
         
         term_contribs = []
@@ -1034,7 +607,7 @@ class WrapperGAM:
 
         for ti, t in enumerate(self.gam_.terms):
             if getattr(t, "isintercept", False):
-                continue  # pyGAM can't partial_dependence() the intercept term
+                continue
             c = self.gam_.partial_dependence(term=ti, X=Xd_np)
             term_contribs.append(np.asarray(c).reshape(-1))
             term_names.append(self._format_term_name(ti))
@@ -1054,7 +627,7 @@ class WrapperGAM:
             "pred": pred,
             "intercept": intercept,
             "term_contrib": term_contribs_df,
-            "term_indices": used_term_indices,  # optional but useful for debugging
+            "term_indices": used_term_indices,
         }
         return out
         
@@ -1075,10 +648,8 @@ class WrapperGAM:
             by = getattr(t, "by", None)
             if by is None:
                 return format_term_name("s", feat)
-            # by-term: dummy column name is like "level___A"
             by_idx = int(by)
             by_col_name = self.design_columns_[by_idx]
-            # Parse dummy column: "level___A" -> by_feature="level", by_level="A"
             if "___" in by_col_name:
                 by_feature, by_level = by_col_name.split("___", 1)
             else:
@@ -1174,10 +745,8 @@ class WrapperGAM:
         if self.gam_ is None:
             raise ValueError("Model not fit yet. Call fit() before getting formula string.")
         
-        # Get target variable name directly from FeatureSpec
         target_name = self.feature_spec.y
         
-        # Build term strings for each feature
         term_strings = []
         
         for feature_name in self.feature_spec.x:
@@ -1188,239 +757,39 @@ class WrapperGAM:
                 by = specs.get("by")
                 
                 if by is None:
-                    # Simple spline: s(feature)
                     term_strings.append(f"s({feature_name})")
                     
                 else:
                     by_feat = self.feature_spec[by]
                     
                     if by_feat.dtype == DataType.FLOAT:
-                        # Tensor product: te(feature, by_feature)
                         term_strings.append(f"te({feature_name}, {by})")
                         
                     elif by_feat.dtype == DataType.CATEGORY:
-                        # Spline by categorical: s(feature, by=category)
                         term_strings.append(f"s({feature_name}, by={by})")
                         
             elif feat.dtype == DataType.CATEGORY:
-                # Factor term: f(category)
                 term_strings.append(f"f({feature_name})")
         
         if not multiline:
-            # Single line formula
             formula = f"{target_name} ~ " + " + ".join(term_strings)
         else:
-            # Multi-line formula with intelligent wrapping
             lines = [f"{target_name} ~"]
-            current_line = "    "  # 4-space indent for continuation
+            current_line = "    "
             
             for i, term in enumerate(term_strings):
-                # Add " + " before term (except first)
                 prefix = " + " if i > 0 else ""
                 term_with_prefix = prefix + term
                 
-                # Check if adding this term would exceed line length
                 if len(current_line + term_with_prefix) > max_line_length and current_line.strip():
-                    # Start new line
                     lines.append(current_line.rstrip())
                     current_line = "    " + term
                 else:
                     current_line += term_with_prefix
             
-            # Add the last line
             if current_line.strip():
                 lines.append(current_line.rstrip())
             
             formula = "\n".join(lines)
         
         return formula
-
-def plot_tensor(
-    ax,
-    X1,
-    X2,
-    Z,
-    style="contour",
-    levels=10,
-    cmap="viridis",
-    alpha=0.6,
-    show_labels=True,
-    colorbar=False,
-    colorbar_label=None,
-):
-    """
-    Plot a tensor term (2D smooth) on the given axes.
-
-    Parameters
-    ----------
-    ax : matplotlib Axes
-        Target axes.
-    X1, X2 : 2D arrays
-        Meshgrid arrays for the two dimensions.
-    Z : 2D array
-        Partial dependence values.
-    style : {"contour", "contourf", "heatmap"}
-        Plotting style.
-    levels : int
-        Number of contour levels.
-    cmap : str or Colormap
-        Colormap to use. 'viridis' is good for screen, 'Greys' for print.
-    alpha : float
-        Transparency for filled plots.
-    show_labels : bool
-        Whether to label contour lines.
-    colorbar : bool
-        Whether to add a colorbar.
-    colorbar_label : str
-        Label for the colorbar.
-    """
-
-    if style not in {"contour", "contourf", "heatmap"}:
-        raise ValueError(f"Unknown style: {style}")
-
-    mappable = None  # for optional colorbar
-
-    # -------------------------
-    # 1) Contour only (best for print)
-    # -------------------------
-    if style == "contour":
-        cs = ax.contour(
-            X1, X2, Z,
-            levels=levels,
-            colors="black",
-            linewidths=1.0,
-        )
-        if show_labels:
-            ax.clabel(cs, inline=True, fontsize=8, fmt="%.2f")
-
-        mappable = cs
-
-    # -------------------------
-    # 2) Contour + light fill
-    # -------------------------
-    elif style == "contourf":
-        cf = ax.contourf(
-            X1, X2, Z,
-            levels=levels,
-            cmap=cmap,
-            alpha=alpha,
-        )
-        cs = ax.contour(
-            X1, X2, Z,
-            levels=levels,
-            colors="black",
-            linewidths=0.8,
-        )
-        if show_labels:
-            ax.clabel(cs, inline=True, fontsize=8, fmt="%.2f")
-
-        mappable = cf
-
-    # -------------------------
-    # 3) Heatmap (screen only)
-    # -------------------------
-    elif style == "heatmap":
-        mappable = ax.pcolormesh(
-            X1, X2, Z,
-            shading="auto",
-            cmap=cmap,
-        )
-
-    # -------------------------
-    # Optional colorbar
-    # -------------------------
-    if colorbar and mappable is not None:
-        cb = plt.colorbar(mappable, ax=ax)
-        cb.set_label(colorbar_label)
-
-    return ax
-
-
-def plot_partial_dependence(
-    pdep_data: Dict[Union[str, "Tuple[str, str]"], "GAMTermData"],
-    *,
-    n_cols: int = 3,
-    suptitle: Optional[str] = None,
-    scale_y_axis: bool = True,
-    te_plot_style: str = "heatmap",
-    width: float = 5,
-    height: float = 4,
-):
-    """Plot partial dependence from a term-data dict (shared by WrapperGAM and GAMReplayModel).
-
-    Parameters
-    ----------
-    pdep_data : dict
-        Mapping returned by ``get_partial_dependence_data()``.
-    n_cols, suptitle, scale_y_axis, te_plot_style, width, height
-        Layout and style options.
-
-    Returns
-    -------
-    fig, axes
-    """
-    keys = list(pdep_data.keys())
-
-    with use_economist_cycle():
-        fig, axes = get_grid_fig_axes(n_charts=len(keys), n_cols=n_cols, width=width, height=height)
-    fig.subplots_adjust(hspace=0.4, wspace=0.3)
-
-    continuous_axes: list = []
-
-    for i, key in enumerate(keys):
-        ax = axes.flat[i]
-        td = pdep_data[key]
-        feature_name = key if isinstance(key, str) else key[0]
-
-        if isinstance(td, SplineByGroupTermData):
-            for label, curves in td.group_curves.items():
-                ax.plot(curves["x"], curves["y"], label=label)
-                if curves.get("conf_lower") is not None and curves.get("conf_upper") is not None:
-                    ax.fill_between(curves["x"], curves["conf_lower"], curves["conf_upper"], alpha=0.15)
-            ax.set_xlabel(f"{td.feature} (by {td.by_feature})", fontdict={"fontsize": 12})
-            ax.set_ylabel("Partial Dependence", fontdict={"fontsize": 12})
-            ax.legend(title=td.by_feature)
-            continuous_axes.append(ax)
-
-        elif isinstance(td, SplineTermData):
-            ax.plot(td.x, td.y, color=EconomistBrandColor.CHICAGO_45)
-            if td.conf_lower is not None and td.conf_upper is not None:
-                ax.fill_between(td.x, td.conf_lower, td.conf_upper,
-                                alpha=0.2, color=EconomistBrandColor.CHICAGO_45)
-            ax.set_xlabel(feature_name, fontdict={"fontsize": 12})
-            ax.set_ylabel("Partial Dependence", fontdict={"fontsize": 12})
-            continuous_axes.append(ax)
-
-        elif isinstance(td, TensorTermData):
-            X1, X2 = np.meshgrid(td.x, td.y, indexing="ij")
-            plot_tensor(ax, X1, X2, td.z, style=te_plot_style)
-            ax.set_xlabel(td.feature_x, fontsize=12)
-            ax.set_ylabel(td.feature_y, fontsize=12)
-            ax.set_title(f"{td.feature_x} x {td.feature_y} (tensor surface)", fontsize=12)
-
-        elif isinstance(td, FactorTermData):
-            if td.conf_lower is not None and td.conf_upper is not None:
-                yerr = [td.values - td.conf_lower, td.conf_upper - td.values]
-                ax.errorbar(td.categories, td.values, yerr=yerr,
-                            fmt="o", capsize=5, color=EconomistBrandColor.CHICAGO_45)
-            else:
-                ax.plot(td.categories, td.values, "o", color=EconomistBrandColor.CHICAGO_45)
-            ax.axhline(0, color="gray", linestyle="--", linewidth=1)
-            ax.set_xlabel(feature_name, fontdict={"fontsize": 12})
-            ax.set_ylabel("Partial Dependence", fontdict={"fontsize": 12})
-
-        else:
-            ax.set_title(f"{feature_name} (unknown type)")
-            ax.axis("off")
-
-    if scale_y_axis and continuous_axes:
-        y_min = min(a.get_ylim()[0] for a in continuous_axes)
-        y_max = max(a.get_ylim()[1] for a in continuous_axes)
-        for a in continuous_axes:
-            a.set_ylim(y_min, y_max)
-
-    if suptitle:
-        plt.suptitle(suptitle, fontsize=14)
-
-    close_unused_axes(axes)
-    return fig, axes
