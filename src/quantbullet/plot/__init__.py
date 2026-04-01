@@ -5,3 +5,4 @@ from .theme import PlotTheme, MINIMAL_THEME
 from .formatter import PlotFormatter
 from .binned_plots import plot_binned_actual_vs_pred
 from .scatter_binned import plot_scatter_multi_y
+from .dist import plot_distributions
