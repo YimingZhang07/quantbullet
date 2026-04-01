@@ -4,214 +4,298 @@ from pathlib import Path
 import unittest
 import numpy as np
 import pandas as pd
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from unittest.mock import patch, MagicMock
+from matplotlib.backends.backend_pdf import PdfPages
 
 from quantbullet.model import WrapperGAM
 from quantbullet.model.gam_replay import GAMReplayModel
 from quantbullet.model.feature import FeatureSpec, FeatureRole, Feature
 from quantbullet.core.enums import DataType
-from quantbullet.model.gam import SplineTermData, SplineByGroupTermData, TensorTermData, FactorTermData
+from quantbullet.model.gam import (
+    SplineTermData,
+    SplineByGroupTermData,
+    TensorTermData,
+    FactorTermData,
+    center_partial_dependence,
+)
 
 DEV_MODE = True
 CACHE_DIR = "./tests/_cache_dir"
 
+
+# ============================================================================
+# Shared fixtures
+# ============================================================================
+
+def _make_test_data(n_samples=200, seed=42):
+    np.random.seed(seed)
+    age = np.random.uniform(20, 80, n_samples)
+    income = np.random.uniform(20000, 120000, n_samples)
+    education = np.random.uniform(8, 20, n_samples)
+    level = np.random.choice(["highschool", "bachelor", "master", "phd"], n_samples)
+
+    happiness = (
+        0.5 * np.sin((age - 40) / 10)
+        + 0.3 * np.log(income / 30000)
+        + 0.2 * education
+        + 0.1 * (level == "phd").astype(float)
+        + np.random.normal(0, 0.5, n_samples)
+    )
+
+    return pd.DataFrame({
+        "age": age,
+        "income": income,
+        "education": education,
+        "level": level,
+        "happiness": happiness,
+    })
+
+
+def _make_feature_spec():
+    """Covers all term types: spline-by-group, constrained spline, tensor, factor."""
+    return FeatureSpec(features=[
+        Feature(name="age", dtype=DataType.FLOAT, role=FeatureRole.MODEL_INPUT,
+                specs={"spline_order": 3, "n_splines": 6, "lam": 0.1, "by": "level"}),
+        Feature(name="income", dtype=DataType.FLOAT, role=FeatureRole.MODEL_INPUT,
+                specs={"spline_order": 3, "n_splines": 6, "lam": 0.1, "constraints": "monotonic_inc"}),
+        Feature(name="education", dtype=DataType.FLOAT, role=FeatureRole.MODEL_INPUT,
+                specs={"spline_order": 3, "n_splines": 6, "lam": 0.1, "by": "income"}),
+        Feature(name="level", dtype=DataType.CATEGORY, role=FeatureRole.MODEL_INPUT),
+        Feature(name="happiness", dtype=DataType.FLOAT, role=FeatureRole.TARGET),
+    ])
+
+
+def _cache_path(filename):
+    Path(CACHE_DIR).mkdir(parents=True, exist_ok=True)
+    return os.path.join(CACHE_DIR, filename)
+
+
+# ============================================================================
+# 1. Core WrapperGAM tests
+# ============================================================================
+
 class TestWrapperGAM(unittest.TestCase):
-    """Test cases for WrapperGAM based on pygam-example.ipynb"""
-    
-    def setUp(self):
-        """Set up test data exactly like the notebook example"""
-        np.random.seed(42)
-        self.n_samples = 200
-        
-        # Create features
-        age = np.random.uniform(20, 80, self.n_samples)
-        income = np.random.uniform(20000, 120000, self.n_samples)
-        education = np.random.uniform(8, 20, self.n_samples)
-        level = np.random.choice(['highschool', 'bachelor', 'master', 'phd'], self.n_samples)
-        
-        # Create target with non-linear relationships
-        happiness = (
-            0.5 * np.sin((age - 40) / 10) +  # non-linear relationship with age
-            0.3 * np.log(income / 30000) +   # log relationship with income
-            0.2 * education +                # linear relationship with education
-            0.1 * (level == 'phd').astype(float) +  # categorical effect
-            np.random.normal(0, 0.5, self.n_samples)  # noise
+    """Fit, predict, partial-dependence structure, plotting."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.data = _make_test_data()
+        cls.features = _make_feature_spec()
+        cls.wgam = WrapperGAM(cls.features)
+        cls.wgam.fit(cls.data, cls.data["happiness"])
+
+    def test_fit_and_predict(self):
+        self.assertIsNotNone(self.wgam.gam_)
+        self.assertIn("level", self.wgam.category_levels_)
+
+        preds = self.wgam.predict(self.data)
+        self.assertEqual(len(preds), len(self.data))
+        self.assertFalse(np.any(np.isnan(preds)))
+
+    def test_partial_dependence_structure(self):
+        pdata = self.wgam.get_partial_dependence_data()
+
+        self.assertIn("income", pdata)
+        self.assertIsInstance(pdata["income"], SplineTermData)
+        self.assertIsNotNone(pdata["income"].conf_lower)
+
+        self.assertIn(("age", "level"), pdata)
+        self.assertIsInstance(pdata[("age", "level")], SplineByGroupTermData)
+        self.assertIn("bachelor", pdata[("age", "level")].group_curves)
+
+        self.assertIn(("education", "income"), pdata)
+        self.assertIsInstance(pdata[("education", "income")], TensorTermData)
+
+        self.assertIn("level", pdata)
+        self.assertIsInstance(pdata["level"], FactorTermData)
+        self.assertEqual(
+            set(pdata["level"].categories),
+            {"highschool", "bachelor", "master", "phd"},
         )
-        
-        # Create DataFrame
-        self.data = pd.DataFrame({
-            'age': age,
-            'income': income,
-            'education': education,
-            'level': level,
-            'happiness': happiness
-        })
-        
-        # Create feature specification from the notebook
-        self.features = FeatureSpec(
-            features=[
-                Feature(name='age', dtype=DataType.FLOAT, role=FeatureRole.MODEL_INPUT, 
-                       specs={ "spline_order" : 3, "n_splines" : 6, "lam" : 0.1, "by": "level" }),
-                Feature(name='income', dtype=DataType.FLOAT, role=FeatureRole.MODEL_INPUT, 
-                       specs={ "spline_order" : 3, "n_splines" : 6, "lam" : 0.1, "constraints" : "monotonic_inc" } ),
-                # Note: The notebook example uses education by income (float-by-float -> tensor term)
-                Feature(name='education', dtype=DataType.FLOAT, role=FeatureRole.MODEL_INPUT, 
-                       specs={ "spline_order" : 3, "n_splines" : 6, "lam" : 0.1, "by" : "income" } ),
-                Feature(name='level', dtype=DataType.CATEGORY, role=FeatureRole.MODEL_INPUT ),
-                Feature(name='happiness', dtype=DataType.FLOAT, role=FeatureRole.TARGET )
-            ]
+
+    def test_plot_smoke(self):
+        fig, _ = self.wgam.plot_partial_dependence(
+            scale_y_axis=False, te_plot_style="contourf",
         )
-    
-    def test_full_pipeline(self):
-        """Test fitting, prediction, partial dependence extraction, and plotting."""
-        
-        # 1. Fit the model
-        wgam = WrapperGAM(self.features)
-        wgam.fit(self.data, self.data['happiness'])
-        
-        # Check basic fitting
-        self.assertIsNotNone(wgam.gam_)
-        self.assertIn('level', wgam.category_levels_)
-        
-        # 2. Test Prediction
-        predictions = wgam.predict(self.data)
-        self.assertEqual(len(predictions), len(self.data))
-        self.assertFalse(np.any(np.isnan(predictions)))
-        
-        # 3. Test Partial Dependence Data Extraction
-        pdata = wgam.get_partial_dependence_data()
-        
-        # Check output structure
-        # 'income' is a simple spline (constrained)
-        self.assertIn('income', pdata)
-        self.assertIsInstance(pdata['income'], SplineTermData)
-        self.assertEqual(pdata['income'].feature, 'income')
-        self.assertIsNotNone(pdata['income'].conf_lower)
-        
-        # 'age' by 'level' is SplineByGroupTermData
-        self.assertIn(('age', 'level'), pdata)
-        self.assertIsInstance(pdata[('age', 'level')], SplineByGroupTermData)
-        self.assertEqual(pdata[('age', 'level')].by_feature, 'level')
-        self.assertIn('bachelor', pdata[('age', 'level')].group_curves)
-        
-        # 'education' by 'income' is TensorTermData
-        self.assertIn(('education', 'income'), pdata)
-        self.assertIsInstance(pdata[('education', 'income')], TensorTermData)
-        self.assertEqual(pdata[('education', 'income')].feature_x, 'education')
-        self.assertEqual(pdata[('education', 'income')].feature_y, 'income')
-        self.assertIsNotNone(pdata[('education', 'income')].z)
-        
-        # 'level' is FactorTermData
-        self.assertIn('level', pdata)
-        self.assertIsInstance(pdata['level'], FactorTermData)
-        self.assertEqual(set(pdata['level'].categories), set(['highschool', 'bachelor', 'master', 'phd']))
-        
-        # 4. Test Plotting (Smoke Test)
-        try:
-            fig, axes = wgam.plot_partial_dependence(scale_y_axis=False, te_plot_style="contourf")
-            plt.close(fig)
-        except Exception as e:
-            self.fail(f"plot_partial_dependence raised exception: {e}")
+        plt.close(fig)
 
-    def test_replay_model_accuracy(self):
-        """Test that GAMReplayModel reproduces WrapperGAM predictions closely."""
-        # Fit model
-        wgam = WrapperGAM(self.features)
-        wgam.fit(self.data, self.data['happiness'])
-        
-        # Get predictions
-        original_preds = wgam.predict(self.data)
-        
-        # Create Replay Model
-        pdata = wgam.get_partial_dependence_data()
-        replay = GAMReplayModel(pdata, intercept=wgam.intercept_)
-        replay_preds = replay.predict(self.data)
-        
-        # Check accuracy
-        # We use a relatively loose tolerance because:
-        # 1. pygam uses B-splines directly
-        # 2. We export partial dependence on a discrete grid (200 points)
-        # 3. We interpolate that grid using PCHIP
-        # This double approximation introduces error, but it should be small.
-        # rtol=1e-2 (1%) is reasonable for this approximation.
-        np.testing.assert_allclose(original_preds, replay_preds, rtol=0.01, atol=0.05)
-        
-        # Test Out-of-Sample Extrapolation Safety (Flat extrapolation)
-        # Create data points far outside the training range
-        oob_data = self.data.iloc[:5].copy()
-        oob_data['income'] = 1_000_000.0  # Way higher than training max ~120k
-        oob_data['age'] = 150.0           # Way higher than training max ~80
-        
-        # Predict
-        oob_preds = replay.predict(oob_data)
-        self.assertEqual(len(oob_preds), 5)
-        self.assertFalse(np.any(np.isnan(oob_preds)))
-        self.assertFalse(np.any(np.isinf(oob_preds)))
 
-    def test_partial_dependence_json_roundtrip(self):
-        """Test JSON export/import for partial dependence data."""
-        wgam = WrapperGAM(self.features)
-        wgam.fit(self.data, self.data['happiness'])
+# ============================================================================
+# 2. Replay model tests (raw / uncentered)
+# ============================================================================
 
-        if DEV_MODE:
-            Path(CACHE_DIR).mkdir(parents=True, exist_ok=True)
-            path = os.path.join(CACHE_DIR, "test_gam_pdep.json")
-            wgam.export_partial_dependence_json(path)
-        else:
-            with tempfile.TemporaryDirectory() as tmpdir:
-                path = os.path.join(tmpdir, "pdep.json")
-                wgam.export_partial_dependence_json(path)
+class TestReplayModel(unittest.TestCase):
+    """GAMReplayModel accuracy against WrapperGAM (no centering)."""
 
+    @classmethod
+    def setUpClass(cls):
+        cls.data = _make_test_data()
+        cls.wgam = WrapperGAM(_make_feature_spec())
+        cls.wgam.fit(cls.data, cls.data["happiness"])
+        cls.original_preds = cls.wgam.predict(cls.data)
+
+    def test_replay_prediction(self):
+        pdata = self.wgam.get_partial_dependence_data()
+        replay = GAMReplayModel(pdata, intercept=self.wgam.intercept_)
+        np.testing.assert_allclose(
+            self.original_preds, replay.predict(self.data),
+            rtol=0.01, atol=0.05,
+        )
+
+    def test_replay_extrapolation_safety(self):
+        pdata = self.wgam.get_partial_dependence_data()
+        replay = GAMReplayModel(pdata, intercept=self.wgam.intercept_)
+
+        oob = self.data.iloc[:5].copy()
+        oob["income"] = 1_000_000.0
+        oob["age"] = 150.0
+
+        preds = replay.predict(oob)
+        self.assertEqual(len(preds), 5)
+        self.assertFalse(np.any(np.isnan(preds)))
+        self.assertFalse(np.any(np.isinf(preds)))
+
+    def test_json_roundtrip(self):
+        path = _cache_path("test_gam_pdep.json") if DEV_MODE else \
+            os.path.join(tempfile.mkdtemp(), "pdep.json")
+
+        self.wgam.export_partial_dependence_json(path)
         replay = GAMReplayModel.from_partial_dependence_json(path)
-        replay_preds = replay.predict(self.data)
-        original_preds = wgam.predict(self.data)
+        np.testing.assert_allclose(
+            self.original_preds, replay.predict(self.data),
+            rtol=0.01, atol=0.05,
+        )
 
-        np.testing.assert_allclose(original_preds, replay_preds, rtol=0.01, atol=0.05)
+    def test_decompose_matches(self):
+        sample = self.data.iloc[:10]
+        orig = self.wgam.decompose(sample)
 
-    def test_replay_decompose(self):
-        """Test that GAMReplayModel.decompose matches WrapperGAM.decompose output structure and values."""
-        # Fit
-        wgam = WrapperGAM(self.features)
-        wgam.fit(self.data, self.data['happiness'])
-        
-        # Original Decompose
-        # Select a few rows for decomposition
-        sample_data = self.data.iloc[:10]
-        orig_res = wgam.decompose(sample_data)
-        
-        # Replay Decompose
-        pdata = wgam.get_partial_dependence_data()
-        replay = GAMReplayModel(pdata, intercept=wgam.intercept_)
-        replay_res = replay.decompose(sample_data)
-        
-        # 1. Check keys
-        self.assertEqual(orig_res.keys(), replay_res.keys())
-        
-        # 2. Check Intercept
-        self.assertAlmostEqual(orig_res['intercept'], replay_res['intercept'])
-        
-        # 3. Check Prediction values
-        np.testing.assert_allclose(orig_res['pred'], replay_res['pred'], rtol=0.01, atol=0.05)
-        
-        # 4. Check DataFrame structure
-        orig_df = orig_res['term_contrib']
-        replay_df = replay_res['term_contrib']
-        
-        # Check matching columns
-        # Note: Set comparison handles order differences
-        self.assertEqual(set(orig_df.columns), set(replay_df.columns))
-        
-        # Check all columns values are close
-        for col in orig_df.columns:
-            # We use a relatively loose tolerance because of grid interpolation vs direct B-spline eval
+        pdata = self.wgam.get_partial_dependence_data()
+        replay = GAMReplayModel(pdata, intercept=self.wgam.intercept_)
+        rep = replay.decompose(sample)
+
+        self.assertAlmostEqual(orig["intercept"], rep["intercept"])
+        np.testing.assert_allclose(orig["pred"], rep["pred"], rtol=0.01, atol=0.05)
+
+        self.assertEqual(set(orig["term_contrib"].columns),
+                         set(rep["term_contrib"].columns))
+        for col in orig["term_contrib"].columns:
             np.testing.assert_allclose(
-                orig_df[col], 
-                replay_df[col], 
-                rtol=0.01, 
-                atol=0.05,
-                err_msg=f"Mismatch in column: {col}"
+                orig["term_contrib"][col], rep["term_contrib"][col],
+                rtol=0.01, atol=0.05, err_msg=f"Mismatch in column: {col}",
             )
 
-if __name__ == '__main__':
+
+# ============================================================================
+# 3. Centering tests
+# ============================================================================
+
+class TestCentering(unittest.TestCase):
+    """Partial-dependence centering: invariance, replay accuracy, property."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.data = _make_test_data()
+        cls.wgam = WrapperGAM(_make_feature_spec())
+        cls.wgam.fit(cls.data, cls.data["happiness"])
+        cls.original_preds = cls.wgam.predict(cls.data)
+
+    # -- prediction invariance ------------------------------------------------
+
+    def test_centered_replay_prediction(self):
+        """Centered data + centered_intercept_ -> predictions match original."""
+        pdata = self.wgam.get_partial_dependence_data(center=True)
+        replay = GAMReplayModel(pdata, intercept=self.wgam.centered_intercept_)
+        np.testing.assert_allclose(
+            self.original_preds, replay.predict(self.data),
+            rtol=0.01, atol=0.05,
+        )
+
+    def test_centered_json_roundtrip(self):
+        """Centered JSON export -> load -> replay reproduces predictions."""
+        path = _cache_path("test_gam_pdep_centered.json") if DEV_MODE else \
+            os.path.join(tempfile.mkdtemp(), "pdep_centered.json")
+
+        self.wgam.export_partial_dependence_json(path, center=True)
+        replay = GAMReplayModel.from_partial_dependence_json(path)
+        np.testing.assert_allclose(
+            self.original_preds, replay.predict(self.data),
+            rtol=0.01, atol=0.05,
+        )
+
+    # -- curve properties -----------------------------------------------------
+
+    def test_spline_mean_is_zero(self):
+        """After centering, every simple spline's y values average to ~0."""
+        centered = self.wgam.get_partial_dependence_data(center=True)
+        for key, td in centered.items():
+            if isinstance(td, SplineTermData):
+                self.assertAlmostEqual(
+                    float(np.mean(td.y)), 0.0, places=10,
+                    msg=f"Spline '{td.feature}' mean not zero after centering",
+                )
+
+    def test_by_group_means_are_zero(self):
+        """After centering, each by-group curve's y values average to ~0."""
+        centered = self.wgam.get_partial_dependence_data(center=True)
+        for key, td in centered.items():
+            if isinstance(td, SplineByGroupTermData):
+                for label, curves in td.group_curves.items():
+                    self.assertAlmostEqual(
+                        float(np.mean(curves["y"])), 0.0, places=10,
+                        msg=f"By-group curve '{td.feature}' group='{label}' "
+                            f"mean not zero after centering",
+                    )
+
+    def test_factor_mean_is_zero(self):
+        """After centering, every factor term (including those that absorbed
+        by-group offsets) averages to ~0."""
+        centered = self.wgam.get_partial_dependence_data(center=True)
+        for key, td in centered.items():
+            if isinstance(td, FactorTermData):
+                self.assertAlmostEqual(
+                    float(np.mean(td.values)), 0.0, places=10,
+                    msg=f"Factor '{td.feature}' mean not zero after centering",
+                )
+
+    # -- intercept property ---------------------------------------------------
+
+    def test_centered_intercept_is_finite(self):
+        self.assertTrue(np.isfinite(self.wgam.centered_intercept_))
+
+    def test_centered_intercept_is_cached(self):
+        val1 = self.wgam.centered_intercept_
+        val2 = self.wgam.centered_intercept_
+        self.assertEqual(val1, val2)
+
+    # -- visual comparison (DEV_MODE only) ------------------------------------
+
+    def test_centering_comparison_pdf(self):
+        """Generate PDF with raw vs centered partial dependence side-by-side."""
+        if not DEV_MODE:
+            self.skipTest("PDF comparison only in DEV_MODE")
+
+        pdf_path = _cache_path("centering_comparison.pdf")
+
+        with PdfPages(pdf_path) as pdf:
+            fig, _ = self.wgam.plot_partial_dependence(
+                center=False, suptitle="Raw Partial Dependence",
+                scale_y_axis=False,
+            )
+            fig.tight_layout(rect=[0, 0, 1, 0.95])
+            pdf.savefig(fig)
+            plt.close(fig)
+
+            fig, _ = self.wgam.plot_partial_dependence(
+                center=True, suptitle="Centered Partial Dependence",
+                scale_y_axis=False,
+            )
+            fig.tight_layout(rect=[0, 0, 1, 0.95])
+            pdf.savefig(fig)
+            plt.close(fig)
+
+
+if __name__ == "__main__":
     unittest.main()

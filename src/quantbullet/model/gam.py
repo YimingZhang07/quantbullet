@@ -276,6 +276,164 @@ def load_partial_dependence_json(
     metadata = payload.get("metadata")
     return term_data, intercept, metadata
 
+
+def center_partial_dependence(
+    term_data: Dict[Union[str, Tuple[str, str]], GAMTermData],
+    intercept: float,
+) -> Tuple[Dict[Union[str, Tuple[str, str]], GAMTermData], float]:
+    """
+    Center partial dependence curves so each curve averages to approximately
+    zero, absorbing the offsets into the intercept.
+
+    Prediction invariant is preserved:
+    ``y = intercept + sum(f_i) = (intercept + sum(offset_i)) + sum(f_i - offset_i)``
+
+    For by-group spline terms, each group curve is centered independently and
+    the per-group offsets are folded into an existing or new ``FactorTermData``
+    keyed by the ``by_feature``.
+
+    Parameters
+    ----------
+    term_data : dict
+        Mapping returned by ``get_partial_dependence_data()``.
+    intercept : float
+        The original model intercept.
+
+    Returns
+    -------
+    (centered_term_data, new_intercept) : tuple
+        Deep-copied term data with centered curves, and the adjusted intercept.
+    """
+    new_data: Dict[Union[str, Tuple[str, str]], GAMTermData] = {}
+    intercept_offset = 0.0
+    # by_feature -> {group_label: accumulated_offset}
+    by_feature_offsets: Dict[str, Dict[str, float]] = {}
+
+    # ------------------------------------------------------------------
+    # Pass 1: center each term, collecting by-group offsets on the side
+    # ------------------------------------------------------------------
+    for key, td in term_data.items():
+
+        if isinstance(td, SplineTermData):
+            offset = float(np.mean(td.y))
+            new_data[key] = SplineTermData(
+                feature=td.feature,
+                x=td.x.copy(),
+                y=td.y - offset,
+                conf_lower=td.conf_lower - offset if td.conf_lower is not None else None,
+                conf_upper=td.conf_upper - offset if td.conf_upper is not None else None,
+            )
+            intercept_offset += offset
+
+        elif isinstance(td, FactorTermData):
+            offset = float(np.mean(td.values))
+            new_data[key] = FactorTermData(
+                feature=td.feature,
+                categories=list(td.categories),
+                values=td.values - offset,
+                conf_lower=td.conf_lower - offset if td.conf_lower is not None else None,
+                conf_upper=td.conf_upper - offset if td.conf_upper is not None else None,
+            )
+            intercept_offset += offset
+
+        elif isinstance(td, TensorTermData):
+            offset = float(np.mean(td.z))
+            new_data[key] = TensorTermData(
+                feature_x=td.feature_x,
+                feature_y=td.feature_y,
+                x=td.x.copy(),
+                y=td.y.copy(),
+                z=td.z - offset,
+            )
+            intercept_offset += offset
+
+        elif isinstance(td, SplineByGroupTermData):
+            new_curves: Dict[str, Dict[str, np.ndarray]] = {}
+            by_feat = td.by_feature
+
+            if by_feat not in by_feature_offsets:
+                by_feature_offsets[by_feat] = {}
+
+            for label, curves in td.group_curves.items():
+                x = curves["x"]
+                y = curves["y"]
+                offset = float(np.mean(y))
+
+                by_feature_offsets[by_feat].setdefault(label, 0.0)
+                by_feature_offsets[by_feat][label] += offset
+
+                new_curves[label] = {
+                    "x": x.copy(),
+                    "y": y - offset,
+                    "conf_lower": (
+                        curves["conf_lower"] - offset
+                        if curves.get("conf_lower") is not None
+                        else None
+                    ),
+                    "conf_upper": (
+                        curves["conf_upper"] - offset
+                        if curves.get("conf_upper") is not None
+                        else None
+                    ),
+                }
+
+            new_data[key] = SplineByGroupTermData(
+                feature=td.feature,
+                by_feature=td.by_feature,
+                group_curves=new_curves,
+            )
+
+        else:
+            new_data[key] = td
+
+    # ------------------------------------------------------------------
+    # Pass 2: fold by-group offsets into existing or new FactorTermData,
+    #         then re-center so the factor still averages to zero.
+    # ------------------------------------------------------------------
+    for by_feat, group_offsets in by_feature_offsets.items():
+        if by_feat in new_data and isinstance(new_data[by_feat], FactorTermData):
+            existing = new_data[by_feat]
+            feature_name = existing.feature
+            categories = list(existing.categories)
+            values = existing.values.copy()
+            conf_lower = existing.conf_lower.copy() if existing.conf_lower is not None else None
+            conf_upper = existing.conf_upper.copy() if existing.conf_upper is not None else None
+            for i, cat in enumerate(categories):
+                cat_str = str(cat)
+                if cat_str in group_offsets:
+                    values[i] += group_offsets[cat_str]
+                    if conf_lower is not None:
+                        conf_lower[i] += group_offsets[cat_str]
+                    if conf_upper is not None:
+                        conf_upper[i] += group_offsets[cat_str]
+        else:
+            feature_name = by_feat
+            categories = sorted(group_offsets.keys())
+            values = np.array([group_offsets[c] for c in categories])
+            conf_lower = None
+            conf_upper = None
+
+        # Re-center: the absorbed offsets introduce a non-zero mean
+        residual = float(np.mean(values))
+        values = values - residual
+        if conf_lower is not None:
+            conf_lower = conf_lower - residual
+        if conf_upper is not None:
+            conf_upper = conf_upper - residual
+        intercept_offset += residual
+
+        new_data[by_feat] = FactorTermData(
+            feature=feature_name,
+            categories=categories,
+            values=values,
+            conf_lower=conf_lower,
+            conf_upper=conf_upper,
+        )
+
+    new_intercept = intercept + intercept_offset
+    return new_data, new_intercept
+
+
 class WrapperGAM:
     """A wrapper around pygam's LinearGAM to integrate with FeatureSpec and provide additional functionality.
     
@@ -289,7 +447,8 @@ class WrapperGAM:
     """
     __slots__ = [
         'feature_spec', 'gam_', 'formula_', 'feature_term_map_',
-        'category_levels_', 'design_columns_', 'by_dummy_info_'
+        'category_levels_', 'design_columns_', 'by_dummy_info_',
+        '_centered_intercept_cache',
     ]
 
     def __init__( self, feature_spec ):
@@ -300,6 +459,7 @@ class WrapperGAM:
         self.category_levels_ = {} # col_name -> categories
         self.design_columns_ = None
         self.by_dummy_info_ = {}  # (x_name, by_cat) -> list of dummy col names
+        self._centered_intercept_cache = None
 
     def _prepare_design_matrix_fit(self, X: pd.DataFrame) -> pd.DataFrame:
         """Select inputs, lock category levels, and expand dummy columns for FLOAT-by-CATEGORY."""
@@ -442,6 +602,7 @@ class WrapperGAM:
         formula = self._build_formula_from_design(list(Xd.columns))
 
         self.gam_ = LinearGAM(formula, fit_intercept=fit_intercept).fit(np.asarray(Xd), np.asarray(y), weights=weights)
+        self._centered_intercept_cache = None
         return self
 
     def predict(self, X):
@@ -466,9 +627,20 @@ class WrapperGAM:
                     break
         return idxs
     
-    def get_partial_dependence_data(self, grid_size=200, width=0.95) -> Dict[Union[str, Tuple[str, str]], GAMTermData]:
+    def get_partial_dependence_data(self, grid_size=200, width=0.95, center=False) -> Dict[Union[str, Tuple[str, str]], GAMTermData]:
         """
         Extract partial dependence data for all features using structured Dataclasses.
+
+        Parameters
+        ----------
+        grid_size : int
+            Number of grid points per smooth curve (default: 200).
+        width : float
+            Confidence interval width (default: 0.95 for 95% CI).
+        center : bool
+            If True, shift each smooth curve by its mean so that the curve
+            averages to ~0, absorbing the offsets into the intercept.
+            By-group offsets are folded into the corresponding FactorTermData.
 
         Returns
         -------
@@ -644,6 +816,8 @@ class WrapperGAM:
                     conf_upper=confi[:, 1]
                 )
 
+        if center:
+            data, _ = center_partial_dependence(data, self.intercept_)
         return data
 
     def export_partial_dependence_json(
@@ -653,9 +827,14 @@ class WrapperGAM:
         width: float = 0.95,
         include_intercept: bool = True,
         metadata: Optional[Dict[str, Any]] = None,
+        center: bool = False,
     ) -> Dict[str, Any]:
-        term_data = self.get_partial_dependence_data(grid_size=grid_size, width=width)
+        term_data = self.get_partial_dependence_data(
+            grid_size=grid_size, width=width, center=False,
+        )
         intercept = self.intercept_ if include_intercept else 0.0
+        if center:
+            term_data, intercept = center_partial_dependence(term_data, intercept)
         return dump_partial_dependence_json(
             term_data=term_data,
             path=path,
@@ -663,7 +842,7 @@ class WrapperGAM:
             metadata=metadata,
         )
 
-    def plot_partial_dependence(self, n_cols=3, suptitle=None, scale_y_axis=True, te_plot_style="heatmap", width=5, height=4):
+    def plot_partial_dependence(self, n_cols=3, suptitle=None, scale_y_axis=True, te_plot_style="heatmap", width=5, height=4, center=False):
         """Plot partial dependence for each feature.
 
         Delegates to the module-level :func:`plot_partial_dependence`.
@@ -671,7 +850,7 @@ class WrapperGAM:
         if self.gam_ is None:
             raise ValueError("Model not fit yet. Call fit() before plotting.")
 
-        pdep_data = self.get_partial_dependence_data()
+        pdep_data = self.get_partial_dependence_data(center=center)
         return plot_partial_dependence(
             pdep_data,
             n_cols=n_cols,
@@ -724,6 +903,7 @@ class WrapperGAM:
         self.category_levels_   = state["category_levels_"]
         self.design_columns_    = state["design_columns_"]
         self.by_dummy_info_     = state["by_dummy_info_"]
+        self._centered_intercept_cache = None
 
     @property
     def intercept_(self):
@@ -733,6 +913,18 @@ class WrapperGAM:
         if not getattr(self.gam_, "fit_intercept", True):
             return 0.0
         return self.gam_.coef_[-1]
+
+    @property
+    def centered_intercept_(self):
+        """Intercept adjusted for partial-dependence centering.
+
+        Computed lazily on first access and cached until the next ``fit()`` call.
+        """
+        if self._centered_intercept_cache is None:
+            raw_data = self.get_partial_dependence_data(center=False)
+            _, adj = center_partial_dependence(raw_data, self.intercept_)
+            self._centered_intercept_cache = adj
+        return self._centered_intercept_cache
     
     # ##########Below codes are for tensor term surface extraction and plotting ##########
     # Instead of plotting the full surface, we provide utilities to extract the surface and plot slices in 2D.
