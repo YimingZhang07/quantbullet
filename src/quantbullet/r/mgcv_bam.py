@@ -4,9 +4,8 @@ from pathlib import Path
 from typing import Optional, Union, Literal, Dict, Tuple, Any
 import pandas as pd
 import numpy as np
-from rpy2.rinterface import NULL as R_NULL
 
-from .r_session import get_r
+from .r_session import get_r, source_r_file
 from .rpy_convert import py_df_to_r, r_array_to_py, r_generic_types_to_py
 from .mgcv_utils import components_to_term_data
 
@@ -17,6 +16,12 @@ from quantbullet.model.gam import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _r_null():
+    from rpy2.rinterface import NULL
+
+    return NULL
 
 
 class MgcvBamWrapper:
@@ -46,8 +51,7 @@ class MgcvBamWrapper:
             raise FileNotFoundError(f"mgcv.R not found at: {r_file}")
 
         # Use forward slashes for R on Windows
-        r_path = r_file.as_posix()
-        r.ro.r(f'source("{r_path}")')
+        source_r_file(r_file)
 
         self._bam_fit               = r.ro.globalenv["fit_gam_api"]
         self._bam_fit_pinned_data   = r.ro.globalenv["fit_gam_pinned_data_api"]
@@ -440,8 +444,8 @@ class MgcvBamWrapper:
                 type=type,
                 chunk_size=chunk_size,
                 newdata_guaranteed=newdata_guaranteed,
-                discrete=R_NULL if discrete is None else discrete,
-                n_threads=R_NULL if n_threads is None else n_threads,
+                discrete=_r_null() if discrete is None else discrete,
+                n_threads=_r_null() if n_threads is None else n_threads,
                 gc_level=gc_level
             )
             timing['r_predict'] = time.perf_counter() - t0
@@ -460,8 +464,8 @@ class MgcvBamWrapper:
                 type=type,
                 chunk_size=chunk_size,
                 newdata_guaranteed=newdata_guaranteed,
-                discrete=R_NULL if discrete is None else discrete,
-                n_threads=R_NULL if n_threads is None else n_threads,
+                discrete=_r_null() if discrete is None else discrete,
+                n_threads=_r_null() if n_threads is None else n_threads,
                 gc_level=gc_level
             )
             timing['r_predict'] = time.perf_counter() - t0
@@ -635,7 +639,7 @@ class MgcvBamWrapper:
         width: int = 3200,
         height: int = 2400,
         dpi: int = 300,
-        scale: bool = False,
+        scale_y_axis: bool = False,
     ) -> str:
         """
         Plot model's smooth terms and save to file.
@@ -646,6 +650,8 @@ class MgcvBamWrapper:
             width: Width in pixels (for raster) or device units (for vector)
             height: Height in pixels (for raster) or device units (for vector)
             dpi: Resolution for raster formats
+            scale_y_axis: If True, all panels share the same y-axis range.
+                If False (default), each panel scales independently.
             
         Returns:
             Path to the saved plot
@@ -669,7 +675,7 @@ class MgcvBamWrapper:
             width=width,
             height=height,
             dpi=dpi,
-            scale=scale,
+            scale_y_axis=scale_y_axis,
         )
 
         logger.debug(f"Saved plot to {out_fpath}")
@@ -685,10 +691,14 @@ class MgcvBamWrapper:
         include_header: bool = True,
         rug: bool = False,
         scheme: int = 1,
-        scale: bool = False,
+        scale_y_axis: bool = False,
     ) -> str:
         """
         Save a PDF report with smooth pages first, then model summary text.
+
+        Args:
+            scale_y_axis: If True, all smooth panels share the same y-axis range.
+                If False (default), each panel scales independently.
         """
         self._ensure_fitted()
 
@@ -709,7 +719,7 @@ class MgcvBamWrapper:
             include_header=include_header,
             rug=rug,
             scheme=scheme,
-            scale=scale,
+            scale_y_axis=scale_y_axis,
         )
 
         logger.debug(f"Saved report to {out_fpath}")
@@ -720,7 +730,7 @@ class MgcvBamWrapper:
         width: int = 3200,
         height: int = 2400,
         dpi: int = 300,
-        scale: bool = False,
+        scale_y_axis: bool = False,
     ) -> None:
         """
         Plot model's smooth terms inline in Jupyter notebook.
@@ -759,7 +769,7 @@ class MgcvBamWrapper:
                 width=width,
                 height=height,
                 dpi=dpi,
-                scale=scale,
+                scale_y_axis=scale_y_axis,
             )
 
             # Display inline in Jupyter
@@ -788,6 +798,39 @@ class MgcvBamWrapper:
         if isinstance(smy, list):
             return "\n".join(str(x) for x in smy)
         return str(smy)
+
+    def gam_check(self) -> None:
+        """Run mgcv's ``gam.check()`` on the fitted model.
+
+        Prints diagnostic text (k-index tests, convergence info) and
+        displays the standard 4-panel residual plot inline in Jupyter.
+        """
+        self._ensure_fitted()
+
+        try:
+            from IPython.display import Image, display
+            has_ipython = True
+        except ImportError:
+            has_ipython = False
+
+        r = self.r_
+
+        if has_ipython:
+            import tempfile, os
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+                tmp_path = f.name
+            try:
+                r.ro.r('png')(filename=tmp_path, width=2400, height=1800, res=200)
+                r.ro.r('gam.check')(self.model_r_)
+                r.ro.r('dev.off')()
+                display(Image(filename=tmp_path))
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+        else:
+            r.ro.r('gam.check')(self.model_r_)
 
     def stop_cluster(self) -> None:
         """

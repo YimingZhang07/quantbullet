@@ -13,7 +13,7 @@ from typing import Optional, Union, List
 
 import pandas as pd
 
-from .r_session import get_r
+from .r_session import get_r, source_r_file
 from .rpy_convert import py_df_to_r, py_obj_to_r
 
 logger = logging.getLogger(__name__)
@@ -41,7 +41,7 @@ class RReports:
         for f in [mgcv_file, plots_file, reports_file]:
             if not f.exists():
                 raise FileNotFoundError(f"{f.name} not found at: {f}")
-            r.ro.r(f'source("{f.as_posix()}")')
+            source_r_file(f)
         
         # Bind R functions
         self._combined_model_report = r.ro.globalenv["combined_model_report"]
@@ -263,5 +263,4 @@ def combined_model_report(
         rug=rug,
         scheme=scheme,
     )
-
 
