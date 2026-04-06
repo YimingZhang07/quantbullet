@@ -1,5 +1,4 @@
-import importlib
-from importlib.metadata import version
+from importlib.metadata import version, PackageNotFoundError
 import lazy_loader as lazy
 
 from typing import TYPE_CHECKING
@@ -20,9 +19,10 @@ __getattr__, __dir__, __all__ = lazy.attach(
     ],
 )
 
-
-# __version__ = version("quantbullet")
-__version__ = "0.1.0"  # Placeholder version, replace with actual version retrieval
+try:
+    __version__ = version("quantbullet")
+except PackageNotFoundError:
+    __version__ = "0.0.0.dev"
 
 
 def display_package_info(info_dict):
