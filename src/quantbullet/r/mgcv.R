@@ -508,13 +508,14 @@ fit_gam_api <- function(
   tryCatch({
     dt <- data.table::as.data.table(data_train)
 
-    if (!weights_col %in% names(dt)) {
-      dt[, (weights_col) := 1]
+    # If the weights column exists, validate it. If it doesn't exist, we
+    # skip the weights argument entirely below and let bam use its default
+    # (unit weights). This avoids a needless data copy + added column.
+    has_weights <- weights_col %in% names(dt)
+    if (has_weights) {
+      if (anyNA(dt[[weights_col]])) stop("weights contain NA")
+      if (any(dt[[weights_col]] < 0)) stop("weights must be non-negative")
     }
-
-    w <- dt[[weights_col]]
-    if (anyNA(w)) stop("weights contain NA")
-    if (any(w < 0)) stop("weights must be non-negative")
 
     if (is.character(model_formula)) {
       model_formula <- stats::as.formula(model_formula)
@@ -542,21 +543,46 @@ fit_gam_api <- function(
     # we have removed the as.data.frame(dt) conversion to reduce overhead
     # use fREML, and discrete=TRUE for large data
     method_val <- if (isTRUE(discrete)) "fREML" else "REML"
-    
-    model_obj <- mgcv::bam(
-      formula = model_formula,
-      data = dt,
-      weights = w,
-      family = family,
-      method = method_val,
-      cluster = cl,
-      control = ctrl,
-      scale = scale,
-      min.sp = min_sp,
-      coef = coef_init,
-      discrete = discrete,
-      nthreads = as.integer(max(1, nthreads))
-    )
+
+    # bam uses NSE for `weights`; with discrete=TRUE it re-evaluates the
+    # captured expression in dt's scope. Passing a local vector `w` fails
+    # with "object 'w' not found". When weights exist, substitute the actual
+    # column name as a bare symbol via bquote so bam sees `weights = weight`.
+    # When weights don't exist, omit the argument entirely and let bam use
+    # its default unit weights (avoids a needless data copy + column add).
+    if (has_weights) {
+      wsym <- as.name(weights_col)
+      model_obj <- eval(bquote(
+        mgcv::bam(
+          formula  = model_formula,
+          data     = dt,
+          weights  = .(wsym),
+          family   = family,
+          method   = method_val,
+          cluster  = cl,
+          control  = ctrl,
+          scale    = scale,
+          min.sp   = min_sp,
+          coef     = coef_init,
+          discrete = discrete,
+          nthreads = as.integer(max(1, nthreads))
+        )
+      ))
+    } else {
+      model_obj <- mgcv::bam(
+        formula  = model_formula,
+        data     = dt,
+        family   = family,
+        method   = method_val,
+        cluster  = cl,
+        control  = ctrl,
+        scale    = scale,
+        min.sp   = min_sp,
+        coef     = coef_init,
+        discrete = discrete,
+        nthreads = as.integer(max(1, nthreads))
+      )
+    }
 
     out$ok <- TRUE
     out$model <- model_obj
