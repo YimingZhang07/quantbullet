@@ -690,43 +690,118 @@ model_summary_text_api <- function(model, include_header = TRUE) {
   smy
 }
 
-model_report_pdf_api <- function(
-  model,
-  fpath,
-  width  = 1200,
-  height = 800,
-  dpi    = 150,
-  pages  = 1,
-  rug    = FALSE,
-  scheme = 1,
-  scale_y_axis = FALSE,
-  include_header = TRUE
-) {
-  ext <- tolower(tools::file_ext(fpath))
-  if (ext != "pdf") {
-    stop("model_report_pdf_api only supports .pdf output.")
-  }
+# ---- internal helpers for model_report_pdf_api ----
 
+# Open a PDF device at the given pixel dimensions, run `body_fn()`, close.
+.mr_with_pdf <- function(fpath, width_px, height_px, dpi, body_fn) {
   grDevices::pdf(
-    file = fpath,
-    width  = width  / dpi,
-    height = height / dpi,
+    file    = fpath,
+    width   = width_px  / dpi,
+    height  = height_px / dpi,
     onefile = TRUE
   )
   on.exit(grDevices::dev.off(), add = TRUE)
+  body_fn()
+}
 
-  # Smooth pages first
+# Draw smooth pages on the currently-open device.
+.mr_draw_smooths <- function(model, pages, rug, scheme, scale_y_axis) {
   plot_gam_smooth_pages_api(
-    model = model,
-    pages = pages,
-    rug = rug,
-    scheme = scheme,
+    model        = model,
+    pages        = pages,
+    rug          = rug,
+    scheme       = scheme,
     scale_y_axis = scale_y_axis
   )
+}
 
-  # Summary page last
+# Draw summary pages on the currently-open device, paginating if requested.
+.mr_draw_summary <- function(model, include_header, summary_cex,
+                             summary_lines_per_page) {
   smy <- model_summary_text_api(model, include_header = include_header)
-  gplots::textplot(smy, valign = "top", cex = 0.8)
+  lpp <- if (is.null(summary_lines_per_page) ||
+             !is.finite(summary_lines_per_page)) {
+    length(smy)
+  } else {
+    as.integer(summary_lines_per_page)
+  }
+  for (i in seq(1L, length(smy), by = lpp)) {
+    chunk <- smy[i:min(i + lpp - 1L, length(smy))]
+    if (is.null(summary_cex)) {
+      gplots::textplot(chunk, valign = "top")
+    } else {
+      gplots::textplot(chunk, valign = "top", cex = summary_cex)
+    }
+  }
+}
+
+model_report_pdf_api <- function(
+  model,
+  fpath,
+  # --- page geometry ---
+  # width/height are the default page dimensions (used for smooths and for
+  # the summary when summary_width/summary_height aren't given).
+  # summary_width/summary_height override the summary page dimensions, e.g.
+  # set them to a portrait size if you want a landscape smooths page and a
+  # portrait summary page. Different sizes require the pdftools package.
+  width          = 1200,
+  height         = 800,
+  summary_width  = NULL,
+  summary_height = NULL,
+  dpi            = 150,
+  # --- smooths ---
+  pages          = 1,
+  rug            = FALSE,
+  scheme         = 1,
+  scale_y_axis   = FALSE,
+  # --- summary ---
+  include_header         = TRUE,
+  summary_cex            = NULL,
+  summary_lines_per_page = 50
+) {
+  # summary_cex: NULL lets gplots::textplot auto-size; numeric forces a cex.
+  # summary_lines_per_page: paginate long summaries across multiple pages so
+  #   nothing gets cut off (set to NULL or Inf to disable pagination).
+  if (tolower(tools::file_ext(fpath)) != "pdf") {
+    stop("model_report_pdf_api only supports .pdf output.")
+  }
+
+  smooth_w  <- width
+  smooth_h  <- height
+  summary_w <- if (is.null(summary_width))  smooth_w else summary_width
+  summary_h <- if (is.null(summary_height)) smooth_h else summary_height
+
+  same_page_size <- (smooth_w == summary_w) && (smooth_h == summary_h)
+
+  if (same_page_size) {
+    # Fast path: one device, one output file, no pdftools needed.
+    .mr_with_pdf(fpath, smooth_w, smooth_h, dpi, function() {
+      .mr_draw_smooths(model, pages, rug, scheme, scale_y_axis)
+      .mr_draw_summary(model, include_header, summary_cex,
+                       summary_lines_per_page)
+    })
+  } else {
+    # Different page sizes: write two temp PDFs and merge with pdftools.
+    if (!requireNamespace("pdftools", quietly = TRUE)) {
+      stop("Different smooth and summary page sizes require 'pdftools'.")
+    }
+    tmp_smooth  <- tempfile(fileext = ".pdf")
+    tmp_summary <- tempfile(fileext = ".pdf")
+    on.exit({
+      if (file.exists(tmp_smooth))  try(file.remove(tmp_smooth),  silent = TRUE)
+      if (file.exists(tmp_summary)) try(file.remove(tmp_summary), silent = TRUE)
+    }, add = TRUE)
+
+    .mr_with_pdf(tmp_smooth, smooth_w, smooth_h, dpi, function() {
+      .mr_draw_smooths(model, pages, rug, scheme, scale_y_axis)
+    })
+    .mr_with_pdf(tmp_summary, summary_w, summary_h, dpi, function() {
+      .mr_draw_summary(model, include_header, summary_cex,
+                       summary_lines_per_page)
+    })
+
+    pdftools::pdf_combine(c(tmp_smooth, tmp_summary), output = fpath)
+  }
 
   invisible(TRUE)
 }
