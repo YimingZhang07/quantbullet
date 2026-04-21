@@ -11,6 +11,22 @@ NAMED_TRANSFORMS = {
     'annualize':  lambda x: x * 12,
 }
 
+# Pretty x-axis labels per role (overridable by passing ``x_label=...`` to plot methods).
+_ROLE_LABELS: dict[str, str] = {
+    'incentive':      'Incentive (rate − (PMMS_low + LLPA))',
+    'age':            'Loan age (months)',
+    'cltv':           'Updated CLTV',
+    'current_factor': 'Current factor',
+    'orig_dt':        'Origination date',
+    'factor_dt':      'Factor date',
+}
+
+# y-axis labels inferred from the named ``y_transform``.
+_Y_TRANSFORM_LABELS: dict[str, str] = {
+    'smm_to_cpr': 'CPR',
+    'annualize':  'Annualized rate',
+}
+
 
 @dataclass
 class MortgageColnames:
@@ -19,14 +35,15 @@ class MortgageColnames:
     Only ``response`` is required.  All other fields default to ``None``
     and are checked lazily when a plot method needs them.
     """
-    response    : str
-    model_preds : dict[str, str] = field(default_factory=dict)
-    incentive   : str | None = None
-    cltv        : str | None = None
-    age         : str | None = None
-    orig_dt     : str | None = None
-    factor_dt   : str | None = None
-    weight      : str | None = None
+    response       : str
+    model_preds    : dict[str, str] = field(default_factory=dict)
+    incentive      : str | None = None
+    cltv           : str | None = None
+    age            : str | None = None
+    current_factor : str | None = None
+    orig_dt        : str | None = None
+    factor_dt      : str | None = None
+    weight         : str | None = None
 
 
 class MortgageDiagnostics:
@@ -79,12 +96,17 @@ class MortgageDiagnostics:
         self.df = df
         self.colnames = colnames
         self.bin_config: dict = bin_config or {}
+
+        # Store the named transform separately so we can derive a y-axis label
+        # when the plot methods auto-fill defaults.
+        self.y_transform_name: str | None = None
         if isinstance(y_transform, str):
             if y_transform not in NAMED_TRANSFORMS:
                 raise ValueError(
                     f"Unknown y_transform '{y_transform}'. "
                     f"Available: {list(NAMED_TRANSFORMS.keys())}"
                 )
+            self.y_transform_name = y_transform
             y_transform = NAMED_TRANSFORMS[y_transform]
         self.y_transform = y_transform
         self.y_as_percent = y_as_percent
@@ -97,6 +119,18 @@ class MortgageDiagnostics:
                     f"Column mapping '{f}' is required for this plot "
                     f"but not set in MortgageColnames."
                 )
+
+    def _default_x_label(self, x_role: str) -> str:
+        return _ROLE_LABELS.get(x_role, x_role.replace('_', ' ').capitalize())
+
+    def _default_y_label(self) -> str:
+        if self.y_transform_name is not None:
+            base = _Y_TRANSFORM_LABELS.get(self.y_transform_name, 'Rate')
+        elif self.y_transform is None:
+            base = 'Rate'
+        else:
+            base = 'Transformed rate'
+        return f"{base} (%)" if self.y_as_percent else base
 
     def _vintage_year(self) -> pl.Series:
         """Derive vintage year from ``orig_dt`` (no mutation)."""
@@ -161,6 +195,8 @@ class MortgageDiagnostics:
             plot_df = self._attach_facet(plot_df, facet_col, facet_series)
 
         kwargs.setdefault('y_transform', self.y_transform)
+        kwargs.setdefault('x_label', self._default_x_label(x_role))
+        kwargs.setdefault('y_label', self._default_y_label())
 
         fig, axes = plot_binned_actual_vs_pred(
             plot_df,
@@ -180,18 +216,43 @@ class MortgageDiagnostics:
 
         return fig, axes
 
+    # ---- single-feature plot methods -------------------------------------
     def incentive_plot(self, facet_col: str | None = None, **kwargs):
         """Actual vs predicted by incentive, optionally faceted."""
         self._require('incentive')
         return self._plot('incentive', facet_col=facet_col, **kwargs)
 
-    def incentive_by_vintage_year_plots(self, **kwargs):
-        """Actual vs predicted by incentive, faceted by origination vintage year."""
-        self._require('incentive', 'orig_dt')
-        return self._plot('incentive', facet_col='vintage_year',
-                          facet_series=self._vintage_year(), **kwargs)
-
     def age_plot(self, facet_col: str | None = None, **kwargs):
         """Actual vs predicted by loan age, optionally faceted."""
         self._require('age')
         return self._plot('age', facet_col=facet_col, **kwargs)
+
+    def cltv_plot(self, facet_col: str | None = None, **kwargs):
+        """Actual vs predicted by updated CLTV, optionally faceted."""
+        self._require('cltv')
+        return self._plot('cltv', facet_col=facet_col, **kwargs)
+
+    def current_factor_plot(self, facet_col: str | None = None, **kwargs):
+        """Actual vs predicted by current factor (remaining UPB ratio), optionally faceted."""
+        self._require('current_factor')
+        return self._plot('current_factor', facet_col=facet_col, **kwargs)
+
+    def factor_date_plot(self, facet_col: str | None = None, **kwargs):
+        """Actual vs predicted across factor date (monthly time series)."""
+        self._require('factor_dt')
+        return self._plot('factor_dt', facet_col=facet_col, **kwargs)
+
+    # ---- vintage-year helper (used by multiple features) ----------------
+    def by_vintage_year(self, x_role: str, **kwargs):
+        """Plot ``x_role`` faceted by origination vintage year.
+
+        Vintage year is derived on-the-fly from ``orig_dt`` and is *not*
+        required to exist as a column on the input frame.
+        """
+        self._require(x_role, 'orig_dt')
+        return self._plot(x_role, facet_col='vintage_year',
+                          facet_series=self._vintage_year(), **kwargs)
+
+    def incentive_by_vintage_year_plots(self, **kwargs):
+        """Back-compat alias for ``by_vintage_year('incentive', **kwargs)``."""
+        return self.by_vintage_year('incentive', **kwargs)

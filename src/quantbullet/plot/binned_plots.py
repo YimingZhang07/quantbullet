@@ -262,6 +262,8 @@ def draw_act_vs_pred(
     pred_colors=None,
     y_transform=None,
     theme: PlotTheme | None = None,
+    x_label: str | None = None,
+    y_label: str | None = None,
 ):
     # Drop rows where act_mean is NaN
     agg_df = agg_df[agg_df["act_mean"].notna()]
@@ -312,6 +314,10 @@ def draw_act_vs_pred(
     PlotFormatter.apply_theme(ax, theme)
     if title:
         PlotFormatter.set_title(ax, title)
+    if x_label is not None:
+        ax.set_xlabel(x_label)
+    if y_label is not None:
+        ax.set_ylabel(y_label)
 
     return ax
 
@@ -365,6 +371,8 @@ def plot_binned_actual_vs_pred(
     y_transform=None,
     align_ylim=False,
     theme: PlotTheme | None = None,
+    x_label: str | None = None,
+    y_label: str | None = None,
     **kwargs,
 ):
     """
@@ -443,6 +451,8 @@ def plot_binned_actual_vs_pred(
             pred_colors=pred_colors,
             y_transform=y_transform,
             theme=theme,
+            x_label=x_label,
+            y_label=y_label,
         )
     if close_unused:
         close_unused_axes(axes)
