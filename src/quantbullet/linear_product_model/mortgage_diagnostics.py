@@ -1,7 +1,9 @@
 from dataclasses import dataclass, field
-import numpy as np
+
 import pandas as pd
+import polars as pl
 from matplotlib import ticker as mticker
+
 from quantbullet.plot.binned_plots import plot_binned_actual_vs_pred
 
 NAMED_TRANSFORMS = {
@@ -31,13 +33,19 @@ class MortgageDiagnostics:
     """Mortgage model diagnostic plots.
 
     Each plot method validates its own prerequisites and delegates to
-    the generic ``plot_binned_actual_vs_pred`` utility.  The input
-    DataFrame is never mutated.
+    the generic ``plot_binned_actual_vs_pred`` utility.  The caller's
+    input DataFrame is never mutated.
+
+    Internally the class always stores a polars DataFrame: pandas inputs
+    are converted via ``pl.from_pandas`` at construction (Arrow-backed,
+    near-zero copy for numeric and datetime columns).  This keeps the
+    implementation single-path and lets the vectorized polars aggregation
+    in ``plot_binned_actual_vs_pred`` handle ~10M+ row inputs.
 
     Parameters
     ----------
-    df : pd.DataFrame
-        The evaluation dataset (not modified).
+    df : pl.DataFrame or pd.DataFrame
+        The evaluation dataset.  The caller's frame is never modified.
     colnames : MortgageColnames
         Column-name mapping for standardised roles.
     bin_config : dict, optional
@@ -54,12 +62,20 @@ class MortgageDiagnostics:
 
     def __init__(
         self,
-        df: pd.DataFrame,
+        df: pl.DataFrame | pd.DataFrame,
         colnames: MortgageColnames,
         bin_config: dict | None = None,
         y_transform=None,
         y_as_percent: bool = True,
     ):
+        if not isinstance(df, pl.DataFrame):
+            try:
+                df = pl.from_pandas(df)
+            except Exception as e:
+                raise TypeError(
+                    f"MortgageDiagnostics expects a polars or pandas DataFrame; "
+                    f"got {type(df).__name__}. pl.from_pandas failed: {e}"
+                ) from e
         self.df = df
         self.colnames = colnames
         self.bin_config: dict = bin_config or {}
@@ -82,14 +98,16 @@ class MortgageDiagnostics:
                     f"but not set in MortgageColnames."
                 )
 
-    def _vintage_year(self) -> pd.Categorical:
-        """Derive vintage year from ``orig_dt`` (returns a Series, no mutation)."""
+    def _vintage_year(self) -> pl.Series:
+        """Derive vintage year from ``orig_dt`` (no mutation)."""
         self._require('orig_dt')
-        years = pd.to_datetime(self.df[self.colnames.orig_dt]).dt.year
-        return pd.Categorical(years, categories=sorted(years.unique()), ordered=True)
+        col = self.df.get_column(self.colnames.orig_dt)
+        if col.dtype in (pl.Date, pl.Datetime):
+            return col.dt.year()
+        return col.cast(pl.Utf8).str.to_date().dt.year()
 
-    def _build_plot_df(self, x_role: str) -> tuple[pd.DataFrame, str]:
-        """Assemble a local DataFrame for one plot, applying bin_config rounding.
+    def _build_plot_df(self, x_role: str) -> tuple[pl.DataFrame, str | None]:
+        """Assemble a slim plot-frame for one x-axis, applying bin_config rounding.
 
         Returns ``(plot_df, bins)`` where *bins* is the value to pass to
         ``plot_binned_actual_vs_pred``'s ``bins`` parameter.
@@ -97,37 +115,50 @@ class MortgageDiagnostics:
         self._require(x_role)
         x_col_name = getattr(self.colnames, x_role)
 
-        data = {
-            x_role: self.df[x_col_name].copy(),
-            'actual': self.df[self.colnames.response],
-        }
-        for name, orig_col in self.colnames.model_preds.items():
-            data[name] = self.df[orig_col]
-        if self.colnames.weight is not None:
-            data[self.colnames.weight] = self.df[self.colnames.weight]
-
-        plot_df = pd.DataFrame(data)
-
         strategy = self.bin_config.get(x_role)
-        if isinstance(strategy, (int, float)):
-            plot_df[x_role] = (plot_df[x_role] / strategy).round() * strategy
-            bins = 'discrete'
-        elif strategy == 'discrete':
-            bins = 'discrete'
-        else:
-            bins = None
+        round_step = strategy if isinstance(strategy, (int, float)) else None
+        bins = 'discrete' if (round_step is not None or strategy == 'discrete') else None
 
-        return plot_df, bins
+        x_expr = pl.col(x_col_name)
+        if round_step is not None:
+            x_expr = (x_expr / round_step).round() * round_step
+
+        select_exprs: list[pl.Expr] = [
+            x_expr.alias(x_role),
+            pl.col(self.colnames.response).alias('actual'),
+        ]
+        for name, orig_col in self.colnames.model_preds.items():
+            select_exprs.append(pl.col(orig_col).alias(name))
+        if self.colnames.weight is not None:
+            select_exprs.append(pl.col(self.colnames.weight))
+
+        return self.df.select(select_exprs), bins
+
+    def _attach_facet(
+        self,
+        plot_df: pl.DataFrame,
+        facet_col: str,
+        facet_series=None,
+    ) -> pl.DataFrame:
+        """Attach a facet column to ``plot_df``.
+
+        If ``facet_series`` is supplied it is used verbatim; otherwise the
+        column of the same name is pulled from ``self.df``.
+        """
+        if facet_series is None:
+            return plot_df.with_columns(
+                self.df.get_column(facet_col).alias(facet_col)
+            )
+        if not isinstance(facet_series, pl.Series):
+            facet_series = pl.Series(facet_col, facet_series)
+        return plot_df.with_columns(facet_series.alias(facet_col))
 
     def _plot(self, x_role: str, facet_col: str | None = None,
               facet_series=None, **kwargs):
         """Shared plotting logic: build data, apply instance-level defaults, delegate."""
         plot_df, bins = self._build_plot_df(x_role)
         if facet_col is not None:
-            if facet_series is not None:
-                plot_df[facet_col] = facet_series
-            else:
-                plot_df[facet_col] = self.df[facet_col].values
+            plot_df = self._attach_facet(plot_df, facet_col, facet_series)
 
         kwargs.setdefault('y_transform', self.y_transform)
 
