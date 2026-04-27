@@ -17,6 +17,9 @@ _ROLE_LABELS: dict[str, str] = {
     'age':            'Loan age (months)',
     'cltv':           'Updated CLTV',
     'current_factor': 'Current factor',
+    'burnout':        'Burnout',
+    'sato':           'SATO',
+    'fico':           'FICO',
     'orig_dt':        'Origination date',
     'factor_dt':      'Factor date',
 }
@@ -41,6 +44,9 @@ class MortgageColnames:
     cltv           : str | None = None
     age            : str | None = None
     current_factor : str | None = None
+    burnout        : str | None = None
+    sato           : str | None = None
+    fico           : str | None = None
     orig_dt        : str | None = None
     factor_dt      : str | None = None
     weight         : str | None = None
@@ -236,6 +242,21 @@ class MortgageDiagnostics:
         """Actual vs predicted by current factor (remaining UPB ratio), optionally faceted."""
         self._require('current_factor')
         return self._plot('current_factor', facet_col=facet_col, **kwargs)
+
+    def burnout_plot(self, facet_col: str | None = None, **kwargs):
+        """Actual vs predicted by burnout, optionally faceted."""
+        self._require('burnout')
+        return self._plot('burnout', facet_col=facet_col, **kwargs)
+
+    def sato_plot(self, facet_col: str | None = None, **kwargs):
+        """Actual vs predicted by spread-at-origination, optionally faceted."""
+        self._require('sato')
+        return self._plot('sato', facet_col=facet_col, **kwargs)
+
+    def fico_plot(self, facet_col: str | None = None, **kwargs):
+        """Actual vs predicted by borrower FICO, optionally faceted."""
+        self._require('fico')
+        return self._plot('fico', facet_col=facet_col, **kwargs)
 
     def factor_date_plot(self, facet_col: str | None = None, **kwargs):
         """Actual vs predicted across factor date (monthly time series)."""
