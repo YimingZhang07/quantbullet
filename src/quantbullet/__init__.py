@@ -3,7 +3,7 @@ import lazy_loader as lazy
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from . import log_config, global_utils, model, utils, research, tsa, linear_product_model, parametric_model
+    from . import log_config, global_utils, model, utils, research, tsa, linear_product_model, parametric_model, loan_simulation
 
 __getattr__, __dir__, __all__ = lazy.attach(
     __name__,
@@ -16,6 +16,7 @@ __getattr__, __dir__, __all__ = lazy.attach(
         "tsa",
         "linear_product_model",
         "parametric_model",
+        "loan_simulation",
     ],
 )
 
