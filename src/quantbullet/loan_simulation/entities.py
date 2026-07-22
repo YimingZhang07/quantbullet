@@ -16,6 +16,7 @@ class Loan:
     term_months: int
     age_months: int = 0
     status: str = LoanStatus.CURRENT
+    scheduled_payment: float | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -34,10 +35,29 @@ class Loan:
             raise ValueError("age_months must be non-negative")
         if self.age_months > self.term_months:
             raise ValueError("age_months cannot exceed term_months")
+        if self.scheduled_payment is not None and self.scheduled_payment < 0:
+            raise ValueError("scheduled_payment must be non-negative")
 
     @property
     def monthly_rate(self) -> float:
         return self.annual_rate / 12.0
+
+    @property
+    def scheduled_monthly_payment(self) -> float:
+        """Baseline scheduled payment at the simulation start date.
+
+        If not provided, the payment is calculated from the current simulation
+        start balance over the remaining term. The cashflow engine keeps this
+        amount fixed during the simulation unless a future policy explicitly
+        introduces recast behavior.
+        """
+        if self.scheduled_payment is not None:
+            return self.scheduled_payment
+        return _level_monthly_payment(
+            balance=self.balance,
+            monthly_rate=self.monthly_rate,
+            term_months=self.remaining_term_months,
+        )
 
     @property
     def remaining_term_months(self) -> int:
@@ -112,4 +132,21 @@ class PeriodCashflow:
             + self.principal_collected
             + self.net_recovery
         )
+
+
+def _level_monthly_payment(
+    *,
+    balance: float,
+    monthly_rate: float,
+    term_months: int,
+) -> float:
+    if balance <= 0:
+        return 0.0
+    if term_months <= 0:
+        return balance
+    if monthly_rate == 0:
+        return balance / term_months
+
+    discount_factor = (1 + monthly_rate) ** term_months
+    return balance * monthly_rate * discount_factor / (discount_factor - 1)
 

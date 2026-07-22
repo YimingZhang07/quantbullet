@@ -46,7 +46,8 @@ flowchart TD
 - `src/quantbullet/loan_simulation/status.py`: default status constants, `StatusConfig`, and shared status normalization.
 - `src/quantbullet/loan_simulation/entities.py`: `Loan`, `LoanState`, and period result dataclasses.
 - `src/quantbullet/loan_simulation/transition.py`: `TransitionModel` abstract base class and `ConstantTransitionModel`.
-- `src/quantbullet/loan_simulation/assumptions.py`: severity and recovery lag providers, starting with constants.
+- `src/quantbullet/loan_simulation/payment.py`: `PaymentPolicy` abstract base class and `MatrixPaymentPolicy`.
+- `src/quantbullet/loan_simulation/recovery.py`: severity and recovery lag providers, starting with constants.
 - `src/quantbullet/loan_simulation/cashflow.py`: per-period fixed-rate loan accounting.
 - `src/quantbullet/loan_simulation/simulator.py`: seeded Monte Carlo loan and portfolio simulation.
 - `src/quantbullet/loan_simulation/metrics.py`: portfolio and loan metric calculations.
@@ -67,6 +68,12 @@ TransitionModel.predict(
 ```
 
 Projection period, loan age, balance, and current status are read from `current_state`. The transition model returns probabilities only; the simulator will handle random sampling from those probabilities. A later model-backed implementation can use the same interface, including macro features.
+
+## Cashflow Interface
+
+`CashflowEngine.project_period(...)` projects one loan, one path, and one period after a transition model has produced the period's end status. It returns `PeriodCashflow`, the next `LoanState`, and an optional `RecoveryEvent`. Recovery lag is represented as a future event; the simulator will later place due recovery events into the appropriate period cashflow output.
+
+The first-phase cashflow engine uses a simulation-start scheduled payment baseline. If `Loan.scheduled_payment` is provided, that amount is used. Otherwise, the baseline payment is calculated from the loan's current simulation-start balance over its remaining term. The engine does not automatically recast scheduled payment amounts after delinquency or partial prepayment. Recast behavior can be added later through an explicit amortization or payment policy.
 
 ## Default Status Set
 
