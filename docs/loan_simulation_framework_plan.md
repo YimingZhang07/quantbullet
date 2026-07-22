@@ -43,8 +43,9 @@ flowchart TD
 
 ## Proposed Files
 
-- `src/quantbullet/loan_simulation/entities.py`: `Loan`, `LoanState`, `LoanStatus` default constants, `StatusConfig`, and period result dataclasses.
-- `src/quantbullet/loan_simulation/transition.py`: `TransitionModel` protocol and `ConstantTransitionModel`.
+- `src/quantbullet/loan_simulation/status.py`: default status constants, `StatusConfig`, and shared status normalization.
+- `src/quantbullet/loan_simulation/entities.py`: `Loan`, `LoanState`, and period result dataclasses.
+- `src/quantbullet/loan_simulation/transition.py`: `TransitionModel` abstract base class and `ConstantTransitionModel`.
 - `src/quantbullet/loan_simulation/assumptions.py`: severity and recovery lag providers, starting with constants.
 - `src/quantbullet/loan_simulation/cashflow.py`: per-period fixed-rate loan accounting.
 - `src/quantbullet/loan_simulation/simulator.py`: seeded Monte Carlo loan and portfolio simulation.
@@ -58,15 +59,14 @@ The first version should keep the transition interface intentionally small:
 
 ```python
 TransitionModel.predict(
-    current_state,
     loan,
-    period,
+    current_state,
     macro_features,
-    rng,
+    path_features,
 ) -> dict[str, float]
 ```
 
-The simulator will sample the next status from the returned probabilities. A later model-backed implementation can use the same interface, including macro features.
+Projection period, loan age, balance, and current status are read from `current_state`. The transition model returns probabilities only; the simulator will handle random sampling from those probabilities. A later model-backed implementation can use the same interface, including macro features.
 
 ## Default Status Set
 
@@ -81,10 +81,12 @@ The simulator will sample the next status from the returned probabilities. A lat
 
 Status names should remain configurable through `StatusConfig`. The default status set is only a convenience for common fixed-rate amortizing loan use cases; custom use cases can define states such as `LIQ`, `SOLD`, `REFI`, or `CHARGED_OFF` without changing the engine.
 
+`StatusConfig.valid_statuses` is the authoritative status vocabulary. Transition tables should use the same vocabulary and must cover every valid status. The framework does not infer aliases such as `C` -> `CURRENT`; users should pick one naming convention per simulation setup.
+
 ## Implementation Checklist
 
 - [x] Define loan/status/result dataclasses and the public package API.
-- [ ] Implement the transition protocol and constant probability transition model.
+- [x] Implement the transition protocol and constant probability transition model.
 - [ ] Implement fixed-rate amortization, prepayment, delinquency, default loss, and lagged recovery accounting.
 - [ ] Implement seeded Monte Carlo loan and portfolio simulation outputs.
 - [ ] Add focused tests for amortization, transitions, recovery lag, aggregation, and macro feature pass-through.

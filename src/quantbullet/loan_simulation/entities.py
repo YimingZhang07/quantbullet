@@ -3,87 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
-
-class LoanStatus:
-    """Default status names for the first phase of the simulation framework."""
-
-    CURRENT = "CURRENT"
-    DQ30 = "DQ30"
-    DQ60 = "DQ60"
-    DQ90 = "DQ90"
-    DEFAULTED = "DEFAULTED"
-    PAID_OFF = "PAID_OFF"
-
-
-@dataclass(frozen=True)
-class StatusConfig:
-    """Business meaning for loan status names.
-
-    Status strings are intentionally configurable. The defaults cover a simple
-    amortizing-loan setup, while custom use cases can add statuses such as
-    LIQ, SOLD, REFI, or CHARGED_OFF without changing the engine.
-    """
-
-    terminal_statuses: set[str] | frozenset[str] = field(
-        default_factory=lambda: frozenset(
-            {LoanStatus.DEFAULTED, LoanStatus.PAID_OFF}
-        )
-    )
-    prepay_statuses: set[str] | frozenset[str] = field(
-        default_factory=lambda: frozenset({LoanStatus.PAID_OFF})
-    )
-    default_statuses: set[str] | frozenset[str] = field(
-        default_factory=lambda: frozenset({LoanStatus.DEFAULTED})
-    )
-    delinquency_buckets: Mapping[str, str] = field(
-        default_factory=lambda: {
-            LoanStatus.DQ30: "dq30_balance",
-            LoanStatus.DQ60: "dq60_balance",
-            LoanStatus.DQ90: "dq90_balance",
-        }
-    )
-
-    def __post_init__(self) -> None:
-        terminal_statuses = frozenset(
-            _normalize_status(status) for status in self.terminal_statuses
-        )
-        prepay_statuses = frozenset(
-            _normalize_status(status) for status in self.prepay_statuses
-        )
-        default_statuses = frozenset(
-            _normalize_status(status) for status in self.default_statuses
-        )
-        delinquency_buckets = {
-            _normalize_status(status): str(bucket)
-            for status, bucket in self.delinquency_buckets.items()
-        }
-
-        non_terminal = (prepay_statuses | default_statuses) - terminal_statuses
-        if non_terminal:
-            raise ValueError(
-                "prepay_statuses and default_statuses must be terminal: "
-                f"{sorted(non_terminal)}"
-            )
-
-        object.__setattr__(self, "terminal_statuses", terminal_statuses)
-        object.__setattr__(self, "prepay_statuses", prepay_statuses)
-        object.__setattr__(self, "default_statuses", default_statuses)
-        object.__setattr__(self, "delinquency_buckets", delinquency_buckets)
-
-    def is_terminal(self, status: str) -> bool:
-        return _normalize_status(status) in self.terminal_statuses
-
-    def is_prepay(self, status: str) -> bool:
-        return _normalize_status(status) in self.prepay_statuses
-
-    def is_default(self, status: str) -> bool:
-        return _normalize_status(status) in self.default_statuses
-
-    def delinquency_bucket(self, status: str) -> str | None:
-        return self.delinquency_buckets.get(_normalize_status(status))
-
-    def is_delinquent(self, status: str) -> bool:
-        return self.delinquency_bucket(status) is not None
+from .status import DEFAULT_STATUS_CONFIG, LoanStatus, StatusConfig, normalize_status
 
 
 @dataclass(frozen=True)
@@ -99,7 +19,7 @@ class Loan:
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        status = _normalize_status(self.status)
+        status = normalize_status(self.status)
         object.__setattr__(self, "status", status)
 
         if not self.loan_id:
@@ -144,7 +64,7 @@ class LoanState:
     status: str = LoanStatus.CURRENT
 
     def __post_init__(self) -> None:
-        self.status = _normalize_status(self.status)
+        self.status = normalize_status(self.status)
         if self.period < 0:
             raise ValueError("period must be non-negative")
         if self.age_months < 0:
@@ -193,12 +113,3 @@ class PeriodCashflow:
             + self.net_recovery
         )
 
-
-def _normalize_status(status: str) -> str:
-    normalized = str(status)
-    if not normalized:
-        raise ValueError("status must be non-empty")
-    return normalized
-
-
-DEFAULT_STATUS_CONFIG = StatusConfig()
