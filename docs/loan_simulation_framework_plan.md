@@ -46,10 +46,11 @@ flowchart TD
 - `src/quantbullet/loan_simulation/status.py`: default status constants, `StatusConfig`, and shared status normalization.
 - `src/quantbullet/loan_simulation/entities.py`: `Loan`, `LoanState`, and period result dataclasses.
 - `src/quantbullet/loan_simulation/transition.py`: `TransitionModel` abstract base class and `ConstantTransitionModel`.
+- `src/quantbullet/loan_simulation/macro.py`: calendar-date macro feature providers.
 - `src/quantbullet/loan_simulation/payment.py`: `PaymentPolicy` abstract base class and `MatrixPaymentPolicy`.
 - `src/quantbullet/loan_simulation/recovery.py`: severity and recovery lag providers, starting with constants.
 - `src/quantbullet/loan_simulation/cashflow.py`: per-period fixed-rate loan accounting.
-- `src/quantbullet/loan_simulation/simulator.py`: seeded Monte Carlo loan and portfolio simulation.
+- `src/quantbullet/loan_simulation/simulator.py`: seeded sequential Monte Carlo loan and portfolio simulation.
 - `src/quantbullet/loan_simulation/metrics.py`: portfolio and loan metric calculations.
 - `src/quantbullet/loan_simulation/__init__.py`: public API exports.
 - `tests/loan_simulation`: focused test coverage for the new package.
@@ -69,9 +70,19 @@ TransitionModel.predict(
 
 Projection period, loan age, balance, and current status are read from `current_state`. The transition model returns probabilities only; the simulator will handle random sampling from those probabilities. A later model-backed implementation can use the same interface, including macro features.
 
+Macro features are looked up by calendar date rather than projection period. The first-phase `DataFrameMacroFeatureProvider` accepts a date-indexed pandas DataFrame, normalizes the index to monthly periods, and returns a plain feature dict for each simulation period date.
+
+## Simulator Interface
+
+`LoanSimulator` runs sequential Monte Carlo paths for one loan using stable path seeds. Each period calls the transition model, samples an end status, projects cashflow, advances state, and stores pending recovery events. `PortfolioSimulator` loops over loans and provides path-level, loan-level, and portfolio-level DataFrame outputs.
+
+`start_date` is the simulation as-of date and corresponds to internal state period 0, which has no cashflow. Cashflow output periods are 1-based: period 1 is dated one frequency step after `start_date`, period 2 is two steps after, and so on.
+
 ## Cashflow Interface
 
 `CashflowEngine.project_period(...)` projects one loan, one path, and one period after a transition model has produced the period's end status. It returns `PeriodCashflow`, the next `LoanState`, and an optional `RecoveryEvent`. Recovery lag is represented as a future event; the simulator will later place due recovery events into the appropriate period cashflow output.
+
+`PeriodCashflow` is a begin-to-end period record. It stores begin/end status, begin/end balance, and begin/end loan age so reporting can distinguish the as-of state from the projected period outcome.
 
 The first-phase cashflow engine uses a simulation-start scheduled payment baseline. If `Loan.scheduled_payment` is provided, that amount is used. Otherwise, the baseline payment is calculated from the loan's current simulation-start balance over its remaining term. The engine does not automatically recast scheduled payment amounts after delinquency or partial prepayment. Recast behavior can be added later through an explicit amortization or payment policy.
 
@@ -94,9 +105,9 @@ Status names should remain configurable through `StatusConfig`. The default stat
 
 - [x] Define loan/status/result dataclasses and the public package API.
 - [x] Implement the transition protocol and constant probability transition model.
-- [ ] Implement fixed-rate amortization, prepayment, delinquency, default loss, and lagged recovery accounting.
-- [ ] Implement seeded Monte Carlo loan and portfolio simulation outputs.
-- [ ] Add focused tests for amortization, transitions, recovery lag, aggregation, and macro feature pass-through.
+- [x] Implement fixed-rate amortization, prepayment, delinquency, default loss, and lagged recovery accounting.
+- [x] Implement seeded Monte Carlo loan and portfolio simulation outputs.
+- [x] Add focused tests for amortization, transitions, recovery lag, aggregation, and macro feature pass-through.
 
 ## Test Plan
 

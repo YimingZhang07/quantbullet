@@ -61,6 +61,7 @@ class CashflowEngine:
     ) -> CashflowResult:
         # Each Monte Carlo path carries its own LoanState. This method advances
         # one path by one period after the transition model has chosen end_status.
+        cashflow_period = begin_state.period + 1
         begin_status = self.status_config.require_valid_status(begin_state.status)
         end_status = self.status_config.require_valid_status(end_status)
 
@@ -111,7 +112,7 @@ class CashflowEngine:
             recovery_event = RecoveryEvent(
                 loan_id=loan.loan_id,
                 path_id=path_id,
-                period=begin_state.period + recovery_lag,
+                period=cashflow_period + recovery_lag,
                 gross_recovery=gross_recovery,
             )
             end_balance = 0.0
@@ -146,8 +147,9 @@ class CashflowEngine:
         cashflow = PeriodCashflow(
             loan_id=loan.loan_id,
             path_id=path_id,
-            period=begin_state.period,
-            age_months=begin_state.age_months,
+            period=cashflow_period,
+            begin_age_months=begin_state.age_months,
+            end_age_months=begin_state.age_months + 1,
             begin_balance=begin_balance,
             end_balance=end_balance,
             begin_status=begin_status,
@@ -164,7 +166,7 @@ class CashflowEngine:
         # The next period starts from the transition outcome and aged loan.
         next_state = LoanState(
             loan_id=loan.loan_id,
-            period=begin_state.period + 1,
+            period=cashflow_period,
             age_months=begin_state.age_months + 1,
             balance=end_balance,
             status=end_status,

@@ -91,5 +91,5 @@ def test_default_recognizes_loss_and_schedules_recovery_event():
     assert result.cashflow.end_balance == 0.0
     assert result.recovery_event is not None
     assert result.recovery_event.path_id == 7
-    assert result.recovery_event.period == 3
+    assert result.recovery_event.period == 4
     assert result.recovery_event.net_recovery == 720.0

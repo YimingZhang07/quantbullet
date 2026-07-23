@@ -104,7 +104,8 @@ class PeriodCashflow:
     loan_id: str
     path_id: int
     period: int
-    age_months: int
+    begin_age_months: int
+    end_age_months: int
     begin_balance: float
     end_balance: float
     begin_status: str

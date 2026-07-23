@@ -1,11 +1,18 @@
 from .cashflow import CashflowEngine, CashflowResult, RecoveryEvent
 from .entities import Loan, LoanState, PeriodCashflow
+from .macro import DataFrameMacroFeatureProvider, MacroFeatureProvider
 from .payment import MatrixPaymentPolicy, PaymentPolicy
 from .recovery import (
     ConstantRecoveryLagProvider,
     ConstantSeverityProvider,
     RecoveryLagProvider,
     SeverityProvider,
+)
+from .simulator import (
+    LoanSimulationResult,
+    LoanSimulator,
+    PortfolioSimulationResult,
+    PortfolioSimulator,
 )
 from .status import (
     DEFAULT_STATUS_CONFIG,
@@ -21,16 +28,22 @@ __all__ = [
     "ConstantTransitionModel",
     "ConstantRecoveryLagProvider",
     "ConstantSeverityProvider",
+    "DataFrameMacroFeatureProvider",
     "DEFAULT_STATUS_CONFIG",
     "Loan",
+    "LoanSimulationResult",
+    "LoanSimulator",
     "LoanState",
     "LoanStatus",
+    "MacroFeatureProvider",
     "MatrixPaymentPolicy",
     "PaymentPolicy",
     "PeriodCashflow",
     "RecoveryLagProvider",
     "RecoveryEvent",
     "SeverityProvider",
+    "PortfolioSimulationResult",
+    "PortfolioSimulator",
     "StatusConfig",
     "TransitionModel",
     "normalize_status",
