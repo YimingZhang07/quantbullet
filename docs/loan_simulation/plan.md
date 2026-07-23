@@ -18,6 +18,7 @@ Phase 1 主干已经完成：
 - single-period `CashflowEngine`
 - date-based macro feature lookup
 - seeded sequential `LoanSimulator` / `PortfolioSimulator`
+- lightweight `PathFeatureTracker`
 - period-level metrics
 - Excel portfolio example + synthetic reconciliation scripts
 - core cashflow tie-out against `roll-rate-model`
@@ -52,6 +53,7 @@ flowchart TD
 - `recovery.py`: severity 和 recovery lag provider。第一版有 constant provider，未来可以换 model provider。
 - `cashflow.py`: one loan / one path / one period 的 accounting engine。处理 normal payment、prepay、default/loss、recovery event、delinquency reporting。
 - `macro.py`: date-indexed macro lookup。`DataFrameMacroFeatureProvider` 用 calendar month match，而不是 projection period number。
+- `path_features.py`: compact path-level delinquency history tracker。只维护不能从 `LoanState` 直接读出的历史 features。
 - `simulator.py`: sequential Monte Carlo runner。负责 seed、path loop、macro lookup、transition sampling、pending recovery event、DataFrame outputs。
 - `metrics.py`: 从 simulator cashflow output 计算 SMM/CPR、MDR/CDR、loss、net loss、recovery、delinquency metrics。
 
@@ -96,6 +98,8 @@ Recovery lag 不会被 horizon 截断。horizon 内产生的 pending `RecoveryEv
 
 Loan-level path average 的 denominator 固定为 total `n_paths`。提前 terminal 的 paths 在后续 periods 贡献 0，不能只对仍有 cashflow row 的 paths 求平均。
 
+`PathFeatureTracker` 目前只维护四个 delinquency history features：`ever_delinquent`、`months_since_last_delinquency`、`consecutive_delinquent_months`、`times_delinquent`。不重复存 `current_state.status` 或 `current_state.age_months`。
+
 ## Metrics
 
 `compute_period_metrics(...)` consume simulator cashflow DataFrame。
@@ -127,7 +131,6 @@ Loan-level path average 的 denominator 固定为 total `n_paths`。提前 termi
 - multiprocessing / Ray
 - framework-level Excel export API（examples 目前直接写 workbook）
 - full production-style `pmt_matrix` compatibility
-- path feature tracker
 - transition probability trace
 - performance optimization
 
@@ -135,7 +138,6 @@ Loan-level path average 的 denominator 固定为 total `n_paths`。提前 termi
 
 ## Next Ideas
 
-- 加 `PathFeatureTracker`，维护 `ever_delinquent`、`months_since_last_dq`、burnout 等 path-dependent features。
 - 加 transition probability trace，方便 debug 和 explainability。
 - 接入一个真实 model wrapper，验证 macro/path features 的完整 model workflow。
 - profile larger portfolios，再决定 batch prediction / multiprocessing 的优先级。

@@ -9,6 +9,7 @@ import pandas as pd
 from .cashflow import CashflowEngine, RecoveryEvent
 from .entities import Loan, LoanState, PeriodCashflow
 from .macro import MacroFeatureProvider
+from .path_features import PathFeatureTracker
 from .transition import TransitionModel, sample_next_status
 
 
@@ -131,7 +132,7 @@ class LoanSimulator:
         rng: random.Random,
     ) -> list[PeriodCashflow]:
         state = loan.initial_state()
-        path_features: dict[str, Any] = {}
+        path_feature_tracker = PathFeatureTracker()
         pending_recoveries: dict[int, list[RecoveryEvent]] = {}
         cashflows: list[PeriodCashflow] = []
 
@@ -141,6 +142,7 @@ class LoanSimulator:
 
             if period <= self.horizon and state.is_active(self.cashflow_engine.status_config):
                 macro_features = self._macro_features_for_period(period)
+                path_features = path_feature_tracker.features()
                 probabilities = self.transition_model.predict(
                     loan,
                     state,
@@ -170,6 +172,7 @@ class LoanSimulator:
                 if due_recoveries:
                     cashflow = _add_recoveries(cashflow, due_recoveries)
                 cashflows.append(cashflow)
+                path_feature_tracker.update(cashflow, self.cashflow_engine.status_config)
                 state = result.next_state
             elif due_recoveries:
                 cashflows.append(

@@ -44,6 +44,7 @@ def _cashflow_engine(recovery_lag=3):
 
 
 def test_loan_simulator_passes_macro_features_by_calendar_month():
+    """Simulator maps 1-based projection periods to calendar-month macro rows."""
     class RecordingTransitionModel(TransitionModel):
         def __init__(self):
             self.hpi_values = []
@@ -83,6 +84,7 @@ def test_loan_simulator_passes_macro_features_by_calendar_month():
 
 
 def test_loan_simulator_outputs_recovery_when_lagged_event_is_due():
+    """Recovery events created inside the horizon still emit after the horizon."""
     config = _status_config()
     transition_model = ConstantTransitionModel(
         {
@@ -110,6 +112,7 @@ def test_loan_simulator_outputs_recovery_when_lagged_event_is_due():
 
 
 def test_portfolio_simulator_outputs_reproducible_aggregates():
+    """Stable path seeds make repeated simulations reproducible."""
     config = _status_config()
     transition_model = ConstantTransitionModel(
         {
@@ -151,6 +154,7 @@ def test_portfolio_simulator_outputs_reproducible_aggregates():
 
 
 def test_loan_cashflows_average_over_all_paths_after_early_termination():
+    """Early-terminated paths contribute zero to later loan-level averages."""
     loan = Loan("L1", 100.0, 0.0, 12)
     result = LoanSimulationResult(
         loan=loan,
@@ -203,3 +207,56 @@ def test_loan_cashflows_average_over_all_paths_after_early_termination():
 
     assert period_two["begin_balance"] == 45.0
     assert period_two["principal_collected"] == 5.0
+
+
+def test_loan_simulator_passes_updated_path_features_to_next_period():
+    """Path features from period t are visible starting in period t + 1."""
+    class RecordingTransitionModel(TransitionModel):
+        def __init__(self):
+            self.path_features_by_call = []
+
+        def predict(
+            self,
+            loan,
+            current_state,
+            macro_features=None,
+            path_features=None,
+        ):
+            self.path_features_by_call.append(dict(path_features))
+            if current_state.period == 0:
+                return {"D1M": 1.0}
+            return {"C": 1.0}
+
+    config = StatusConfig(
+        valid_statuses={"C", "D1M"},
+        terminal_statuses=set(),
+        prepay_statuses=set(),
+        default_statuses=set(),
+        delinquency_buckets={"D1M": "dq30_balance"},
+    )
+    matrix = {
+        "C": {"C": 1, "D1M": 0},
+        "D1M": {"C": 2, "D1M": 1},
+    }
+    model = RecordingTransitionModel()
+    simulator = LoanSimulator(
+        model,
+        CashflowEngine(
+            MatrixPaymentPolicy(matrix, status_config=config),
+            ConstantSeverityProvider(0.40),
+            ConstantRecoveryLagProvider(0),
+            status_config=config,
+        ),
+        horizon=2,
+        start_date="2026-01-31",
+    )
+
+    simulator.simulate_loan(Loan("L1", 1200.0, 0.12, 12, status="C"))
+
+    assert model.path_features_by_call[0]["ever_delinquent"] is False
+    assert model.path_features_by_call[1] == {
+        "ever_delinquent": True,
+        "months_since_last_delinquency": 0,
+        "consecutive_delinquent_months": 1,
+        "times_delinquent": 1,
+    }
