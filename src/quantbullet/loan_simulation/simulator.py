@@ -21,7 +21,11 @@ class LoanSimulationResult:
     start_period: pd.Period
 
     def to_frame(self) -> pd.DataFrame:
-        return _cashflows_to_frame(self.cashflows, start_period=self.start_period)
+        return _cashflows_to_frame(
+            self.cashflows,
+            loan=self.loan,
+            start_period=self.start_period,
+        )
 
 
 @dataclass(frozen=True)
@@ -190,11 +194,13 @@ class PortfolioSimulator:
 def _cashflows_to_frame(
     cashflows: list[PeriodCashflow],
     *,
+    loan: Loan,
     start_period: pd.Period,
 ) -> pd.DataFrame:
     rows = []
     for cashflow in cashflows:
         row = asdict(cashflow)
+        row["original_balance"] = loan.original_balance
         row["period_date"] = str(start_period + cashflow.period)
         row["prepayment_amount"] = cashflow.prepayment_amount
         row["total_cashflow"] = cashflow.total_cashflow

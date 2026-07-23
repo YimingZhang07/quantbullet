@@ -14,6 +14,7 @@ class Loan:
     balance: float
     annual_rate: float
     term_months: int
+    original_balance: float | None = None
     age_months: int = 0
     status: str = LoanStatus.CURRENT
     scheduled_payment: float | None = None
@@ -22,11 +23,15 @@ class Loan:
     def __post_init__(self) -> None:
         status = normalize_status(self.status)
         object.__setattr__(self, "status", status)
+        if self.original_balance is None:
+            object.__setattr__(self, "original_balance", self.balance)
 
         if not self.loan_id:
             raise ValueError("loan_id must be non-empty")
         if self.balance < 0:
             raise ValueError("balance must be non-negative")
+        if self.original_balance < 0:
+            raise ValueError("original_balance must be non-negative")
         if self.annual_rate < 0:
             raise ValueError("annual_rate must be non-negative")
         if self.term_months <= 0:

@@ -70,10 +70,13 @@ def test_loan_simulator_passes_macro_features_by_calendar_month():
         macro_provider=macro_provider,
     )
 
-    result = simulator.simulate_loan(Loan("L1", 1200.0, 0.12, 12, status="C"))
+    result = simulator.simulate_loan(
+        Loan("L1", 1200.0, 0.12, 12, original_balance=1500.0, status="C")
+    )
 
     assert model.hpi_values == [101.0, 102.0]
     assert result.to_frame()["period_date"].tolist() == ["2026-02", "2026-03"]
+    assert result.to_frame()["original_balance"].tolist() == [1500.0, 1500.0]
 
 
 def test_loan_simulator_outputs_recovery_when_lagged_event_is_due():

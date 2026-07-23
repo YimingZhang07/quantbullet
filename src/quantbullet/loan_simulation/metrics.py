@@ -15,7 +15,8 @@ def compute_period_metrics(
 
     ``cashflows`` can be path-level, loan-level, or portfolio-level output from
     the simulator. Metrics are computed from summed balances and cashflow
-    amounts within each period and optional grouping columns.
+    amounts within each period and optional grouping columns. ``original_balance``
+    is required for cumulative loss denominators.
     """
     if cashflows.empty:
         return pd.DataFrame()
@@ -57,12 +58,12 @@ def compute_period_metrics(
         aggregated["cumulative_net_loss"] = aggregated.groupby(group_key)[
             "period_net_loss"
         ].cumsum()
-        original_balance = aggregated.groupby(group_key)["begin_balance"].transform("first")
+        original_balance = aggregated.groupby(group_key)["original_balance"].transform("first")
     else:
         aggregated["cumulative_loss"] = aggregated["loss"].cumsum()
         aggregated["cumulative_net_loss"] = aggregated["period_net_loss"].cumsum()
         original_balance = pd.Series(
-            aggregated["begin_balance"].iloc[0],
+            aggregated["original_balance"].iloc[0],
             index=aggregated.index,
         )
 
@@ -105,6 +106,7 @@ def _aggregate_cashflows(
         "scheduled_principal",
         "principal_collected",
         "prepayment_amount",
+        "original_balance",
         "default_balance",
         "loss",
         "net_recovery",

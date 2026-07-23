@@ -46,10 +46,13 @@ def test_scheduled_payment_baseline_uses_remaining_term_and_allows_override():
         balance=800.0,
         annual_rate=0.12,
         term_months=36,
+        original_balance=1000.0,
         age_months=12,
         scheduled_payment=50.0,
     )
 
+    assert seasoned.original_balance == 800.0
+    assert override.original_balance == 1000.0
     assert seasoned.scheduled_monthly_payment == pytest.approx(37.66, abs=0.01)
     assert override.scheduled_monthly_payment == 50.0
 

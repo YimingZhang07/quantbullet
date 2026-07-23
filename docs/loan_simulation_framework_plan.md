@@ -1,131 +1,133 @@
 # Loan Simulation Framework Plan
 
-## Background
+## Current Goal
 
-This document tracks the plan for adding a lightweight, readable, and testable Python loan simulation framework to `quantbullet`.
+在 `quantbullet` 里做一套 lightweight Python loan simulation framework。第一阶段聚焦 monthly fixed-rate amortizing loans + seeded Monte Carlo paths。
 
-The first phase will focus on monthly fixed-rate amortizing loans and Monte Carlo path simulation. The design references the state-transition and portfolio aggregation ideas in `roll-rate-model`, but intentionally avoids copying its production-oriented complexity.
+参考 `roll-rate-model` 的核心思想：status transition、payment matrix、loan/portfolio cashflow aggregation。但这边不复制生产 C++ engine 的复杂度，优先保证语义清楚、代码易读、方便以后接 model。
 
-## Confirmed Phase 1 Scope
+## Current Status
 
-- Add a new Python package at `src/quantbullet/loan_simulation`.
-- Use monthly fixed-rate amortizing loan assumptions.
-- Support Monte Carlo path simulation with reproducible seeds.
-- Keep the cashflow engine independent from transition model implementations.
-- Support loan-level path cashflows, loan-level averaged cashflows, and portfolio-level cashflows.
-- Track scheduled interest/principal, ending balance, delinquency balances, prepayment, default, loss, and recovery.
-- Support recovery lag and severity through simple provider interfaces.
-- Pass macro features through to transition models without coupling the engine to specific feature names.
+Phase 1 主干已经完成：
 
-## Deferred From Phase 1
+- `Loan` / `LoanState` / `PeriodCashflow`
+- configurable `StatusConfig`
+- `TransitionModel` + `ConstantTransitionModel`
+- `MatrixPaymentPolicy`
+- severity / recovery lag providers
+- single-period `CashflowEngine`
+- date-based macro feature lookup
+- seeded sequential `LoanSimulator` / `PortfolioSimulator`
+- period-level metrics
+- focused unit tests
 
-- External ML model loading.
-- GAM or softmax coefficient parsing.
-- Multiprocessing or Ray execution.
-- Excel export.
-- Full `pmt_matrix` compatibility.
-- Production-style model registries.
-
-These should remain possible future additions through the model and assumption interfaces.
-
-## Architecture
-
-```mermaid
-flowchart TD
-    loanInput["Loan Inputs"] --> simulator["PortfolioSimulator"]
-    macroInput["Macro Features"] --> simulator
-    transitionModel["TransitionModel Interface"] --> simulator
-    recoveryPolicy["Recovery Policy"] --> cashflowEngine["CashflowEngine"]
-    simulator --> cashflowEngine
-    cashflowEngine --> loanResults["Loan Cashflows"]
-    loanResults --> portfolioResults["Portfolio Cashflows and Metrics"]
-```
-
-## Proposed Files
-
-- `src/quantbullet/loan_simulation/status.py`: default status constants, `StatusConfig`, and shared status normalization.
-- `src/quantbullet/loan_simulation/entities.py`: `Loan`, `LoanState`, and period result dataclasses.
-- `src/quantbullet/loan_simulation/transition.py`: `TransitionModel` abstract base class and `ConstantTransitionModel`.
-- `src/quantbullet/loan_simulation/macro.py`: calendar-date macro feature providers.
-- `src/quantbullet/loan_simulation/payment.py`: `PaymentPolicy` abstract base class and `MatrixPaymentPolicy`.
-- `src/quantbullet/loan_simulation/recovery.py`: severity and recovery lag providers, starting with constants.
-- `src/quantbullet/loan_simulation/cashflow.py`: per-period fixed-rate loan accounting.
-- `src/quantbullet/loan_simulation/simulator.py`: seeded sequential Monte Carlo loan and portfolio simulation.
-- `src/quantbullet/loan_simulation/metrics.py`: period-level prepayment, default, loss, recovery, and delinquency metrics.
-- `src/quantbullet/loan_simulation/__init__.py`: public API exports.
-- `tests/loan_simulation`: focused test coverage for the new package.
-
-## Model Interface
-
-The first version should keep the transition interface intentionally small:
-
-```python
-TransitionModel.predict(
-    loan,
-    current_state,
-    macro_features,
-    path_features,
-) -> dict[str, float]
-```
-
-Projection period, loan age, balance, and current status are read from `current_state`. The transition model returns probabilities only; the simulator will handle random sampling from those probabilities. A later model-backed implementation can use the same interface, including macro features.
-
-Macro features are looked up by calendar date rather than projection period. The first-phase `DataFrameMacroFeatureProvider` accepts a date-indexed pandas DataFrame, normalizes the index to monthly periods, and returns a plain feature dict for each simulation period date.
-
-## Simulator Interface
-
-`LoanSimulator` runs sequential Monte Carlo paths for one loan using stable path seeds. Each period calls the transition model, samples an end status, projects cashflow, advances state, and stores pending recovery events. `PortfolioSimulator` loops over loans and provides path-level, loan-level, and portfolio-level DataFrame outputs.
-
-`start_date` is the simulation as-of date and corresponds to internal state period 0, which has no cashflow. Cashflow output periods are 1-based: period 1 is dated one frequency step after `start_date`, period 2 is two steps after, and so on.
-
-## Cashflow Interface
-
-`CashflowEngine.project_period(...)` projects one loan, one path, and one period after a transition model has produced the period's end status. It returns `PeriodCashflow`, the next `LoanState`, and an optional `RecoveryEvent`. Recovery lag is represented as a future event; the simulator will later place due recovery events into the appropriate period cashflow output.
-
-`PeriodCashflow` is a begin-to-end period record. It stores begin/end status, begin/end balance, and begin/end loan age so reporting can distinguish the as-of state from the projected period outcome.
-
-The first-phase cashflow engine uses a simulation-start scheduled payment baseline. If `Loan.scheduled_payment` is provided, that amount is used. Otherwise, the baseline payment is calculated from the loan's current simulation-start balance over its remaining term. The engine does not automatically recast scheduled payment amounts after delinquency or partial prepayment. Recast behavior can be added later through an explicit amortization or payment policy.
-
-## Metrics Interface
-
-`compute_period_metrics(...)` consumes simulator cashflow DataFrames and computes SMM/CPR, MDR/CDR, period and cumulative loss, net loss, recovery, and delinquency rates. It can compute portfolio-level metrics by period or grouped metrics with additional grouping columns.
-
-## Default Status Set
-
-- `CURRENT`
-- `DQ30`
-- `DQ60`
-- `DQ90`
-- `DEFAULTED`
-- `PAID_OFF`
-
-`DEFAULTED` and `PAID_OFF` are terminal statuses for scheduled loan activity. Recovery cashflow may still be emitted after a configured recovery lag.
-
-Status names should remain configurable through `StatusConfig`. The default status set is only a convenience for common fixed-rate amortizing loan use cases; custom use cases can define states such as `LIQ`, `SOLD`, `REFI`, or `CHARGED_OFF` without changing the engine.
-
-`StatusConfig.valid_statuses` is the authoritative status vocabulary. Transition tables should use the same vocabulary and must cover every valid status. The framework does not infer aliases such as `C` -> `CURRENT`; users should pick one naming convention per simulation setup.
-
-## Implementation Checklist
-
-- [x] Define loan/status/result dataclasses and the public package API.
-- [x] Implement the transition protocol and constant probability transition model.
-- [x] Implement fixed-rate amortization, prepayment, delinquency, default loss, and lagged recovery accounting.
-- [x] Implement seeded Monte Carlo loan and portfolio simulation outputs.
-- [x] Add focused tests for amortization, transitions, recovery lag, aggregation, and macro feature pass-through.
-
-## Test Plan
-
-Use the local virtual environment:
+当前测试命令：
 
 ```powershell
 C:\GIT\quantbullet\.venv\Scripts\python.exe -m pytest tests/loan_simulation
 ```
 
-Initial test cases:
+## Architecture
 
-- Scheduled amortization math for a loan with no prepayment or default transitions.
-- Constant transition validation and reproducible seeded sampling.
-- Prepayment pays off the balance and stops future scheduled cashflows.
-- Default records loss immediately and recovery after the configured lag.
-- Portfolio aggregation equals the sum or average of loan-level outputs.
-- Macro feature payload reaches the transition model.
+```mermaid
+flowchart TD
+    loanInput["Loan Inputs"] --> simulator["LoanSimulator / PortfolioSimulator"]
+    macroInput["Macro Feature Provider"] --> simulator
+    transitionModel["TransitionModel"] --> simulator
+    simulator --> cashflowEngine["CashflowEngine"]
+    paymentPolicy["PaymentPolicy"] --> cashflowEngine
+    recoveryProviders["Severity / Recovery Lag Providers"] --> cashflowEngine
+    cashflowEngine --> cashflows["PeriodCashflow"]
+    cashflows --> metrics["compute_period_metrics"]
+```
+
+## Module Map
+
+- `status.py`: status vocabulary 和 accounting meaning。`valid_statuses` 是唯一合法状态全集，不做 alias，例如 `C` 不自动等于 `CURRENT`。
+- `entities.py`: 核心 dataclasses。`LoanState.period=0` 是 as-of state；`PeriodCashflow.period=1` 是第一期 projected cashflow。
+- `transition.py`: transition probability layer。`predict(...)` 只返回 next-status probabilities，不抽样、不算 cashflow。
+- `payment.py`: scheduled payment collection rule。第一版用 `MatrixPaymentPolicy`，按 `begin_status -> end_status` 决定收几期 scheduled installment。
+- `recovery.py`: severity 和 recovery lag provider。第一版有 constant provider，未来可以换 model provider。
+- `cashflow.py`: one loan / one path / one period 的 accounting engine。处理 normal payment、prepay、default/loss、recovery event、delinquency reporting。
+- `macro.py`: date-indexed macro lookup。`DataFrameMacroFeatureProvider` 用 calendar month match，而不是 projection period number。
+- `simulator.py`: sequential Monte Carlo runner。负责 seed、path loop、macro lookup、transition sampling、pending recovery event、DataFrame outputs。
+- `metrics.py`: 从 simulator cashflow output 计算 SMM/CPR、MDR/CDR、loss、net loss、recovery、delinquency metrics。
+
+## Key Design Decisions
+
+`StatusConfig` owns status meaning:
+
+- `valid_statuses`: 全部合法状态
+- `terminal_statuses`: 停止正常 scheduled activity
+- `prepay_statuses`: full payoff / prepay event
+- `default_statuses`: realized loss/recovery event
+- `delinquency_buckets`: delinquency reporting bucket
+
+`TransitionModel` 只负责概率：
+
+```python
+predict(
+    loan,
+    current_state,
+    macro_features=None,
+    path_features=None,
+) -> Mapping[str, float]
+```
+
+`CashflowEngine` 只负责 accounting。它接收已经 sampled 的 `end_status`，然后分三类处理：
+
+- prepay: collect current interest + full principal
+- default: recognize loss now, schedule recovery event
+- normal/delinquent/cure: ask `PaymentPolicy` how many scheduled payments to collect
+
+`start_date` 是 simulation as-of date。内部 `period=0` 没有 cashflow；第一条 cashflow 是 `period=1`，日期是 `start_date + 1 month`。
+
+Scheduled payment 是 simulation-start baseline：
+
+- 如果 `Loan.scheduled_payment` provided，就用它
+- 否则用 current simulation-start balance over remaining term 计算
+- simulation 内不自动 recast；未来可以加 explicit recast/amortization policy
+
+`Loan.original_balance` 是 reporting denominator，主要用于 CGL / cumulative loss rate。没传时默认等于 `Loan.balance`；seasoned pool 可以显式传 origination balance 或 deal reporting balance。
+
+Recovery lag 不会被 horizon 截断。horizon 内产生的 pending `RecoveryEvent` 会继续输出到 recovery due period。
+
+## Metrics
+
+`compute_period_metrics(...)` consume simulator cashflow DataFrame。
+
+当前输出：
+
+- `smm`, `cpr`
+- `mdr`, `cdr`
+- `period_loss_rate`
+- `period_net_loss`
+- `cumulative_loss`
+- `cumulative_net_loss`
+- `cumulative_loss_rate`
+- `cumulative_net_loss_rate`
+- `delinquency_rate`
+
+`compute_period_metrics(...)` requires `original_balance` for cumulative loss rate denominators. It does not silently fall back to begin balance for CGL-style metrics.
+
+## Deferred
+
+暂不做：
+
+- external ML model loading
+- GAM / softmax coefficient parsing
+- multiprocessing / Ray
+- Excel export
+- full production-style `pmt_matrix` compatibility
+- path feature tracker
+- transition probability trace
+- performance optimization
+
+这些都可以在当前接口边界上继续加。
+
+## Next Ideas
+
+- 加一个 end-to-end example，展示从 loans + transition table + payment matrix 到 metrics 的完整 workflow。
+- 加 `PathFeatureTracker`，维护 `ever_delinquent`、`months_since_last_dq`、burnout 等 path-dependent features。
+- 给 metrics 加 explicit denominator，例如 `original_balance` / `orig_bal`。
+- 加 transition probability trace，方便 debug 和 explainability。
