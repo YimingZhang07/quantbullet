@@ -126,5 +126,5 @@ def _aggregate_cashflows(
 
 
 def _safe_divide(numerator: pd.Series, denominator: pd.Series) -> pd.Series:
-    result = numerator / denominator.replace(0, pd.NA)
+    result = numerator / denominator.replace(0, float("nan"))
     return result.fillna(0.0)

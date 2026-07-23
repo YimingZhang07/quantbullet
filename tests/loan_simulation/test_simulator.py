@@ -7,8 +7,11 @@ from quantbullet.loan_simulation import (
     ConstantTransitionModel,
     DataFrameMacroFeatureProvider,
     Loan,
+    LoanSimulationResult,
     LoanSimulator,
     MatrixPaymentPolicy,
+    PeriodCashflow,
+    PortfolioSimulationResult,
     PortfolioSimulator,
     StatusConfig,
     TransitionModel,
@@ -145,3 +148,58 @@ def test_portfolio_simulator_outputs_reproducible_aggregates():
     )
     assert first.loan_cashflows()["loan_id"].unique().tolist() == ["L1"]
     assert set(first.portfolio_cashflows()["period"]).issubset({1, 2, 3})
+
+
+def test_loan_cashflows_average_over_all_paths_after_early_termination():
+    loan = Loan("L1", 100.0, 0.0, 12)
+    result = LoanSimulationResult(
+        loan=loan,
+        cashflows=[
+            PeriodCashflow(
+                loan_id="L1",
+                path_id=0,
+                period=1,
+                begin_age_months=0,
+                end_age_months=1,
+                begin_balance=100.0,
+                end_balance=0.0,
+                begin_status="CURRENT",
+                end_status="PAID_OFF",
+                principal_collected=100.0,
+            ),
+            PeriodCashflow(
+                loan_id="L1",
+                path_id=1,
+                period=1,
+                begin_age_months=0,
+                end_age_months=1,
+                begin_balance=100.0,
+                end_balance=90.0,
+                begin_status="CURRENT",
+                end_status="CURRENT",
+                scheduled_principal=10.0,
+                principal_collected=10.0,
+            ),
+            PeriodCashflow(
+                loan_id="L1",
+                path_id=1,
+                period=2,
+                begin_age_months=1,
+                end_age_months=2,
+                begin_balance=90.0,
+                end_balance=80.0,
+                begin_status="CURRENT",
+                end_status="CURRENT",
+                scheduled_principal=10.0,
+                principal_collected=10.0,
+            ),
+        ],
+        start_period=pd.Period("2026-01", freq="M"),
+        n_paths=2,
+    )
+
+    loan_cashflows = PortfolioSimulationResult([result]).loan_cashflows()
+    period_two = loan_cashflows.loc[loan_cashflows["period"] == 2].iloc[0]
+
+    assert period_two["begin_balance"] == 45.0
+    assert period_two["principal_collected"] == 5.0

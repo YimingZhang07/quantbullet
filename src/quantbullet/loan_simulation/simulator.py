@@ -19,6 +19,7 @@ class LoanSimulationResult:
     loan: Loan
     cashflows: list[PeriodCashflow]
     start_period: pd.Period
+    n_paths: int = 1
 
     def to_frame(self) -> pd.DataFrame:
         return _cashflows_to_frame(
@@ -44,13 +45,29 @@ class PortfolioSimulationResult:
         frame = self.path_cashflows()
         if frame.empty:
             return frame
-        numeric_cols = _numeric_cashflow_columns(frame)
-        return (
+        numeric_cols = [
+            column
+            for column in _numeric_cashflow_columns(frame)
+            if column != "original_balance"
+        ]
+        loan_paths = {
+            result.loan.loan_id: result.n_paths
+            for result in self.loan_results
+        }
+        original_balances = {
+            result.loan.loan_id: result.loan.original_balance
+            for result in self.loan_results
+        }
+        grouped = (
             frame.groupby(["loan_id", "period", "period_date"], as_index=False)[numeric_cols]
-            .mean()
+            .sum()
             .sort_values(["loan_id", "period"])
             .reset_index(drop=True)
         )
+        path_counts = grouped["loan_id"].map(loan_paths)
+        grouped[numeric_cols] = grouped[numeric_cols].div(path_counts, axis=0)
+        grouped["original_balance"] = grouped["loan_id"].map(original_balances)
+        return grouped
 
     def portfolio_cashflows(self) -> pd.DataFrame:
         frame = self.loan_cashflows()
@@ -103,6 +120,7 @@ class LoanSimulator:
             loan=loan,
             cashflows=cashflows,
             start_period=self.start_period,
+            n_paths=self.n_paths,
         )
 
     def _simulate_path(

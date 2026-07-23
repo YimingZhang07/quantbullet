@@ -19,6 +19,8 @@ Phase 1 主干已经完成：
 - date-based macro feature lookup
 - seeded sequential `LoanSimulator` / `PortfolioSimulator`
 - period-level metrics
+- Excel portfolio example + synthetic reconciliation scripts
+- core cashflow tie-out against `roll-rate-model`
 - focused unit tests
 
 当前测试命令：
@@ -92,6 +94,8 @@ Scheduled payment 是 simulation-start baseline：
 
 Recovery lag 不会被 horizon 截断。horizon 内产生的 pending `RecoveryEvent` 会继续输出到 recovery due period。
 
+Loan-level path average 的 denominator 固定为 total `n_paths`。提前 terminal 的 paths 在后续 periods 贡献 0，不能只对仍有 cashflow row 的 paths 求平均。
+
 ## Metrics
 
 `compute_period_metrics(...)` consume simulator cashflow DataFrame。
@@ -110,6 +114,17 @@ Recovery lag 不会被 horizon 截断。horizon 内产生的 pending `RecoveryEv
 
 `compute_period_metrics(...)` requires `original_balance` for cumulative loss rate denominators. It does not silently fall back to begin balance for CGL-style metrics.
 
+## Validation
+
+`portfolio_example.py` 生成 5-loan workbook；`synthetic_reconcile.py` 生成 synthetic portfolio curves；`rollrate_compare.py` 用相同 loans、transition probabilities、payment matrix、seed、severity 和 recovery timing 对比两个 engines。
+
+当前 reconciliation 结论：
+
+- balance / interest / principal / loss cashflows 基本 tie out
+- CDR / CGL 基本 tie out
+- official CPR 有口径差异：本 framework 用 unscheduled principal；roll-rate 用 PIF event balance
+- 用 roll-rate CPR convention 重算本 framework paths 后，CPR 也基本 tie out
+
 ## Deferred
 
 暂不做：
@@ -117,7 +132,7 @@ Recovery lag 不会被 horizon 截断。horizon 内产生的 pending `RecoveryEv
 - external ML model loading
 - GAM / softmax coefficient parsing
 - multiprocessing / Ray
-- Excel export
+- framework-level Excel export API（examples 目前直接写 workbook）
 - full production-style `pmt_matrix` compatibility
 - path feature tracker
 - transition probability trace
@@ -127,7 +142,7 @@ Recovery lag 不会被 horizon 截断。horizon 内产生的 pending `RecoveryEv
 
 ## Next Ideas
 
-- 加一个 end-to-end example，展示从 loans + transition table + payment matrix 到 metrics 的完整 workflow。
 - 加 `PathFeatureTracker`，维护 `ever_delinquent`、`months_since_last_dq`、burnout 等 path-dependent features。
-- 给 metrics 加 explicit denominator，例如 `original_balance` / `orig_bal`。
 - 加 transition probability trace，方便 debug 和 explainability。
+- 接入一个真实 model wrapper，验证 macro/path features 的完整 model workflow。
+- profile larger portfolios，再决定 batch prediction / multiprocessing 的优先级。
