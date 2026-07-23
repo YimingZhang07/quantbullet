@@ -116,14 +116,7 @@ Loan-level path average 的 denominator 固定为 total `n_paths`。提前 termi
 
 ## Validation
 
-`portfolio_example.py` 生成 5-loan workbook；`synthetic_reconcile.py` 生成 synthetic portfolio curves；`rollrate_compare.py` 用相同 loans、transition probabilities、payment matrix、seed、severity 和 recovery timing 对比两个 engines。
-
-当前 reconciliation 结论：
-
-- balance / interest / principal / loss cashflows 基本 tie out
-- CDR / CGL 基本 tie out
-- official CPR 有口径差异：本 framework 用 unscheduled principal；roll-rate 用 PIF event balance
-- 用 roll-rate CPR convention 重算本 framework paths 后，CPR 也基本 tie out
+`portfolio_example.py` 生成 5-loan demo workbook；`reconcile.py` 生成 synthetic portfolio，并用相同 loans、transition probabilities、payment matrix、seed、severity 和 recovery timing 对比本 framework 与 `roll-rate-model`。
 
 ## Deferred
 

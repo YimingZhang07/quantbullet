@@ -1,3 +1,16 @@
+"""Loan simulation portfolio example.
+
+生成一个 5-loan 的 demo portfolio，跑 seeded Monte Carlo simulation，然后把
+path-level、loan-level、portfolio-level cashflows 和 portfolio metrics 写进一个
+Excel workbook。主要用来直观检查 framework 的端到端输出。
+
+Run (from repo root):
+    $env:PYTHONPATH = "src"
+    python docs/loan_simulation/portfolio_example.py
+
+输出的 .xlsx 会写到本脚本同目录，并被该目录的 .gitignore 忽略。
+"""
+
 from __future__ import annotations
 
 import time

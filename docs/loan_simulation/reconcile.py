@@ -1,6 +1,27 @@
+"""Reconcile this framework's simulator against the roll-rate-model core.
+
+用同一批 synthetic loans、同一套 transition table / payment matrix / seed / severity /
+recovery timing，同时跑本 framework 的 simulator 和 roll-rate-model 的 Python
+`run_cf_one`，再把 cashflows 和 metrics 写进一个对比 workbook。
+
+Notes:
+- roll-rate 用 constant `transition_fn` 注入，绕过 GAM model 依赖。
+- payment matrix 会转置成 roll-rate 的 `pmt_matrix[to][from]` 方向。
+- `our_rr_style_cpr` 是 diagnostic：用 roll-rate 的 PIF-balance CPR 口径重算本
+  framework 的 paths，用来区分 "engine 差异" 和 "CPR 口径差异"。
+
+Run (from repo root):
+    $env:PYTHONPATH = "src"
+    python docs/loan_simulation/reconcile.py --roll-rate-root C:/path/to/roll-rate-model
+
+也可以用环境变量 ROLL_RATE_MODEL_ROOT 指定 roll-rate-model repo。
+输出的 .xlsx 会写到本脚本同目录，并被该目录的 .gitignore 忽略。
+"""
+
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 from pathlib import Path
@@ -18,18 +39,78 @@ from quantbullet.loan_simulation import (
     LoanSimulator,
     MatrixPaymentPolicy,
     PortfolioSimulator,
+    StatusConfig,
     compute_period_metrics,
 )
 
-from synthetic_reconcile import (
-    STATUSES,
-    build_payment_matrix,
-    build_status_config,
-    build_transition_table,
-    loans_frame,
-    payment_matrix_frame,
-    transition_table_frame,
-)
+STATUSES = ["C", "D1M", "D2M", "D3M", "D4M", "PIF", "LIQ"]
+
+
+def build_status_config() -> StatusConfig:
+    return StatusConfig(
+        valid_statuses=set(STATUSES),
+        terminal_statuses={"PIF", "LIQ"},
+        prepay_statuses={"PIF"},
+        default_statuses={"LIQ"},
+        delinquency_buckets={
+            "D1M": "dq30_balance",
+            "D2M": "dq60_balance",
+            "D3M": "dq90_balance",
+            "D4M": "dq120_balance",
+        },
+    )
+
+
+def build_transition_table() -> dict[str, dict[str, float]]:
+    return {
+        "C": {"C": 0.62, "D1M": 0.10, "D2M": 0.00, "D3M": 0.00, "D4M": 0.00, "PIF": 0.18, "LIQ": 0.10},
+        "D1M": {"C": 0.24, "D1M": 0.36, "D2M": 0.18, "D3M": 0.00, "D4M": 0.00, "PIF": 0.06, "LIQ": 0.16},
+        "D2M": {"C": 0.12, "D1M": 0.18, "D2M": 0.34, "D3M": 0.14, "D4M": 0.00, "PIF": 0.04, "LIQ": 0.18},
+        "D3M": {"C": 0.08, "D1M": 0.08, "D2M": 0.18, "D3M": 0.34, "D4M": 0.12, "PIF": 0.03, "LIQ": 0.17},
+        "D4M": {"C": 0.05, "D1M": 0.05, "D2M": 0.05, "D3M": 0.15, "D4M": 0.38, "PIF": 0.02, "LIQ": 0.30},
+        "PIF": {"C": 0.00, "D1M": 0.00, "D2M": 0.00, "D3M": 0.00, "D4M": 0.00, "PIF": 1.00, "LIQ": 0.00},
+        "LIQ": {"C": 0.00, "D1M": 0.00, "D2M": 0.00, "D3M": 0.00, "D4M": 0.00, "PIF": 0.00, "LIQ": 1.00},
+    }
+
+
+def build_payment_matrix() -> dict[str, dict[str, int]]:
+    return {
+        "C": {"C": 1, "D1M": 0, "D2M": 0, "D3M": 0, "D4M": 0, "PIF": 0, "LIQ": 0},
+        "D1M": {"C": 2, "D1M": 1, "D2M": 0, "D3M": 0, "D4M": 0, "PIF": 0, "LIQ": 0},
+        "D2M": {"C": 3, "D1M": 2, "D2M": 1, "D3M": 0, "D4M": 0, "PIF": 0, "LIQ": 0},
+        "D3M": {"C": 4, "D1M": 3, "D2M": 2, "D3M": 1, "D4M": 0, "PIF": 0, "LIQ": 0},
+        "D4M": {"C": 5, "D1M": 4, "D2M": 3, "D3M": 2, "D4M": 1, "PIF": 0, "LIQ": 0},
+        "PIF": {"C": 0, "D1M": 0, "D2M": 0, "D3M": 0, "D4M": 0, "PIF": 0, "LIQ": 0},
+        "LIQ": {"C": 0, "D1M": 0, "D2M": 0, "D3M": 0, "D4M": 0, "PIF": 0, "LIQ": 0},
+    }
+
+
+def transition_table_frame(transition_table: dict[str, dict[str, float]]) -> pd.DataFrame:
+    return pd.DataFrame.from_dict(transition_table, orient="index")[STATUSES].reset_index(names="from_status")
+
+
+def payment_matrix_frame(payment_matrix: dict[str, dict[str, int]]) -> pd.DataFrame:
+    return pd.DataFrame.from_dict(payment_matrix, orient="index")[STATUSES].reset_index(names="from_status")
+
+
+def loans_frame(loans: list[Loan]) -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "loan_id": loan.loan_id,
+                "balance": loan.balance,
+                "original_balance": loan.original_balance,
+                "annual_rate": loan.annual_rate,
+                "term_months": loan.term_months,
+                "age_months": loan.age_months,
+                "remaining_term_months": loan.remaining_term_months,
+                "scheduled_monthly_payment": loan.scheduled_monthly_payment,
+                "status": loan.status,
+                **dict(loan.metadata),
+            }
+            for loan in loans
+        ]
+    )
 
 
 def build_tieout_loans(n_loans: int, seed: int) -> list[Loan]:
@@ -378,14 +459,30 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--roll-rate-root",
         type=Path,
-        default=Path(__file__).resolve().parents[3] / "jli" / "roll-rate-model",
+        default=None,
+        help="Path to the roll-rate-model repo. Can also use ROLL_RATE_MODEL_ROOT.",
     )
     parser.add_argument("--output", type=Path, default=Path(__file__).with_suffix(".xlsx"))
     return parser.parse_args()
 
 
+def _resolve_roll_rate_root(roll_rate_root: Path | None) -> Path:
+    if roll_rate_root is not None:
+        return roll_rate_root
+
+    env_value = os.environ.get("ROLL_RATE_MODEL_ROOT")
+    if env_value:
+        return Path(env_value)
+
+    raise SystemExit(
+        "roll-rate-model repo path is required. Provide --roll-rate-root "
+        "or set ROLL_RATE_MODEL_ROOT."
+    )
+
+
 def main() -> None:
     args = parse_args()
+    roll_rate_root = _resolve_roll_rate_root(args.roll_rate_root)
     loans = build_tieout_loans(args.n_loans, args.seed)
     horizon = max(loan.term_months for loan in loans)
 
@@ -402,7 +499,7 @@ def main() -> None:
         n_paths=args.n_paths,
         horizon=horizon,
         seed=args.seed,
-        roll_rate_root=args.roll_rate_root,
+        roll_rate_root=roll_rate_root,
     )
     our_rollrate_style_metrics = rollrate_style_cpr_from_our_paths(
         our_path_cashflows,
@@ -419,7 +516,7 @@ def main() -> None:
             {"key": "severity", "value": 1.0},
             {"key": "recovery_lag", "value": 0},
             {"key": "elapsed_seconds", "value": round(elapsed, 3)},
-            {"key": "roll_rate_root", "value": str(args.roll_rate_root)},
+            {"key": "roll_rate_root", "value": str(roll_rate_root)},
         ]
     )
 
