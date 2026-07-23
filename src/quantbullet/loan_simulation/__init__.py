@@ -1,6 +1,7 @@
 from .cashflow import CashflowEngine, CashflowResult, RecoveryEvent
 from .entities import Loan, LoanState, PeriodCashflow
 from .macro import DataFrameMacroFeatureProvider, MacroFeatureProvider
+from .metrics import compute_period_metrics
 from .payment import MatrixPaymentPolicy, PaymentPolicy
 from .recovery import (
     ConstantRecoveryLagProvider,
@@ -30,6 +31,7 @@ __all__ = [
     "ConstantSeverityProvider",
     "DataFrameMacroFeatureProvider",
     "DEFAULT_STATUS_CONFIG",
+    "compute_period_metrics",
     "Loan",
     "LoanSimulationResult",
     "LoanSimulator",

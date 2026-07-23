@@ -51,7 +51,7 @@ flowchart TD
 - `src/quantbullet/loan_simulation/recovery.py`: severity and recovery lag providers, starting with constants.
 - `src/quantbullet/loan_simulation/cashflow.py`: per-period fixed-rate loan accounting.
 - `src/quantbullet/loan_simulation/simulator.py`: seeded sequential Monte Carlo loan and portfolio simulation.
-- `src/quantbullet/loan_simulation/metrics.py`: portfolio and loan metric calculations.
+- `src/quantbullet/loan_simulation/metrics.py`: period-level prepayment, default, loss, recovery, and delinquency metrics.
 - `src/quantbullet/loan_simulation/__init__.py`: public API exports.
 - `tests/loan_simulation`: focused test coverage for the new package.
 
@@ -85,6 +85,10 @@ Macro features are looked up by calendar date rather than projection period. The
 `PeriodCashflow` is a begin-to-end period record. It stores begin/end status, begin/end balance, and begin/end loan age so reporting can distinguish the as-of state from the projected period outcome.
 
 The first-phase cashflow engine uses a simulation-start scheduled payment baseline. If `Loan.scheduled_payment` is provided, that amount is used. Otherwise, the baseline payment is calculated from the loan's current simulation-start balance over its remaining term. The engine does not automatically recast scheduled payment amounts after delinquency or partial prepayment. Recast behavior can be added later through an explicit amortization or payment policy.
+
+## Metrics Interface
+
+`compute_period_metrics(...)` consumes simulator cashflow DataFrames and computes SMM/CPR, MDR/CDR, period and cumulative loss, net loss, recovery, and delinquency rates. It can compute portfolio-level metrics by period or grouped metrics with additional grouping columns.
 
 ## Default Status Set
 
