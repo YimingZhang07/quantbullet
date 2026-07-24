@@ -21,6 +21,7 @@ Phase 1 主干已经完成：
 - lightweight `PathFeatureTracker`
 - period-level metrics
 - Excel portfolio example + synthetic reconciliation scripts
+- model-backed transition example
 - core cashflow tie-out against `roll-rate-model`
 - focused unit tests
 
@@ -120,7 +121,7 @@ Loan-level path average 的 denominator 固定为 total `n_paths`。提前 termi
 
 ## Validation
 
-`portfolio_example.py` 生成 5-loan demo workbook；`reconcile.py` 生成 synthetic portfolio，并用相同 loans、transition probabilities、payment matrix、seed、severity 和 recovery timing 对比本 framework 与 `roll-rate-model`。
+`portfolio_example.py` 生成 5-loan demo workbook；`model_backed_example.py` 展示 `CompositeTransitionModel` 如何接 callable prepay/delinquency/cure models；`reconcile.py` 生成 synthetic portfolio，并用相同 loans、transition probabilities、payment matrix、seed、severity 和 recovery timing 对比本 framework 与 `roll-rate-model`。
 
 ## Deferred
 
