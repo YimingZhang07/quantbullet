@@ -194,7 +194,8 @@ class MyMultinomialTransitionModel(TransitionModel):
 
 - **constant**: edge spec 直接写 float。
 - **乘法模型**: callable 内部算乘积。
-- **ML binary per-edge**: callable 包一层 `predict_proba`，返回单个概率。
+- **ML binary per-edge, probabilities already row-compatible**: 用 `CompositeTransitionModel`，callable 返回单个 probability，sum > 1 fail fast。
+- **ML binary per-edge, independently trained competing probabilities**: 用 `ProbabilitySoftmaxTransitionModel`，callable 返回 binary probability，内部转 odds 后和 stay 竞争。
 - **ML multinomial full-row**: 直接 subclass `TransitionModel`。
 - **GAM（roll-rate style logits）**: 后续 GAM adapter + softmax assembly，不进 v1。
 
@@ -233,12 +234,11 @@ class MyMultinomialTransitionModel(TransitionModel):
 
 验收标准：整个 Step 1-3 不改动 `CashflowEngine` / `LoanSimulator` 任何代码。
 
-### Step 4: GAM Adapter（deferred）
+### Step 4: Softmax Assembly + GAM Adapter
 
-等 Step 1-3 稳定后单独设计：
+softmax row assembly（multinomial logistic，stay 为 base category）已提前为独立一步，设计见 `softmax_transition_plan.md`。之后的 GAM adapter（deferred）只负责：
 
-- GAM coefficient table 解析。
-- softmax row assembly（multinomial logistic，stay 为 base category）。
+- GAM coefficient table 解析，生成 callable logits。
 - 和 roll-rate transition probabilities 的 tie-out。
 
 ## Deferred
