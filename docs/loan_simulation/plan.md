@@ -50,6 +50,7 @@ flowchart TD
 - `status.py`: status vocabulary 和 accounting meaning。`valid_statuses` 是唯一合法状态全集，不做 alias，例如 `C` 不自动等于 `CURRENT`。
 - `entities.py`: 核心 dataclasses。`LoanState.period=0` 是 as-of state；`PeriodCashflow.period=1` 是第一期 projected cashflow。
 - `transition.py`: transition probability layer。`predict(...)` 只返回 next-status probabilities，不抽样、不算 cashflow。
+- `model_transition.py`: model-backed transition layer。支持 direct probability edges、logit softmax edges、independent probability softmax edges。GAM 复用 `quantbullet.model.gam_replay.GAMReplayModel`，见 `gam_adapter_plan.md`。
 - `payment.py`: scheduled payment collection rule。第一版用 `MatrixPaymentPolicy`，按 `begin_status -> end_status` 决定收几期 scheduled installment。
 - `recovery.py`: severity 和 recovery lag provider。第一版有 constant provider，未来可以换 model provider。
 - `cashflow.py`: one loan / one path / one period 的 accounting engine。处理 normal payment、prepay、default/loss、recovery event、delinquency reporting。
