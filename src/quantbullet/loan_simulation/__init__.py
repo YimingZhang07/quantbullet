@@ -2,6 +2,7 @@ from .cashflow import CashflowEngine, CashflowResult, RecoveryEvent
 from .entities import Loan, LoanState, PeriodCashflow
 from .macro import DataFrameMacroFeatureProvider, MacroFeatureProvider
 from .metrics import compute_period_metrics
+from .model_transition import EdgeSpec, FeatureContext
 from .path_features import PathFeatureTracker
 from .payment import MatrixPaymentPolicy, PaymentPolicy
 from .recovery import (
@@ -32,6 +33,8 @@ __all__ = [
     "ConstantSeverityProvider",
     "DataFrameMacroFeatureProvider",
     "DEFAULT_STATUS_CONFIG",
+    "EdgeSpec",
+    "FeatureContext",
     "compute_period_metrics",
     "Loan",
     "LoanSimulationResult",
