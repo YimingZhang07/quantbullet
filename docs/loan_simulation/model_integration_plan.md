@@ -118,6 +118,67 @@ CompositeTransitionModel(
 - 校验每个概率在 [0, 1]、row sum <= 1，违反就报错并带 loan/period/probabilities 上下文。
 - `stay = 1 - sum(edge probabilities)`，返回完整概率行。
 
+### Concrete Usage Example
+
+下面是一个最小但真实的用法：`C -> PIF` 用 callable prepay model，`C -> D1M` 和 `C -> LIQ` 用 constants，剩余概率自动留在 `C`。
+
+```python
+from quantbullet.loan_simulation import (
+    CompositeTransitionModel,
+    FeatureContext,
+    StatusConfig,
+)
+
+
+status_config = StatusConfig(
+    valid_statuses={"C", "D1M", "PIF", "LIQ"},
+    terminal_statuses={"PIF", "LIQ"},
+    prepay_statuses={"PIF"},
+    default_statuses={"LIQ"},
+    delinquency_buckets={"D1M": "dq30_balance"},
+)
+
+
+def prepay_probability(context: FeatureContext) -> float:
+    # Example only: real models can use loan metadata, current state, macro,
+    # and path history however they want.
+    incentive = context.loan.annual_rate - context.macro_features["market_rate"]
+    return max(0.0, min(0.20 + 2.0 * incentive, 0.60))
+
+
+def cure_probability(context: FeatureContext) -> float:
+    if context.path_features["ever_delinquent"]:
+        return 0.30
+    return 0.15
+
+
+transition_model = CompositeTransitionModel(
+    edges={
+        "C": {
+            "PIF": prepay_probability,
+            "D1M": 0.03,
+            "LIQ": 0.005,
+        },
+        "D1M": {
+            "C": cure_probability,
+            "LIQ": 0.02,
+        },
+    },
+    status_config=status_config,
+)
+```
+
+如果本期 `C -> PIF` callable 返回 `0.25`，常数 `D1M=0.03`，`LIQ=0.005`，那么最终 row 是：
+
+```text
+PIF = 0.250
+D1M = 0.030
+LIQ = 0.005
+C   = 0.715  # residual stay
+```
+
+如果某个模型输出导致 row sum 超过 1，`CompositeTransitionModel.predict(...)` 会报错，不会 silent normalize。
+
 ### Full-Row Models（escape hatch）
 
 一个模型直接输出整行概率时（multinomial logistic、xgboost multi-class 等），不要拆成 edges，直接实现 `TransitionModel`：
