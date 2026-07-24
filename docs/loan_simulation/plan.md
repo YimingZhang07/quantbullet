@@ -28,7 +28,7 @@ Phase 1 主干已经完成：
 当前测试命令：
 
 ```powershell
-C:\GIT\quantbullet\.venv\Scripts\python.exe -m pytest tests/loan_simulation
+.\.venv\Scripts\python.exe -m pytest tests/loan_simulation
 ```
 
 ## Architecture
