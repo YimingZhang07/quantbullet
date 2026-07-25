@@ -21,7 +21,10 @@ from quantbullet.model.gam import (
     center_partial_dependence,
 )
 
-DEV_MODE = True
+# When enabled, tests keep inspectable artifacts (JSON payloads, comparison
+# PDF) in CACHE_DIR instead of using throwaway temp files. Off by default so
+# normal unit test runs leave nothing behind.
+DEV_MODE = os.environ.get("QB_TEST_DEV_ARTIFACTS", "") == "1"
 CACHE_DIR = "./tests/_cache_dir"
 
 
@@ -158,11 +161,12 @@ class TestReplayModel(unittest.TestCase):
         self.assertFalse(np.any(np.isinf(preds)))
 
     def test_json_roundtrip(self):
-        path = _cache_path("test_gam_pdep.json") if DEV_MODE else \
-            os.path.join(tempfile.mkdtemp(), "pdep.json")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = _cache_path("test_gam_pdep.json") if DEV_MODE else \
+                os.path.join(tmp_dir, "pdep.json")
 
-        self.wgam.export_partial_dependence_json(path)
-        replay = GAMReplayModel.from_partial_dependence_json(path)
+            self.wgam.export_partial_dependence_json(path)
+            replay = GAMReplayModel.from_partial_dependence_json(path)
         np.testing.assert_allclose(
             self.original_preds, replay.predict(self.data),
             rtol=0.01, atol=0.05,
@@ -215,11 +219,12 @@ class TestCentering(unittest.TestCase):
 
     def test_centered_json_roundtrip(self):
         """Centered JSON export -> load -> replay reproduces predictions."""
-        path = _cache_path("test_gam_pdep_centered.json") if DEV_MODE else \
-            os.path.join(tempfile.mkdtemp(), "pdep_centered.json")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = _cache_path("test_gam_pdep_centered.json") if DEV_MODE else \
+                os.path.join(tmp_dir, "pdep_centered.json")
 
-        self.wgam.export_partial_dependence_json(path, center=True)
-        replay = GAMReplayModel.from_partial_dependence_json(path)
+            self.wgam.export_partial_dependence_json(path, center=True)
+            replay = GAMReplayModel.from_partial_dependence_json(path)
         np.testing.assert_allclose(
             self.original_preds, replay.predict(self.data),
             rtol=0.01, atol=0.05,
@@ -270,31 +275,26 @@ class TestCentering(unittest.TestCase):
         val2 = self.wgam.centered_intercept_
         self.assertEqual(val1, val2)
 
-    # -- visual comparison (DEV_MODE only) ------------------------------------
+    # -- visual comparison ------------------------------------------------------
 
-    def test_centering_comparison_pdf(self):
-        """Generate PDF with raw vs centered partial dependence side-by-side."""
-        if not DEV_MODE:
-            self.skipTest("PDF comparison only in DEV_MODE")
-
-        pdf_path = _cache_path("centering_comparison.pdf")
-
-        with PdfPages(pdf_path) as pdf:
-            fig, _ = self.wgam.plot_partial_dependence(
-                center=False, suptitle="Raw Partial Dependence",
-                scale_y_axis=False,
-            )
-            fig.tight_layout(rect=[0, 0, 1, 0.95])
-            pdf.savefig(fig)
-            plt.close(fig)
-
-            fig, _ = self.wgam.plot_partial_dependence(
-                center=True, suptitle="Centered Partial Dependence",
-                scale_y_axis=False,
-            )
-            fig.tight_layout(rect=[0, 0, 1, 0.95])
-            pdf.savefig(fig)
-            plt.close(fig)
+    def test_centering_comparison_plots(self):
+        """Render raw vs centered partial dependence; save a PDF only in DEV_MODE."""
+        pdf = PdfPages(_cache_path("centering_comparison.pdf")) if DEV_MODE else None
+        try:
+            for center, title in [
+                (False, "Raw Partial Dependence"),
+                (True, "Centered Partial Dependence"),
+            ]:
+                fig, _ = self.wgam.plot_partial_dependence(
+                    center=center, suptitle=title, scale_y_axis=False,
+                )
+                fig.tight_layout(rect=[0, 0, 1, 0.95])
+                if pdf is not None:
+                    pdf.savefig(fig)
+                plt.close(fig)
+        finally:
+            if pdf is not None:
+                pdf.close()
 
 
 if __name__ == "__main__":
