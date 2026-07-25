@@ -1,0 +1,39 @@
+{
+  "name": "par_2025_1_generic_v4_prepped",
+  "deal_name": "PAR_2025_1",
+  "coefficient_set": "GENERIC_v4",
+  "loans_prepped_path": "input/deals/PAR_2025_1/loans_prepped.json",
+  "from_statuses": ["C", "D1M", "D2M", "D3M", "D4M"],
+  "runtime_feature_horizon": 12,
+  "status_to_roll": {
+    "C": ["C", "D1M", "D2M", "D3M", "D4M", "PIF", "LIQ"],
+    "D1M": ["D1M", "C", "D2M", "D3M", "D4M", "PIF", "LIQ"],
+    "D2M": ["D2M", "C", "D1M", "D3M", "D4M", "PIF", "LIQ"],
+    "D3M": ["D3M", "C", "D1M", "D2M", "D4M", "PIF", "LIQ"],
+    "D4M": ["D4M", "C", "D1M", "D2M", "D3M", "PIF", "LIQ"]
+  },
+  "terminal_statuses": ["PIF", "LIQ"],
+  "prepay_statuses": ["PIF"],
+  "default_statuses": ["LIQ"],
+  "delinquency_buckets": {
+    "D1M": "dq30_balance",
+    "D2M": "dq60_balance",
+    "D3M": "dq90_balance",
+    "D4M": "dq120_balance"
+  },
+  "derived_features": {
+    "days_to_month_end": {
+      "type": "days_to_month_end",
+      "date_field": "r_dt",
+      "payment_day_field": "pmt_day"
+    },
+    "month_group": {
+      "type": "month_group",
+      "source": "days_to_month_end",
+      "threshold": 28,
+      "lte_label": "30_Day",
+      "gt_label": "31_Day"
+    }
+  },
+  "output": "feature_inventory.xlsx"
+}
