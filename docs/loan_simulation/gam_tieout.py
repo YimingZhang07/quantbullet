@@ -1,6 +1,6 @@
 """Tie out roll-rate GAM coefficients against quantbullet replay.
 
-This script compares one roll-rate coefficient file at two levels:
+This script compares roll-rate coefficient files at two levels:
 
 1. raw edge logits from the parsed GAM terms; and
 2. the full stay-based softmax transition row.
@@ -36,7 +36,6 @@ from quantbullet.loan_simulation import Loan, SoftmaxTransitionModel, StatusConf
 from quantbullet.loan_simulation.adapters import parse_rollrate_coefficients
 
 
-DEFAULT_STATUSES = ["C", "D1M", "D2M", "D3M", "D4M", "PIF", "LIQ"]
 TERMINAL_STATUSES = {"PIF", "LIQ"}
 DELINQUENCY_BUCKETS = {
     "D1M": "dq30_balance",
@@ -242,20 +241,39 @@ def build_summary(
     logits: pd.DataFrame,
     probabilities: pd.DataFrame,
 ) -> pd.DataFrame:
-    return pd.DataFrame(
+    logit_summary = (
+        logits.groupby("from_status", as_index=False)
+        .agg(
+            logit_rows=("abs_logit_diff", "size"),
+            max_abs_logit_diff=("abs_logit_diff", "max"),
+        )
+    )
+    probability_summary = (
+        probabilities.groupby("from_status", as_index=False)
+        .agg(
+            probability_rows=("abs_probability_diff", "size"),
+            max_abs_probability_diff=("abs_probability_diff", "max"),
+        )
+    )
+    summary = logit_summary.merge(
+        probability_summary,
+        on="from_status",
+        how="outer",
+    )
+    overall = pd.DataFrame(
         [
-            {"metric": "logit_rows", "value": len(logits)},
             {
-                "metric": "max_abs_logit_diff",
-                "value": float(logits["abs_logit_diff"].max()),
-            },
-            {"metric": "probability_rows", "value": len(probabilities)},
-            {
-                "metric": "max_abs_probability_diff",
-                "value": float(probabilities["abs_probability_diff"].max()),
+                "from_status": "ALL",
+                "logit_rows": len(logits),
+                "max_abs_logit_diff": float(logits["abs_logit_diff"].max()),
+                "probability_rows": len(probabilities),
+                "max_abs_probability_diff": float(
+                    probabilities["abs_probability_diff"].max()
+                ),
             },
         ]
     )
+    return pd.concat([summary, overall], ignore_index=True)
 
 
 def write_excel(
@@ -340,7 +358,11 @@ def parse_args() -> argparse.Namespace:
         description="Compare roll-rate GAM logits and softmax rows to quantbullet."
     )
     parser.add_argument("--coef-set", default="GENERIC_v4")
-    parser.add_argument("--from-status", default="C")
+    parser.add_argument(
+        "--from-status",
+        default="ALL",
+        help="From-status to tie out, or ALL for every configured source status.",
+    )
     parser.add_argument("--n-loans", type=int, default=50)
     parser.add_argument("--seed", type=int, default=20260725)
     parser.add_argument(
@@ -367,44 +389,74 @@ def _resolve_roll_rate_root(roll_rate_root: Path | None) -> Path:
     )
 
 
+def _resolve_from_statuses(
+    from_status: str,
+    status_to_roll: dict[str, list[str]],
+) -> list[str]:
+    if from_status.upper() == "ALL":
+        return list(status_to_roll)
+    if from_status not in status_to_roll:
+        raise ValueError(
+            f"Unknown from_status {from_status!r}; expected ALL or one of "
+            f"{sorted(status_to_roll)}"
+        )
+    return [from_status]
+
+
 def main() -> None:
     args = parse_args()
     start = time.perf_counter()
     roll_rate_root = _resolve_roll_rate_root(args.roll_rate_root)
-    coef_path, status_to_roll, rollrate_models, rollrate_dm = load_rollrate_references(
-        roll_rate_root,
-        coef_set=args.coef_set,
-        from_status=args.from_status,
-    )
-    quantbullet_models = parse_rollrate_coefficients(coef_path)
-    quantbullet_transition_model = build_quantbullet_model(
-        quantbullet_models,
-        from_status=args.from_status,
-        status_to_roll=status_to_roll,
-    )
+    status_to_roll = _load_status_to_roll(roll_rate_root)
+    from_statuses = _resolve_from_statuses(args.from_status, status_to_roll)
     feature_rows = build_feature_rows(args.n_loans, args.seed)
     features = pd.DataFrame(feature_rows)
-    logits = compare_logits(
-        feature_rows,
-        from_status=args.from_status,
-        rollrate_models=rollrate_models,
-        quantbullet_models=quantbullet_models,
-    )
-    probabilities = compare_probabilities(
-        feature_rows,
-        from_status=args.from_status,
-        status_to_roll=status_to_roll,
-        rollrate_dm=rollrate_dm,
-        quantbullet_model=quantbullet_transition_model,
-    )
+    logit_frames = []
+    probability_frames = []
+    coef_paths = []
+    for from_status in from_statuses:
+        coef_path, status_to_roll, rollrate_models, rollrate_dm = (
+            load_rollrate_references(
+                roll_rate_root,
+                coef_set=args.coef_set,
+                from_status=from_status,
+            )
+        )
+        coef_paths.append(str(coef_path))
+        quantbullet_models = parse_rollrate_coefficients(coef_path)
+        quantbullet_transition_model = build_quantbullet_model(
+            quantbullet_models,
+            from_status=from_status,
+            status_to_roll=status_to_roll,
+        )
+        logit_frames.append(
+            compare_logits(
+                feature_rows,
+                from_status=from_status,
+                rollrate_models=rollrate_models,
+                quantbullet_models=quantbullet_models,
+            )
+        )
+        probability_frames.append(
+            compare_probabilities(
+                feature_rows,
+                from_status=from_status,
+                status_to_roll=status_to_roll,
+                rollrate_dm=rollrate_dm,
+                quantbullet_model=quantbullet_transition_model,
+            )
+        )
+
+    logits = pd.concat(logit_frames, ignore_index=True)
+    probabilities = pd.concat(probability_frames, ignore_index=True)
     summary = build_summary(logits, probabilities)
     elapsed = time.perf_counter() - start
     run_config = pd.DataFrame(
         [
             {"key": "roll_rate_root", "value": str(roll_rate_root)},
-            {"key": "coef_path", "value": str(coef_path)},
+            {"key": "coef_paths", "value": "; ".join(coef_paths)},
             {"key": "coef_set", "value": args.coef_set},
-            {"key": "from_status", "value": args.from_status},
+            {"key": "from_statuses", "value": ", ".join(from_statuses)},
             {"key": "n_loans", "value": args.n_loans},
             {"key": "seed", "value": args.seed},
             {"key": "elapsed_seconds", "value": round(elapsed, 3)},
