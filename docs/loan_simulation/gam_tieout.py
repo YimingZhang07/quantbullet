@@ -32,8 +32,11 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from quantbullet.loan_simulation import Loan, SoftmaxTransitionModel, StatusConfig
-from quantbullet.loan_simulation.adapters import parse_rollrate_coefficients
+from quantbullet.loan_simulation import Loan, StatusConfig
+from quantbullet.loan_simulation.adapters import (
+    build_softmax_transition_model,
+    parse_rollrate_coefficients,
+)
 
 
 TERMINAL_STATUSES = {"PIF", "LIQ"}
@@ -113,27 +116,13 @@ def build_feature_rows(n_loans: int, seed: int) -> list[dict[str, Any]]:
     return rows
 
 
-def build_quantbullet_model(
-    edge_models: dict[str, Any],
-    *,
-    from_status: str,
-    status_to_roll: dict[str, list[str]],
-) -> SoftmaxTransitionModel:
+def build_status_config(status_to_roll: dict[str, list[str]]) -> StatusConfig:
     valid_statuses = set(status_to_roll)
     for row_statuses in status_to_roll.values():
         valid_statuses.update(row_statuses)
 
     terminal_statuses = valid_statuses & TERMINAL_STATUSES
-    logits = {
-        status: {}
-        for status in valid_statuses
-        if status not in terminal_statuses
-    }
-    logits[from_status] = {
-        to_status: _edge_logit_callable(edge_model)
-        for to_status, edge_model in edge_models.items()
-    }
-    status_config = StatusConfig(
+    return StatusConfig(
         valid_statuses=valid_statuses,
         terminal_statuses=terminal_statuses,
         prepay_statuses={"PIF"} & terminal_statuses,
@@ -144,15 +133,10 @@ def build_quantbullet_model(
             if status in valid_statuses
         },
     )
-    return SoftmaxTransitionModel(logits=logits, status_config=status_config)
 
 
-def _edge_logit_callable(edge_model):
-    def edge_logit(context):
-        features = pd.DataFrame([dict(context.loan.metadata)])
-        return float(edge_model.predict(features)[0])
-
-    return edge_logit
+def build_feature_dict(context) -> dict[str, Any]:
+    return dict(context.loan.metadata)
 
 
 def compare_logits(
@@ -190,7 +174,7 @@ def compare_probabilities(
     from_status: str,
     status_to_roll: dict[str, list[str]],
     rollrate_dm: SimpleNamespace,
-    quantbullet_model: SoftmaxTransitionModel,
+    quantbullet_model,
 ) -> pd.DataFrame:
     roll_to = status_to_roll[from_status]
     rows = []
@@ -424,10 +408,10 @@ def main() -> None:
         )
         coef_paths.append(str(coef_path))
         quantbullet_models = parse_rollrate_coefficients(coef_path)
-        quantbullet_transition_model = build_quantbullet_model(
-            quantbullet_models,
-            from_status=from_status,
-            status_to_roll=status_to_roll,
+        quantbullet_transition_model = build_softmax_transition_model(
+            {from_status: quantbullet_models},
+            feature_builder=build_feature_dict,
+            status_config=build_status_config(status_to_roll),
         )
         logit_frames.append(
             compare_logits(
