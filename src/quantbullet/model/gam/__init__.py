@@ -14,5 +14,5 @@ from .utils import (
     load_partial_dependence_json,
     center_partial_dependence,
 )
-from .wrapper import WrapperGAM
 from .plot import plot_tensor, plot_partial_dependence
+from .wrapper import WrapperGAM

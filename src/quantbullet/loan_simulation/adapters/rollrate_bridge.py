@@ -3,19 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import pandas as pd
 
+from quantbullet.model.gam_replay import GAMReplayModel
 from quantbullet.loan_simulation.model_transition import (
     FeatureContext,
     LogitSpec,
     SoftmaxTransitionModel,
 )
 from quantbullet.loan_simulation.status import StatusConfig
-
-if TYPE_CHECKING:
-    from quantbullet.model.gam_replay import GAMReplayModel
 
 
 FeatureBuilder = Callable[[FeatureContext], Mapping[str, Any]]
@@ -26,10 +24,6 @@ def replay_model_logit(
     feature_builder: FeatureBuilder,
 ) -> LogitSpec:
     """Wrap a GAM replay edge model as a ``FeatureContext -> logit`` callable."""
-    # Keep GAM imports local: importing the adapters namespace must not require
-    # optional GAM fitting dependencies. Same convention as rollrate_gam.py.
-    from quantbullet.model.gam_replay import GAMReplayModel
-
     if not isinstance(edge_model, GAMReplayModel):
         raise TypeError(
             "edge_model must be a quantbullet.model.gam_replay.GAMReplayModel"

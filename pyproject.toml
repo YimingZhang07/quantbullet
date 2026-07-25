@@ -32,6 +32,7 @@ statsmodels = "^0.14"
 xgboost = "^2.0"
 seaborn = "^0.13"
 optuna = "^3.4"
+pygam = {version = "^0.12.0", python = ">=3.10,<3.15"}
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"
