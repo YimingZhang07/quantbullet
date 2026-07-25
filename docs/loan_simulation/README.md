@@ -22,6 +22,10 @@
 - `gam_adapter_plan.md`: 设计 roll-rate coefficient TSV 到 `GAMReplayModel` / callable logits 的 adapter。
 - `gam_tieout.py`: transition-level tie-out，比较真实 coefficients 的 raw logits 和 softmax probabilities。
 
+## Phase 5: Run-Level Model Adapter
+
+- `run_level_model_adapter_plan.md`: 设计 run-level layout，让不同 dataset、coefficient set、feature builder 各自独立，不 hardcode 进 core infra。
+
 ## Running Scripts
 
 ```powershell
