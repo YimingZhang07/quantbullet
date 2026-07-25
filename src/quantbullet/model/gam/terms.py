@@ -17,6 +17,8 @@ def _term_key_from_data(data: "GAMTermData") -> Union[str, Tuple[str, str]]:
         return data.feature
     if isinstance(data, SplineByGroupTermData):
         return (data.feature, data.by_feature)
+    if isinstance(data, SplineByNumericTermData):
+        return (data.feature, data.multiplier_feature)
     if isinstance(data, TensorTermData):
         return (data.feature_x, data.feature_y)
     raise ValueError(f"Unknown term data type: {type(data)}")
@@ -125,6 +127,8 @@ class GAMTermData:
             return SplineTermData.from_dict(data)
         if term_type == "spline_by_category":
             return SplineByGroupTermData.from_dict(data)
+        if term_type == "spline_by_numeric":
+            return SplineByNumericTermData.from_dict(data)
         if term_type == "tensor":
             return TensorTermData.from_dict(data)
         if term_type == "factor":
@@ -140,6 +144,7 @@ class SplineTermData(GAMTermData):
     y: np.ndarray = None
     conf_lower: np.ndarray = None
     conf_upper: np.ndarray = None
+    interpolation: str = "pchip"
     term_type: str = "spline"
 
     @classmethod
@@ -150,6 +155,7 @@ class SplineTermData(GAMTermData):
             y=_maybe_array(data.get("y")),
             conf_lower=_maybe_array(data.get("conf_lower")),
             conf_upper=_maybe_array(data.get("conf_upper")),
+            interpolation=data.get("interpolation", "pchip"),
             term_type=data.get("term_type", "spline"),
         )
 
@@ -161,6 +167,7 @@ class SplineByGroupTermData(GAMTermData):
     by_feature: str = ""
     # map group_label -> {'x': np.ndarray, 'y': np.ndarray, 'conf_lower': np.ndarray, 'conf_upper': np.ndarray}
     group_curves: Dict[str, Dict[str, np.ndarray]] = None
+    interpolation: str = "pchip"
     term_type: str = "spline_by_category"
 
     @classmethod
@@ -175,7 +182,34 @@ class SplineByGroupTermData(GAMTermData):
             feature=data.get("feature", ""),
             by_feature=data.get("by_feature", ""),
             group_curves=group_curves,
+            interpolation=data.get("interpolation", "pchip"),
             term_type=data.get("term_type", "spline_by_category"),
+        )
+
+
+@dataclass
+class SplineByNumericTermData(GAMTermData):
+    """Data for a spline term multiplied by a numeric feature."""
+    feature: str = ""
+    multiplier_feature: str = ""
+    x: np.ndarray = None
+    y: np.ndarray = None
+    conf_lower: np.ndarray = None
+    conf_upper: np.ndarray = None
+    interpolation: str = "pchip"
+    term_type: str = "spline_by_numeric"
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "SplineByNumericTermData":
+        return cls(
+            feature=data.get("feature", ""),
+            multiplier_feature=data.get("multiplier_feature", ""),
+            x=_maybe_array(data.get("x")),
+            y=_maybe_array(data.get("y")),
+            conf_lower=_maybe_array(data.get("conf_lower")),
+            conf_upper=_maybe_array(data.get("conf_upper")),
+            interpolation=data.get("interpolation", "pchip"),
+            term_type=data.get("term_type", "spline_by_numeric"),
         )
 
 

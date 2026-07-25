@@ -3,18 +3,45 @@ import pandas as pd
 from scipy.interpolate import RegularGridInterpolator
 from typing import Dict, Union, Tuple, List, Optional, Any
 
-from quantbullet.model.gam import (
+from quantbullet.model.gam.plot import plot_partial_dependence as _plot_partial_dependence
+from quantbullet.model.gam.terms import (
     GAMTermData, 
     SplineTermData, 
     SplineByGroupTermData, 
+    SplineByNumericTermData,
     TensorTermData, 
     FactorTermData,
-    load_partial_dependence_json,
     format_term_name,
-    parse_term_name,
-    plot_partial_dependence as _plot_partial_dependence,
 )
+from quantbullet.model.gam.utils import load_partial_dependence_json
 from quantbullet.model.smooth_fit import make_monotone_predictor_pchip
+
+
+def _build_1d_predictor(
+    x: np.ndarray,
+    y: np.ndarray,
+    *,
+    interpolation: str,
+):
+    """Build a flat-extrapolating 1D predictor for a replayed smooth term."""
+    if interpolation == "pchip":
+        return make_monotone_predictor_pchip(x, y, extrapolate="flat")
+    if interpolation == "linear":
+        x_values = np.asarray(x, dtype=float)
+        y_values = np.asarray(y, dtype=float)
+        if x_values.ndim != 1 or y_values.ndim != 1 or len(x_values) != len(y_values):
+            raise ValueError(
+                "Linear spline data must contain equally sized 1D x and y arrays"
+            )
+        if len(x_values) == 0 or np.any(np.diff(x_values) <= 0):
+            raise ValueError("Linear spline x values must be strictly increasing")
+
+        def predictor(x_new):
+            return np.interp(np.asarray(x_new, dtype=float), x_values, y_values)
+
+        return predictor
+    raise ValueError(f"Unsupported spline interpolation method: {interpolation!r}")
+
 
 class GAMReplayModel:
     """
@@ -111,12 +138,10 @@ class GAMReplayModel:
             # Spline Term
             # ----------------------------
             if isinstance(data, SplineTermData):
-                # Use make_monotone_predictor_pchip for 1D interpolation
-                # It handles extrapolation (defaults to flat)
-                self._predictors[key] = make_monotone_predictor_pchip(
-                    data.x, 
-                    data.y, 
-                    extrapolate='flat'
+                self._predictors[key] = _build_1d_predictor(
+                    data.x,
+                    data.y,
+                    interpolation=data.interpolation,
                 )
 
             # ----------------------------
@@ -126,12 +151,22 @@ class GAMReplayModel:
                 # Create a dictionary of interpolators, one for each group
                 group_preds = {}
                 for group_label, curves in data.group_curves.items():
-                    group_preds[group_label] = make_monotone_predictor_pchip(
-                        curves['x'], 
-                        curves['y'], 
-                        extrapolate='flat'
+                    group_preds[group_label] = _build_1d_predictor(
+                        curves["x"],
+                        curves["y"],
+                        interpolation=data.interpolation,
                     )
                 self._predictors[key] = group_preds
+
+            # ----------------------------
+            # Spline By Numeric Multiplier Term
+            # ----------------------------
+            elif isinstance(data, SplineByNumericTermData):
+                self._predictors[key] = _build_1d_predictor(
+                    data.x,
+                    data.y,
+                    interpolation=data.interpolation,
+                )
 
             # ----------------------------
             # Tensor Term
@@ -195,6 +230,13 @@ class GAMReplayModel:
                 return format_term_name("s", data.feature, 
                                         by_feature=data.by_feature, by_level=group_label)
             return format_term_name("s", data.feature)
+        elif isinstance(data, SplineByNumericTermData):
+            return format_term_name(
+                "s",
+                data.feature,
+                by_feature="by",
+                by_level=data.multiplier_feature,
+            )
         elif isinstance(data, TensorTermData):
             return format_term_name("te", data.feature_x, feature2=data.feature_y)
         elif isinstance(data, FactorTermData):
@@ -278,6 +320,26 @@ class GAMReplayModel:
                         contrib[mask] = group_func(x_vals[mask])
                         
                     term_contribs[term_col_name] = contrib
+
+            # ----------------------------
+            # Spline By Numeric Multiplier Term
+            # ----------------------------
+            elif isinstance(data, SplineByNumericTermData):
+                feat_name = data.feature
+                multiplier_name = data.multiplier_feature
+                if feat_name not in X.columns or multiplier_name not in X.columns:
+                    raise ValueError(
+                        f"Features '{feat_name}' or '{multiplier_name}' missing from input DataFrame."
+                    )
+
+                x_vals = X[feat_name].values
+                try:
+                    multipliers = X[multiplier_name].astype(float).values
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(
+                        f"Multiplier feature '{multiplier_name}' must be numeric."
+                    ) from exc
+                term_contribs[col_name] = predictor(x_vals) * multipliers
 
             # ----------------------------
             # Tensor Term

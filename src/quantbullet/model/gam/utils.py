@@ -106,6 +106,7 @@ def center_partial_dependence(
                 y=td.y - offset,
                 conf_lower=td.conf_lower - offset if td.conf_lower is not None else None,
                 conf_upper=td.conf_upper - offset if td.conf_upper is not None else None,
+                interpolation=td.interpolation,
             )
             intercept_offset += offset
 
@@ -165,6 +166,7 @@ def center_partial_dependence(
                 feature=td.feature,
                 by_feature=td.by_feature,
                 group_curves=new_curves,
+                interpolation=td.interpolation,
             )
 
         else:

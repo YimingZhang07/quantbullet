@@ -2,6 +2,7 @@ from .terms import (
     GAMTermData,
     SplineTermData,
     SplineByGroupTermData,
+    SplineByNumericTermData,
     TensorTermData,
     FactorTermData,
     format_term_name,
