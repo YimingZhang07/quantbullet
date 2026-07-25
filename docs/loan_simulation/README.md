@@ -1,50 +1,34 @@
 # Loan Simulation Docs
 
-这个目录放 loan simulation framework 的设计说明、demo scripts 和 tie-out scripts。当前目录暂时保持平铺；先用这个 README 按用途分组，避免在重构仍在推进时频繁移动脚本路径。
+这个目录按 development 阶段放设计说明、demo scripts 和 tie-out scripts。每个阶段先看 plan，再看对应的可运行脚本或验证脚本。
 
-## Recommended Reading Order
+## Phase 1: Core Simulator
 
-1. `plan.md`: Phase 1 framework 总览，记录状态语义、cashflow engine、simulator、metrics 和当前设计边界。
-2. `portfolio_example.py`: 最小端到端 demo，使用固定 transition table 跑 portfolio cashflow 和 metrics。
-3. `model_backed_example.py`: 模型接入 demo，展示 callable edge probability 如何通过 `FeatureContext` 读取 loan、state、macro 和 path features。
-4. `softmax_transition_plan.md`: 当前 softmax transition API 的设计说明，解释 logit softmax 和 independent-probability odds softmax 的区别。
-5. `gam_adapter_plan.md`: roll-rate / GAM coefficient adapter 的设计路线。
+- `plan.md`: 第一阶段总览，定义 `Loan` / `LoanState` / cashflow engine / simulator / metrics 的边界。
+- `portfolio_example.py`: 最小 portfolio demo，使用固定 transition table 跑 cashflows 和 metrics。
+- `reconcile.py`: cashflow-level tie-out，用固定 assumptions 对比本 framework 和 `roll-rate-model`。
 
-## Demo Scripts
+## Phase 2: Model-Backed Direct Probabilities
 
-- `portfolio_example.py`: 基础 demo。核心链路是 `ConstantTransitionModel + MatrixPaymentPolicy + CashflowEngine + LoanSimulator + PortfolioSimulator + compute_period_metrics`。
-- `model_backed_example.py`: 模型接入 demo。核心链路是 `CompositeTransitionModel + callable edge models + macro/path features`。
+- `model_integration_plan.md`: 设计 `FeatureContext` 和 `CompositeTransitionModel`，让 callable edge models 输出 direct probabilities。
+- `model_backed_example.py`: direct-probability model demo，展示 edge callable 如何读取 loan、state、macro 和 path features。
 
-Run from repo root:
+## Phase 3: Softmax Transition Assembly
+
+- `softmax_transition_plan.md`: 设计 `SoftmaxTransitionModel` 和 `ProbabilitySoftmaxTransitionModel`，区分 logits、direct probabilities 和 independent binary probabilities。
+
+## Phase 4: GAM Adapter
+
+- `gam_adapter_plan.md`: 设计 roll-rate coefficient TSV 到 `GAMReplayModel` / callable logits 的 adapter。
+- `gam_tieout.py`: transition-level tie-out，比较真实 coefficients 的 raw logits 和 softmax probabilities。
+
+## Running Scripts
 
 ```powershell
 .\.venv\Scripts\python.exe docs\loan_simulation\portfolio_example.py
 .\.venv\Scripts\python.exe docs\loan_simulation\model_backed_example.py
-```
-
-## Tie-Out Scripts
-
-- `gam_tieout.py`: GAM coefficient / transition row tie-out。读取 `roll-rate-model` 的真实 coefficient TSV，比较本 framework 的 `parse_rollrate_coefficients + SoftmaxTransitionModel` 与 roll-rate Python reference 的 raw logits 和 softmax probabilities。这个脚本只验证 transition math，不跑 cashflow simulation。
-- `reconcile.py`: cashflow / metrics tie-out。用 synthetic loans、固定 transition table、payment matrix、seed、severity 和 recovery timing 对比本 framework 与 `roll-rate-model` 的 cashflows/metrics。这个脚本刻意绕过 GAM model。
-
-Run from repo root:
-
-```powershell
 .\.venv\Scripts\python.exe docs\loan_simulation\gam_tieout.py --roll-rate-root C:\path\to\roll-rate-model
 .\.venv\Scripts\python.exe docs\loan_simulation\reconcile.py --roll-rate-root C:\path\to\roll-rate-model
 ```
 
-`ROLL_RATE_MODEL_ROOT` can be used instead of `--roll-rate-root`.
-
-## Design Notes
-
-- `model_integration_plan.md`: `CompositeTransitionModel`、`FeatureContext` 和 direct-probability edge assembly 的设计记录。
-- `softmax_transition_plan.md`: `SoftmaxTransitionModel` / `ProbabilitySoftmaxTransitionModel` 的设计记录。
-- `gam_adapter_plan.md`: GAM replay / roll-rate coefficient adapter 的设计记录。
-- `plan.md`: 总览和长期 backlog。
-
-Some files still use "plan" wording because they were written while the framework was being built. Treat the source code and focused tests as the current behavior, and use these notes for rationale and next-step context.
-
-## Generated Outputs
-
-Scripts in this directory may write `.xlsx` workbooks next to themselves. Those generated files stay local and are intentionally ignored by `.gitignore`.
+`ROLL_RATE_MODEL_ROOT` can be used instead of `--roll-rate-root`. Generated `.xlsx` workbooks stay local and are ignored by `.gitignore`.
