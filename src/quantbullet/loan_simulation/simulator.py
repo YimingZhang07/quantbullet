@@ -44,32 +44,31 @@ class PortfolioSimulationResult:
         return pd.concat(frames, ignore_index=True)
 
     def loan_cashflows(self) -> pd.DataFrame:
-        frame = self.path_cashflows()
-        if frame.empty:
-            return frame
-        numeric_cols = [
-            column
-            for column in _numeric_cashflow_columns(frame)
-            if column != "original_balance"
-        ]
-        loan_paths = {
-            result.loan.loan_id: result.n_paths
-            for result in self.loan_results
-        }
-        original_balances = {
-            result.loan.loan_id: result.loan.original_balance
-            for result in self.loan_results
-        }
-        grouped = (
-            frame.groupby(["loan_id", "period", "period_date"], as_index=False)[numeric_cols]
-            .sum()
-            .sort_values(["loan_id", "period"])
-            .reset_index(drop=True)
-        )
-        path_counts = grouped["loan_id"].map(loan_paths)
-        grouped[numeric_cols] = grouped[numeric_cols].div(path_counts, axis=0)
-        grouped["original_balance"] = grouped["loan_id"].map(original_balances)
-        return grouped
+        frames = []
+        for result in self.loan_results:
+            frame = result.to_frame()
+            if frame.empty:
+                continue
+            numeric_cols = [
+                column
+                for column in _numeric_cashflow_columns(frame)
+                if column != "original_balance"
+            ]
+            grouped = (
+                frame.groupby(
+                    ["loan_id", "period", "period_date"],
+                    as_index=False,
+                )[numeric_cols]
+                .sum()
+                .sort_values(["loan_id", "period"])
+                .reset_index(drop=True)
+            )
+            grouped[numeric_cols] = grouped[numeric_cols].div(result.n_paths)
+            grouped["original_balance"] = result.loan.original_balance
+            frames.append(grouped)
+        if not frames:
+            return pd.DataFrame()
+        return pd.concat(frames, ignore_index=True)
 
     def portfolio_cashflows(self) -> pd.DataFrame:
         frame = self.loan_cashflows()

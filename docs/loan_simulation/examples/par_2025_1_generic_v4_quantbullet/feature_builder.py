@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import calendar
-from typing import Any
+from typing import Any, Mapping
 
 from quantbullet.loan_simulation import RuntimeFeatureProvider
 
@@ -24,8 +24,8 @@ MONTHS = [
 ]
 
 
-def build_feature_dict(context) -> dict[str, Any]:
-    return dict(context.model_features)
+def build_feature_dict(context) -> Mapping[str, Any]:
+    return context.model_features
 
 
 class GenericV4FeatureProvider(RuntimeFeatureProvider):
