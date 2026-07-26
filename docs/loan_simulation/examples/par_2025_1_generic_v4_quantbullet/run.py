@@ -184,7 +184,7 @@ def main() -> None:
         result,
         args.output,
         include_loan_cashflows=False,
-        include_path_cashflows=False,
+        include_path_cashflows=True,
     )
     portfolio_metrics = frames["portfolio_metrics"]
     print(portfolio_metrics[["period", "cpr", "cdr", "cumulative_loss_rate"]].to_string(index=False))
