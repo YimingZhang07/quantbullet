@@ -7,7 +7,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from feature_builder import build_feature_dict, init_runtime_feature_state
+from feature_builder import (
+    GenericV4FeatureProvider,
+    build_feature_dict,
+)
 from quantbullet.loan_simulation import (
     CashflowEngine,
     ConstantRecoveryLagProvider,
@@ -67,12 +70,14 @@ class RollToOrderedTransitionModel:
         current_state,
         macro_features=None,
         path_features=None,
+        model_features=None,
     ):
         probabilities = self.base_model.predict(
             loan,
             current_state,
             macro_features=macro_features,
             path_features=path_features,
+            model_features=model_features,
         )
         roll_to = self.status_to_roll.get(current_state.status)
         if roll_to is None:
@@ -134,21 +139,20 @@ def load_prepped_loans() -> list[dict[str, Any]]:
 def build_loans() -> list[Loan]:
     loans = []
     for feature_row in load_prepped_loans():
-        enriched = init_runtime_feature_state(feature_row)
-        balance = float(enriched["end_bal"])
+        balance = float(feature_row["end_bal"])
         if balance <= 0.1:
             continue
-        annual_rate = float(enriched.get("int_rate", enriched["note_rate"]))
+        annual_rate = float(feature_row.get("int_rate", feature_row["note_rate"]))
         loans.append(
             Loan(
-                loan_id=str(enriched["loan_id"]),
+                loan_id=str(feature_row["loan_id"]),
                 balance=balance,
                 annual_rate=annual_rate,
-                term_months=int(enriched["term"]),
-                original_balance=float(enriched["orig_bal"]),
-                age_months=int(enriched.get("loan_age", enriched.get("age", 0))),
-                status=str(enriched["status"]),
-                metadata=enriched,
+                term_months=int(feature_row["term"]),
+                original_balance=float(feature_row["orig_bal"]),
+                age_months=int(feature_row.get("loan_age", feature_row.get("age", 0))),
+                status=str(feature_row["status"]),
+                metadata=feature_row,
             )
         )
     return loans
@@ -173,6 +177,7 @@ def main() -> None:
         n_paths=N_PATHS,
         seed=SEED,
         start_date=START_DATE,
+        runtime_feature_provider=GenericV4FeatureProvider(),
     )
     result = PortfolioSimulator(loan_simulator).simulate(loans)
     frames = write_simulation_workbook(

@@ -10,6 +10,7 @@ from .cashflow import CashflowEngine, RecoveryEvent
 from .entities import Loan, LoanState, PeriodCashflow
 from .macro import MacroFeatureProvider
 from .path_features import PathFeatureTracker
+from .runtime_features import EmptyRuntimeFeatureProvider, RuntimeFeatureProvider
 from .transition import TransitionModel, sample_next_status
 
 
@@ -97,6 +98,7 @@ class LoanSimulator:
         start_date: Any,
         frequency: str = "M",
         macro_provider: MacroFeatureProvider | None = None,
+        runtime_feature_provider: RuntimeFeatureProvider | None = None,
     ) -> None:
         if horizon <= 0:
             raise ValueError("horizon must be positive")
@@ -111,6 +113,9 @@ class LoanSimulator:
         self.start_period = pd.Period(start_date, freq=frequency)
         self.frequency = frequency
         self.macro_provider = macro_provider
+        self.runtime_feature_provider = (
+            runtime_feature_provider or EmptyRuntimeFeatureProvider()
+        )
 
     def simulate_loan(self, loan: Loan) -> LoanSimulationResult:
         cashflows: list[PeriodCashflow] = []
@@ -133,6 +138,10 @@ class LoanSimulator:
     ) -> list[PeriodCashflow]:
         state = loan.initial_state()
         path_feature_tracker = PathFeatureTracker()
+        runtime_feature_state = self.runtime_feature_provider.initialize_path_state(
+            loan,
+            self.start_period,
+        )
         pending_recoveries: dict[int, list[RecoveryEvent]] = {}
         cashflows: list[PeriodCashflow] = []
 
@@ -143,11 +152,20 @@ class LoanSimulator:
             if period <= self.horizon and state.is_active(self.cashflow_engine.status_config):
                 macro_features = self._macro_features_for_period(period)
                 path_features = path_feature_tracker.features()
+                model_features = self.runtime_feature_provider.model_features_for_period(
+                    loan=loan,
+                    current_state=state,
+                    period_date=self.start_period + period,
+                    macro_features=macro_features,
+                    path_features=path_features,
+                    feature_state=runtime_feature_state,
+                )
                 probabilities = self.transition_model.predict(
                     loan,
                     state,
                     macro_features=macro_features,
                     path_features=path_features,
+                    model_features=model_features,
                 )
                 end_status = sample_next_status(probabilities, rng)
                 result = self.cashflow_engine.project_period(
@@ -173,6 +191,11 @@ class LoanSimulator:
                     cashflow = _add_recoveries(cashflow, due_recoveries)
                 cashflows.append(cashflow)
                 path_feature_tracker.update(cashflow, self.cashflow_engine.status_config)
+                self.runtime_feature_provider.advance_path_state(
+                    feature_state=runtime_feature_state,
+                    cashflow=cashflow,
+                    next_state=result.next_state,
+                )
                 state = result.next_state
             elif due_recoveries:
                 cashflows.append(

@@ -13,6 +13,7 @@ from quantbullet.loan_simulation import (
     PeriodCashflow,
     PortfolioSimulationResult,
     PortfolioSimulator,
+    RuntimeFeatureProvider,
     StatusConfig,
     TransitionModel,
 )
@@ -55,6 +56,7 @@ def test_loan_simulator_passes_macro_features_by_calendar_month():
             current_state,
             macro_features=None,
             path_features=None,
+            model_features=None,
         ):
             self.hpi_values.append(macro_features["hpi"])
             return {"C": 1.0}
@@ -221,6 +223,7 @@ def test_loan_simulator_passes_updated_path_features_to_next_period():
             current_state,
             macro_features=None,
             path_features=None,
+            model_features=None,
         ):
             self.path_features_by_call.append(dict(path_features))
             if current_state.period == 0:
@@ -260,3 +263,73 @@ def test_loan_simulator_passes_updated_path_features_to_next_period():
         "consecutive_delinquent_months": 1,
         "times_delinquent": 1,
     }
+
+
+def test_loan_simulator_passes_runtime_model_features_and_updates_provider():
+    """Runtime feature providers own per-path model feature lifecycle."""
+    class RecordingRuntimeFeatureProvider(RuntimeFeatureProvider):
+        def __init__(self):
+            self.updates = []
+
+        def initialize_path_state(self, loan, start_period):
+            return {"start_period": str(start_period)}
+
+        def model_features_for_period(
+            self,
+            *,
+            loan,
+            current_state,
+            period_date,
+            macro_features,
+            path_features,
+            feature_state,
+        ):
+            return {
+                "current_period": current_state.period,
+                "period_date": str(period_date),
+                "start_period": feature_state["start_period"],
+            }
+
+        def advance_path_state(self, *, feature_state, cashflow, next_state):
+            self.updates.append((cashflow.period, next_state.period))
+
+    class RecordingTransitionModel(TransitionModel):
+        def __init__(self):
+            self.model_features_by_call = []
+
+        def predict(
+            self,
+            loan,
+            current_state,
+            macro_features=None,
+            path_features=None,
+            model_features=None,
+        ):
+            self.model_features_by_call.append(dict(model_features))
+            return {"C": 1.0}
+
+    provider = RecordingRuntimeFeatureProvider()
+    model = RecordingTransitionModel()
+    simulator = LoanSimulator(
+        model,
+        _cashflow_engine(),
+        horizon=2,
+        start_date="2026-01-31",
+        runtime_feature_provider=provider,
+    )
+
+    simulator.simulate_loan(Loan("L1", 1200.0, 0.12, 12, status="C"))
+
+    assert model.model_features_by_call == [
+        {
+            "current_period": 0,
+            "period_date": "2026-02",
+            "start_period": "2026-01",
+        },
+        {
+            "current_period": 1,
+            "period_date": "2026-03",
+            "start_period": "2026-01",
+        },
+    ]
+    assert provider.updates == [(1, 1), (2, 2)]

@@ -19,6 +19,7 @@ class FeatureContext:
     current_state: LoanState
     macro_features: Mapping[str, Any] = field(default_factory=dict)
     path_features: Mapping[str, Any] = field(default_factory=dict)
+    model_features: Mapping[str, Any] = field(default_factory=dict)
 
 
 EdgeSpec = float | Callable[[FeatureContext], float]
@@ -64,6 +65,7 @@ class CompositeTransitionModel(TransitionModel):
         current_state: LoanState,
         macro_features: Mapping[str, Any] | None = None,
         path_features: Mapping[str, Any] | None = None,
+        model_features: Mapping[str, Any] | None = None,
     ) -> Mapping[str, float]:
         from_status = self.status_config.require_valid_status(current_state.status)
         if self.status_config.is_terminal(from_status):
@@ -74,6 +76,7 @@ class CompositeTransitionModel(TransitionModel):
             current_state=current_state,
             macro_features=macro_features or {},
             path_features=path_features or {},
+            model_features=model_features or {},
         )
         probabilities: dict[str, float] = {}
         for to_status, edge in self._edges[from_status].items():
@@ -136,6 +139,7 @@ class SoftmaxTransitionModel(TransitionModel):
         current_state: LoanState,
         macro_features: Mapping[str, Any] | None = None,
         path_features: Mapping[str, Any] | None = None,
+        model_features: Mapping[str, Any] | None = None,
     ) -> Mapping[str, float]:
         from_status = self.status_config.require_valid_status(current_state.status)
         if self.status_config.is_terminal(from_status):
@@ -146,6 +150,7 @@ class SoftmaxTransitionModel(TransitionModel):
             current_state=current_state,
             macro_features=macro_features or {},
             path_features=path_features or {},
+            model_features=model_features or {},
         )
         scores: dict[str, float] = {}
         for to_status, logit in self._logits[from_status].items():
@@ -205,6 +210,7 @@ class ProbabilitySoftmaxTransitionModel(TransitionModel):
         current_state: LoanState,
         macro_features: Mapping[str, Any] | None = None,
         path_features: Mapping[str, Any] | None = None,
+        model_features: Mapping[str, Any] | None = None,
     ) -> Mapping[str, float]:
         from_status = self.status_config.require_valid_status(current_state.status)
         if self.status_config.is_terminal(from_status):
@@ -215,6 +221,7 @@ class ProbabilitySoftmaxTransitionModel(TransitionModel):
             current_state=current_state,
             macro_features=macro_features or {},
             path_features=path_features or {},
+            model_features=model_features or {},
         )
         odds: dict[str, float] = {}
         for to_status, probability_spec in self._probabilities[from_status].items():

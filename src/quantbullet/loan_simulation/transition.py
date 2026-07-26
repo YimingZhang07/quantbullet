@@ -19,6 +19,7 @@ class TransitionModel(ABC):
         current_state: LoanState,
         macro_features: Mapping[str, Any] | None = None,
         path_features: Mapping[str, Any] | None = None,
+        model_features: Mapping[str, Any] | None = None,
     ) -> Mapping[str, float]:
         """Return next-status probabilities for one loan path.
 
@@ -56,6 +57,7 @@ class ConstantTransitionModel(TransitionModel):
         current_state: LoanState,
         macro_features: Mapping[str, Any] | None = None,
         path_features: Mapping[str, Any] | None = None,
+        model_features: Mapping[str, Any] | None = None,
     ) -> Mapping[str, float]:
         current_status = self.status_config.require_valid_status(current_state.status)
         probabilities = self._transitions.get(current_status)

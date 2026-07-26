@@ -20,6 +20,7 @@ from .recovery import (
     SeverityProvider,
 )
 from .reporting import simulation_result_frames, write_simulation_workbook
+from .runtime_features import EmptyRuntimeFeatureProvider, RuntimeFeatureProvider
 from .simulator import (
     LoanSimulationResult,
     LoanSimulator,
@@ -44,6 +45,7 @@ __all__ = [
     "DataFrameMacroFeatureProvider",
     "DEFAULT_STATUS_CONFIG",
     "EdgeSpec",
+    "EmptyRuntimeFeatureProvider",
     "FeatureContext",
     "LogitSpec",
     "SoftmaxTransitionModel",
@@ -62,6 +64,7 @@ __all__ = [
     "PeriodCashflow",
     "RecoveryLagProvider",
     "RecoveryEvent",
+    "RuntimeFeatureProvider",
     "SeverityProvider",
     "PortfolioSimulationResult",
     "PortfolioSimulator",

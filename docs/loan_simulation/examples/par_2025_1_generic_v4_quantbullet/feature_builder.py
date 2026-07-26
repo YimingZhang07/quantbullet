@@ -5,6 +5,8 @@ from __future__ import annotations
 import calendar
 from typing import Any
 
+from quantbullet.loan_simulation import RuntimeFeatureProvider
+
 
 MONTHS = [
     "January",
@@ -22,52 +24,59 @@ MONTHS = [
 ]
 
 
-def enrich_feature_row(feature_row: dict[str, Any]) -> dict[str, Any]:
-    enriched = dict(feature_row)
-    enriched["days_to_month_end"] = derive_days_to_month_end(enriched)
-    enriched["month_group"] = derive_month_group(enriched["days_to_month_end"])
-    return enriched
-
-
-def init_runtime_feature_state(feature_row: dict[str, Any]) -> dict[str, Any]:
-    state = enrich_feature_row(feature_row)
-    start_year, start_month = _parse_year_month(state["r_dt"])
-    state["_start_year"] = start_year
-    state["_start_month"] = start_month
-    return state
-
-
-def step_runtime_features(
-    feature_state: dict[str, Any],
-    *,
-    next_period: int,
-) -> dict[str, Any]:
-    updated = dict(feature_state)
-    updated["loan_age"] = int(updated.get("loan_age", 0)) + 1
-    updated["age"] = updated["loan_age"]
-    term = float(updated.get("term", 1))
-    updated["age_pct"] = float(updated["loan_age"]) / term if term != 0 else 0.0
-    updated["c_age_pct"] = updated["age_pct"]
-
-    year, month = _advance_month(
-        int(updated["_start_year"]),
-        int(updated["_start_month"]),
-        next_period,
-    )
-    updated["r_dt"] = _end_of_month(year, month)
-    updated["month"] = MONTHS[month - 1]
-    updated["days_to_month_end"] = derive_days_to_month_end(updated)
-    updated["month_group"] = derive_month_group(updated["days_to_month_end"])
-    return updated
-
-
 def build_feature_dict(context) -> dict[str, Any]:
-    state = init_runtime_feature_state(dict(context.loan.metadata))
-    for period in range(1, context.current_state.period + 1):
-        state = step_runtime_features(state, next_period=period)
-    state["status"] = context.current_state.status
-    state["end_bal"] = context.current_state.balance
-    return state
+    return dict(context.model_features)
+
+
+class GenericV4FeatureProvider(RuntimeFeatureProvider):
+    """Per-path runtime features for this GENERIC_v4 prepared-loan demo."""
+
+    def initialize_path_state(self, loan, start_period):
+        feature_state = dict(loan.metadata)
+        feature_state["days_to_month_end"] = derive_days_to_month_end(feature_state)
+        feature_state["month_group"] = derive_month_group(
+            feature_state["days_to_month_end"]
+        )
+        start_year, start_month = _parse_year_month(feature_state["r_dt"])
+        feature_state["_start_year"] = start_year
+        feature_state["_start_month"] = start_month
+        return feature_state
+
+    def model_features_for_period(
+        self,
+        *,
+        loan,
+        current_state,
+        period_date,
+        macro_features,
+        path_features,
+        feature_state,
+    ):
+        features = dict(feature_state)
+        features["status"] = current_state.status
+        features["end_bal"] = current_state.balance
+        return features
+
+    def advance_path_state(self, *, feature_state, cashflow, next_state):
+        feature_state["loan_age"] = int(feature_state.get("loan_age", 0)) + 1
+        feature_state["age"] = feature_state["loan_age"]
+        term = float(feature_state.get("term", 1))
+        feature_state["age_pct"] = (
+            float(feature_state["loan_age"]) / term if term != 0 else 0.0
+        )
+        feature_state["c_age_pct"] = feature_state["age_pct"]
+
+        year, month = _advance_month(
+            int(feature_state["_start_year"]),
+            int(feature_state["_start_month"]),
+            next_state.period,
+        )
+        feature_state["r_dt"] = _end_of_month(year, month)
+        feature_state["month"] = MONTHS[month - 1]
+        feature_state["days_to_month_end"] = derive_days_to_month_end(feature_state)
+        feature_state["month_group"] = derive_month_group(
+            feature_state["days_to_month_end"]
+        )
 
 
 def derive_days_to_month_end(features: dict[str, Any]) -> int:
