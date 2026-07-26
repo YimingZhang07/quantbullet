@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import calendar
+import csv
 import json
 import os
 import sys
@@ -23,6 +25,7 @@ FROM_STATUSES = ["C", "D1M", "D2M", "D3M", "D4M"]
 HORIZON = 12
 N_PATHS = 100
 SEED = 20260725
+MACRO_FEATURES = {"cpi_inflator_12", "cpi_inflator_36", "rate_incentive_ALL"}
 
 STATUS_TO_ROLL = {
     "C": ["C", "D1M", "D2M", "D3M", "D4M", "PIF", "LIQ"],
@@ -45,7 +48,25 @@ def load_prepped_loans(roll_rate_root: Path) -> list[dict[str, Any]]:
         loans = json.load(file)
     if not isinstance(loans, list):
         raise ValueError(f"Expected a list of loans in {LOANS_PREPPED_PATH}")
-    return loans
+    return [enrich_initial_features(loan) for loan in loans]
+
+
+def enrich_initial_features(loan: dict[str, Any]) -> dict[str, Any]:
+    enriched = dict(loan)
+    enriched["days_to_month_end"] = derive_days_to_month_end(enriched)
+    enriched["month_group"] = derive_month_group(enriched["days_to_month_end"])
+    return enriched
+
+
+def derive_days_to_month_end(features: dict[str, Any]) -> int:
+    year, month = parse_year_month(features["r_dt"])
+    payment_day = int(features.get("pmt_day", 15))
+    days_in_month = calendar.monthrange(year, month)[1]
+    return days_in_month - min(payment_day, days_in_month)
+
+
+def derive_month_group(days_to_month_end: int) -> str:
+    return "30_Day" if days_to_month_end <= 28 else "31_Day"
 
 
 def load_payment_matrix(roll_rate_root: Path) -> dict[str, dict[str, int]]:
@@ -76,7 +97,8 @@ def build_data_manager(roll_rate_root: Path, horizon: int):
         for from_status in FROM_STATUSES
     }
     models = build_all_models(coef_by_from)
-    classify_model_terms(models, _get_registry().time_varying_names())
+    dynamic_vars = _get_registry().time_varying_names() | set(MACRO_FEATURES)
+    classify_model_terms(models, dynamic_vars)
 
     payment_matrix = load_payment_matrix(roll_rate_root)
     pmt_matrix_to_from = {
@@ -102,8 +124,81 @@ def build_data_manager(roll_rate_root: Path, horizon: int):
         prob_layout={},
         dial_data={},
     )
+    dm._macro_state = build_macro_state(roll_rate_root)
     dm._transition_layout = _build_transition_layout(dm)
     return dm
+
+
+def build_macro_state(roll_rate_root: Path) -> dict[str, Any]:
+    macro_root = roll_rate_root / "input" / "macro"
+    cpi_lookup = load_cpi_lookup(macro_root / "CPIAUCNS.csv")
+    return {
+        "active_vars": set(MACRO_FEATURES),
+        "calendar_vars": {"cpi_inflator_12", "cpi_inflator_36"},
+        "calendar_table": build_cpi_inflator_table(cpi_lookup),
+        "fico_coupon": load_fico_coupon_lookup(macro_root / "FICO_BKT_COUPON.csv"),
+    }
+
+
+def build_cpi_inflator_table(cpi_lookup: dict[str, float]) -> dict[str, dict[str, float]]:
+    table = {}
+    for ym, cpi_now in cpi_lookup.items():
+        row = {}
+        cpi_12 = cpi_lookup.get(offset_year_month(ym, -12))
+        cpi_36 = cpi_lookup.get(offset_year_month(ym, -36))
+        if cpi_12 is not None and cpi_12 > 0:
+            row["cpi_inflator_12"] = round(float(cpi_now) / float(cpi_12) - 1.0, 4)
+        if cpi_36 is not None and cpi_36 > 0:
+            row["cpi_inflator_36"] = round(float(cpi_now) / float(cpi_36) - 1.0, 4)
+        if row:
+            table[ym] = row
+    return table
+
+
+def load_cpi_lookup(path: Path) -> dict[str, float]:
+    lookup = {}
+    with path.open("r", encoding="utf-8", newline="") as file:
+        reader = csv.DictReader(file)
+        for row in reader:
+            lookup[date_to_ym(row["DATE"])] = float(row["CPIAUCNS"])
+    return lookup
+
+
+def load_fico_coupon_lookup(path: Path) -> dict[str, float]:
+    lookup = {}
+    with path.open("r", encoding="utf-8", newline="") as file:
+        reader = csv.DictReader(file)
+        for row in reader:
+            lookup[f"{row['vint_moyy']}|{row['fico_bkt']}"] = float(
+                row["fico_bkt_coupon"]
+            )
+    return lookup
+
+
+def parse_year_month(date_value: Any) -> tuple[int, int]:
+    ym = date_to_ym(date_value)
+    if not ym:
+        raise ValueError(f"Cannot parse year-month from {date_value!r}")
+    return int(ym[:4]), int(ym[5:7])
+
+
+def date_to_ym(date_value: Any) -> str:
+    if date_value is None:
+        return ""
+    text = str(date_value).strip()
+    if not text:
+        return ""
+    if "/" in text:
+        parts = text.split("/")
+        if len(parts) >= 3:
+            return f"{int(parts[2]):04d}-{int(parts[0]):02d}"
+    return text[:7]
+
+
+def offset_year_month(ym: str, months: int) -> str:
+    year, month = int(ym[:4]), int(ym[5:7])
+    total = year * 12 + (month - 1) + months
+    return f"{total // 12:04d}-{total % 12 + 1:02d}"
 
 
 def run_rollrate(

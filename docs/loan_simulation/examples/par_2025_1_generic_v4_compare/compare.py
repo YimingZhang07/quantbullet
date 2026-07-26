@@ -21,6 +21,33 @@ ROLLRATE_WORKBOOK = (
 )
 OUTPUT_PATH = EXAMPLE_DIR / "comparison.xlsx"
 
+ASSUMPTIONS = [
+    {
+        "assumption": "input_starting_point",
+        "value": "Starts from roll-rate loans_prepped data, not raw deal tape.",
+    },
+    {
+        "assumption": "coefficient_set",
+        "value": "Uses GENERIC_v4 coefficient TSV files.",
+    },
+    {
+        "assumption": "macro_overrides",
+        "value": "Enabled for GENERIC_v4 runtime features via independently implemented CPI and FICO-coupon projection semantics.",
+    },
+    {
+        "assumption": "dials_overlays",
+        "value": "Disabled.",
+    },
+    {
+        "assumption": "runtime_features",
+        "value": "Age/date/month/days_to_month_end/month_group and macro model features are rolled independently on each side.",
+    },
+    {
+        "assumption": "cpr",
+        "value": "Comparison uses roll-rate-style CPR reconstructed from QuantBullet PIF event balances; official QuantBullet CPR remains in quantbullet_metrics.",
+    },
+]
+
 
 def load_workbooks(
     quantbullet_workbook: Path,
@@ -79,6 +106,54 @@ def compare_cashflows(
         diff[f"{field}_diff"] = diff[f"quantbullet_{field}"] - diff[f"rollrate_{field}"]
         diff[f"abs_{field}_diff"] = diff[f"{field}_diff"].abs()
     return diff
+
+
+def compare_status_counts(
+    quantbullet_path_cashflows: pd.DataFrame,
+    rollrate_cashflows: pd.DataFrame,
+) -> pd.DataFrame:
+    n_paths = quantbullet_path_cashflows["path_id"].nunique()
+    qb_counts = (
+        quantbullet_path_cashflows.groupby(["period", "end_status"], as_index=False)
+        .size()
+        .pivot(index="period", columns="end_status", values="size")
+        .fillna(0.0)
+        .div(n_paths)
+        .reset_index()
+    )
+    qb_counts = qb_counts.rename(
+        columns={status: f"quantbullet_count_{status}" for status in qb_counts.columns if status != "period"}
+    )
+
+    rr = rollrate_cashflows.copy()
+    rr_counts = pd.DataFrame({"period": rr["period"]})
+    rr_counts["rollrate_count_PIF"] = rr.get("pif_cnt", 0.0)
+    rr_counts["rollrate_count_LIQ"] = rr.get("liq_cnt", 0.0)
+    rr_counts["rollrate_count_D1M"] = rr.get("dq30", 0.0)
+    rr_counts["rollrate_count_D2M"] = rr.get("dq60", 0.0)
+    rr_counts["rollrate_count_D3M"] = rr.get("dq90", 0.0)
+    rr_counts["rollrate_count_D4M"] = rr.get("dq120", 0.0)
+    non_current = [
+        "rollrate_count_PIF",
+        "rollrate_count_LIQ",
+        "rollrate_count_D1M",
+        "rollrate_count_D2M",
+        "rollrate_count_D3M",
+        "rollrate_count_D4M",
+    ]
+    rr_counts["rollrate_count_C"] = rr["cnt"] - rr_counts[non_current].sum(axis=1)
+
+    diff = qb_counts.merge(rr_counts, on="period", how="outer").fillna(0.0)
+    for status in ["C", "D1M", "D2M", "D3M", "D4M", "PIF", "LIQ"]:
+        q_col = f"quantbullet_count_{status}"
+        r_col = f"rollrate_count_{status}"
+        if q_col not in diff:
+            diff[q_col] = 0.0
+        if r_col not in diff:
+            diff[r_col] = 0.0
+        diff[f"{status}_count_diff"] = diff[q_col] - diff[r_col]
+        diff[f"abs_{status}_count_diff"] = diff[f"{status}_count_diff"].abs()
+    return diff.sort_values("period").reset_index(drop=True)
 
 
 def rollrate_style_cpr_from_quantbullet_paths(
@@ -149,6 +224,7 @@ def compare_metrics(
 def build_summary(
     metric_diff: pd.DataFrame,
     cashflow_diff: pd.DataFrame,
+    status_count_diff: pd.DataFrame,
 ) -> pd.DataFrame:
     rows = []
     for field in ["cpr", "cdr", "cgl"]:
@@ -173,6 +249,22 @@ def build_summary(
         )
     rows.append(
         {
+            "metric": "max_abs_status_count_diff",
+            "value": float(
+                status_count_diff[
+                    [
+                        column
+                        for column in status_count_diff.columns
+                        if column.startswith("abs_") and column.endswith("_count_diff")
+                    ]
+                ]
+                .max()
+                .max()
+            ),
+        }
+    )
+    rows.append(
+        {
             "metric": "cpr_note",
             "value": "CPR diff uses QuantBullet PIF event balance from path_cashflows with roll-rate scheduled-principal denominator; official CPR is preserved as quantbullet_official_cpr.",
         }
@@ -186,6 +278,7 @@ def write_excel(
     summary: pd.DataFrame,
     metric_diff: pd.DataFrame,
     cashflow_diff: pd.DataFrame,
+    status_count_diff: pd.DataFrame,
     quantbullet_metrics: pd.DataFrame,
     rollrate_metrics: pd.DataFrame,
     quantbullet_cashflows: pd.DataFrame,
@@ -193,7 +286,13 @@ def write_excel(
 ) -> None:
     with pd.ExcelWriter(output_path) as writer:
         summary.to_excel(writer, sheet_name="summary", index=False)
+        pd.DataFrame(ASSUMPTIONS).to_excel(
+            writer,
+            sheet_name="assumptions",
+            index=False,
+        )
         metric_diff.to_excel(writer, sheet_name="metric_diff", index=False)
+        status_count_diff.to_excel(writer, sheet_name="status_count_diff", index=False)
         cashflow_diff.to_excel(writer, sheet_name="cashflow_diff", index=False)
         quantbullet_metrics.to_excel(writer, sheet_name="quantbullet_metrics", index=False)
         rollrate_metrics.to_excel(writer, sheet_name="rollrate_metrics", index=False)
@@ -225,12 +324,17 @@ def main() -> None:
         rollrate_cashflows,
     )
     cashflow_diff = compare_cashflows(quantbullet_cashflows, rollrate_cashflows)
-    summary = build_summary(metric_diff, cashflow_diff)
+    status_count_diff = compare_status_counts(
+        quantbullet_path_cashflows,
+        rollrate_cashflows,
+    )
+    summary = build_summary(metric_diff, cashflow_diff, status_count_diff)
     write_excel(
         args.output,
         summary=summary,
         metric_diff=metric_diff,
         cashflow_diff=cashflow_diff,
+        status_count_diff=status_count_diff,
         quantbullet_metrics=quantbullet_metrics,
         rollrate_metrics=rollrate_metrics,
         quantbullet_cashflows=quantbullet_cashflows,

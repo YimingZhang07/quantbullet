@@ -177,7 +177,9 @@ def main() -> None:
         n_paths=N_PATHS,
         seed=SEED,
         start_date=START_DATE,
-        runtime_feature_provider=GenericV4FeatureProvider(),
+        runtime_feature_provider=GenericV4FeatureProvider.from_input_dir(
+            EXAMPLE_DIR / "input"
+        ),
     )
     result = PortfolioSimulator(loan_simulator).simulate(loans)
     frames = write_simulation_workbook(

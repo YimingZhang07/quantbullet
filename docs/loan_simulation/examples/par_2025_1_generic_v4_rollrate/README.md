@@ -1,6 +1,6 @@
 # PAR_2025_1 + GENERIC_v4 Roll-Rate Run
 
-这个 example 只运行 roll-rate-model reference，不 import QuantBullet code。
+这个 example 运行 roll-rate-model reference，并在本 example 内构造 deterministic GENERIC_v4 macro inputs。
 
 This example is not self-contained. It requires `--roll-rate-root` pointing to a local `roll-rate-model` checkout; inputs and roll-rate Python code are read from that checkout.
 
@@ -9,6 +9,9 @@ It uses:
 - `PAR_2025_1/loans_prepped.json`
 - `GENERIC_v4` coefficient TSV files
 - roll-rate `run_cf_one`
+- independent CPI / FICO coupon runtime feature semantics matched to the QuantBullet example
+
+The roll-rate Python runner is treated as a reference harness, but obvious Python-only quirks such as slash-date slicing and object-id carry-forward are normalized for this controlled tie-out.
 
 ## Run
 
