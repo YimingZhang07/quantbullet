@@ -19,6 +19,7 @@ from .recovery import (
     RecoveryLagProvider,
     SeverityProvider,
 )
+from .reporting import simulation_result_frames, write_simulation_workbook
 from .simulator import (
     LoanSimulationResult,
     LoanSimulator,
@@ -68,4 +69,6 @@ __all__ = [
     "TransitionModel",
     "normalize_status",
     "sample_next_status",
+    "simulation_result_frames",
+    "write_simulation_workbook",
 ]

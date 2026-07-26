@@ -269,7 +269,7 @@ def run_benchmark(
         roll_rate_root / "input" / "coef" / config["coefficient_set"]
     )
     raw_loans = load_prepped_loans(roll_rate_root / config["loans_prepped_path"])
-    enriched_loans = enrich_feature_rows(raw_loans, config)
+    enriched_loans = enrich_feature_rows(raw_loans)
     edge_models = load_edge_models(
         coefficient_root,
         from_statuses=list(config["from_statuses"]),

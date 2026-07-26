@@ -1,4 +1,4 @@
-"""Run-level feature enrichment for PAR_2025_1 + GENERIC_v4."""
+"""Feature builder for the PAR_2025_1 + GENERIC_v4 QuantBullet demo."""
 
 from __future__ import annotations
 
@@ -22,13 +22,6 @@ MONTHS = [
 ]
 
 
-def enrich_feature_rows(
-    feature_rows: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Return enriched feature rows without mutating the prepared loan inputs."""
-    return [enrich_feature_row(row) for row in feature_rows]
-
-
 def enrich_feature_row(feature_row: dict[str, Any]) -> dict[str, Any]:
     enriched = dict(feature_row)
     enriched["days_to_month_end"] = derive_days_to_month_end(enriched)
@@ -36,15 +29,7 @@ def enrich_feature_row(feature_row: dict[str, Any]) -> dict[str, Any]:
     return enriched
 
 
-def build_feature_dict(context) -> dict[str, Any]:
-    """Map FeatureContext to the enriched feature row stored on Loan.metadata."""
-    return dict(context.loan.metadata)
-
-
-def init_runtime_feature_state(
-    feature_row: dict[str, Any],
-) -> dict[str, Any]:
-    """Initialize per-path runtime feature state for the prepared feature row."""
+def init_runtime_feature_state(feature_row: dict[str, Any]) -> dict[str, Any]:
     state = enrich_feature_row(feature_row)
     start_year, start_month = _parse_year_month(state["r_dt"])
     state["_start_year"] = start_year
@@ -57,9 +42,7 @@ def step_runtime_features(
     *,
     next_period: int,
 ) -> dict[str, Any]:
-    """Advance the run-level dynamic features after a period is evaluated."""
     updated = dict(feature_state)
-
     updated["loan_age"] = int(updated.get("loan_age", 0)) + 1
     updated["age"] = updated["loan_age"]
     term = float(updated.get("term", 1))
@@ -73,16 +56,22 @@ def step_runtime_features(
     )
     updated["r_dt"] = _end_of_month(year, month)
     updated["month"] = MONTHS[month - 1]
-
     updated["days_to_month_end"] = derive_days_to_month_end(updated)
     updated["month_group"] = derive_month_group(updated["days_to_month_end"])
-
     return updated
 
 
+def build_feature_dict(context) -> dict[str, Any]:
+    state = init_runtime_feature_state(dict(context.loan.metadata))
+    for period in range(1, context.current_state.period + 1):
+        state = step_runtime_features(state, next_period=period)
+    state["status"] = context.current_state.status
+    state["end_bal"] = context.current_state.balance
+    return state
+
+
 def derive_days_to_month_end(features: dict[str, Any]) -> int:
-    date_value = features.get("r_dt")
-    year, month = _parse_year_month(date_value)
+    year, month = _parse_year_month(features["r_dt"])
     payment_day = int(features.get("pmt_day", 15))
     days_in_month = calendar.monthrange(year, month)[1]
     return days_in_month - min(payment_day, days_in_month)
@@ -95,8 +84,6 @@ def derive_month_group(days_to_month_end: int) -> str:
 
 
 def _parse_year_month(date_value: Any) -> tuple[int, int]:
-    if date_value is None:
-        raise ValueError("date_value is required")
     text = str(date_value).strip()
     if "/" in text:
         parts = text.split("/")

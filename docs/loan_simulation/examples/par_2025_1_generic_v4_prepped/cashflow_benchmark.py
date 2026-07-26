@@ -65,9 +65,9 @@ def _status_universe(status_to_roll: dict[str, list[str]]) -> set[str]:
 
 def build_feature_builder(config: dict[str, Any]):
     def build_feature_dict(context):
-        state = init_runtime_feature_state(dict(context.loan.metadata), config)
+        state = init_runtime_feature_state(dict(context.loan.metadata))
         for period in range(1, context.current_state.period + 1):
-            state = step_runtime_features(state, next_period=period, config=config)
+            state = step_runtime_features(state, next_period=period)
         state["status"] = context.current_state.status
         state["end_bal"] = context.current_state.balance
         return state
@@ -509,7 +509,7 @@ def main() -> None:
         roll_rate_root / config["loans_prepped_path"]
     )
     prepped_loans = prepped_loans[: args.max_loans]
-    enriched_loans = [init_runtime_feature_state(loan, config) for loan in prepped_loans]
+    enriched_loans = [init_runtime_feature_state(loan) for loan in prepped_loans]
     quantbullet_loans = to_quantbullet_loans(enriched_loans)
 
     quantbullet_path_cashflows, quantbullet_cashflows = run_quantbullet_cashflows(

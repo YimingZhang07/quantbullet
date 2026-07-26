@@ -247,7 +247,7 @@ def main() -> None:
         roll_rate_root / "input" / "coef" / config["coefficient_set"]
     )
     raw_loans = load_prepped_loans(roll_rate_root / config["loans_prepped_path"])
-    loans = enrich_feature_rows(raw_loans, config)
+    loans = enrich_feature_rows(raw_loans)
     usage = coefficient_feature_usage(
         coefficient_root,
         from_statuses=list(config["from_statuses"]),

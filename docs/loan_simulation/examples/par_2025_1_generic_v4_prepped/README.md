@@ -5,7 +5,7 @@
 ## Current Scope
 
 - `feature_inventory.py`: 比较真实 coefficient files 的 required features 和 `PAR_2025_1/loans_prepped.json` 的 available fields。
-- `feature_builder.py`: run-level enrichment，按 `config.json` 补 `days_to_month_end` 和 `month_group`。
+- `feature_builder.py`: run-level enrichment，补 `days_to_month_end` 和 `month_group`，feature semantics 留在这个 example 里。
 - `runtime_feature_tieout.py`: multi-period feature update tie-out，对比本 example 的 runtime updater 和 roll-rate registry。
 - `period1_transition.py`: period-1 transition benchmark，对比 quantbullet 和 roll-rate 的 logits / softmax probabilities。
 - `cashflow_benchmark.py`: small Monte Carlo cashflow benchmark，对比 quantbullet 和 roll-rate 的 averaged portfolio cashflows。

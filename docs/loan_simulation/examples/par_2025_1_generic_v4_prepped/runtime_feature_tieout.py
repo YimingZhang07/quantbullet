@@ -52,17 +52,16 @@ def compare_runtime_features(
 
     rows = []
     for loan in loans:
-        our_state = init_runtime_feature_state(loan, config)
+        our_state = init_runtime_feature_state(loan)
         rollrate_state = dict(loan)
         init_time_varying_state(rollrate_state)
-        rollrate_state = init_runtime_feature_state(rollrate_state, config)
+        rollrate_state = init_runtime_feature_state(rollrate_state)
 
         rows.extend(_comparison_rows(loan["loan_id"], 0, our_state, rollrate_state))
         for period in range(1, horizon + 1):
             our_state = step_runtime_features(
                 our_state,
                 next_period=period,
-                config=config,
             )
             step_period_fields(rollrate_state, period)
             rows.extend(

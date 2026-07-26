@@ -21,19 +21,5 @@
     "D3M": "dq90_balance",
     "D4M": "dq120_balance"
   },
-  "derived_features": {
-    "days_to_month_end": {
-      "type": "days_to_month_end",
-      "date_field": "r_dt",
-      "payment_day_field": "pmt_day"
-    },
-    "month_group": {
-      "type": "month_group",
-      "source": "days_to_month_end",
-      "threshold": 28,
-      "lte_label": "30_Day",
-      "gt_label": "31_Day"
-    }
-  },
   "output": "feature_inventory.xlsx"
 }
