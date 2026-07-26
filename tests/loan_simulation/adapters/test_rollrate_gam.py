@@ -59,6 +59,25 @@ def test_parse_rollrate_coefficients_replays_supported_term_shapes(tmp_path):
     assert replay.predict(features) == pytest.approx([17.5, 26.0])
 
 
+def test_rollrate_replay_predict_one_matches_dataframe_predict(tmp_path):
+    """Scalar dict replay matches the DataFrame API used outside hot loops."""
+    replay = parse_rollrate_coefficients(
+        _write_coefficients(tmp_path, _supported_rows())
+    )["PIF"]
+    feature_row = {
+        "purpose": "Business",
+        "opti": 1.5,
+        "credit_age": 2.5,
+        "v_credit_age": 0.4,
+        "c_age_pct": 1.5,
+        "oterm_f": "36",
+    }
+
+    assert replay.predict_one(feature_row) == pytest.approx(
+        float(replay.predict(pd.DataFrame([feature_row]))[0])
+    )
+
+
 def test_rollrate_replay_terms_round_trip_through_shared_gam_json(tmp_path):
     """The adapter's replay terms use the standard GAM serialization contract."""
     replay = parse_rollrate_coefficients(

@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from scipy.interpolate import RegularGridInterpolator
-from typing import Dict, Union, Tuple, List, Optional, Any
+from typing import Dict, Union, Tuple, List, Optional, Any, Mapping
 
 from quantbullet.model.gam.plot import plot_partial_dependence as _plot_partial_dependence
 from quantbullet.model.gam.terms import (
@@ -25,7 +25,13 @@ def _build_1d_predictor(
 ):
     """Build a flat-extrapolating 1D predictor for a replayed smooth term."""
     if interpolation == "pchip":
-        return make_monotone_predictor_pchip(x, y, extrapolate="flat")
+        predictor = make_monotone_predictor_pchip(x, y, extrapolate="flat")
+
+        def predict_one(value):
+            return float(predictor(float(value)))
+
+        predictor.predict_one = predict_one
+        return predictor
     if interpolation == "linear":
         x_values = np.asarray(x, dtype=float)
         y_values = np.asarray(y, dtype=float)
@@ -39,8 +45,90 @@ def _build_1d_predictor(
         def predictor(x_new):
             return np.interp(np.asarray(x_new, dtype=float), x_values, y_values)
 
+        def predict_one(value):
+            return float(np.interp(float(value), x_values, y_values))
+
+        predictor.predict_one = predict_one
         return predictor
     raise ValueError(f"Unsupported spline interpolation method: {interpolation!r}")
+
+
+def _required_feature(features: Mapping[str, Any], feature_name: str) -> Any:
+    if feature_name not in features:
+        raise ValueError(f"Feature '{feature_name}' missing from input mapping.")
+    return features[feature_name]
+
+
+def _predict_1d_scalar(
+    predictor,
+    features: Mapping[str, Any],
+    feature_name: str,
+) -> float:
+    value = float(_required_feature(features, feature_name))
+    return _predict_scalar(predictor, value)
+
+
+def _predict_scalar(predictor, value: float) -> float:
+    predict_one = getattr(predictor, "predict_one", None)
+    if predict_one is not None:
+        return float(predict_one(value))
+    return float(predictor(np.asarray([value]))[0])
+
+
+def _predict_spline_by_group_scalar(
+    predictor,
+    features: Mapping[str, Any],
+    *,
+    feature: str,
+    by_feature: str,
+) -> float:
+    value = float(_required_feature(features, feature))
+    group = str(_required_feature(features, by_feature))
+    group_predictor = predictor.get(group)
+    if group_predictor is None:
+        return 0.0
+    return _predict_scalar(group_predictor, value)
+
+
+def _predict_spline_by_numeric_scalar(
+    predictor,
+    features: Mapping[str, Any],
+    *,
+    feature: str,
+    multiplier_feature: str,
+) -> float:
+    value = float(_required_feature(features, feature))
+    multiplier = float(_required_feature(features, multiplier_feature))
+    return _predict_scalar(predictor, value) * multiplier
+
+
+def _predict_tensor_scalar(
+    predictor,
+    features: Mapping[str, Any],
+    data: TensorTermData,
+) -> float:
+    x_value = float(_required_feature(features, data.feature_x))
+    y_value = float(_required_feature(features, data.feature_y))
+    x_min, x_max = predictor["x_bounds"]
+    y_min, y_max = predictor["y_bounds"]
+    point = np.asarray(
+        [
+            [
+                np.clip(x_value, x_min, x_max),
+                np.clip(y_value, y_min, y_max),
+            ]
+        ]
+    )
+    return float(predictor["interpolator"](point)[0])
+
+
+def _predict_factor_scalar(
+    predictor,
+    features: Mapping[str, Any],
+    feature_name: str,
+) -> float:
+    value = str(_required_feature(features, feature_name))
+    return float(predictor.get(value, 0.0))
 
 
 class GAMReplayModel:
@@ -215,6 +303,46 @@ class GAMReplayModel:
         """
         res = self.decompose(X)
         return res['pred']
+
+    def predict_one(self, features: Mapping[str, Any]) -> float:
+        """Predict one scalar from a feature mapping without building a DataFrame."""
+        prediction = float(self.intercept)
+        for key, data in self.term_data.items():
+            if key not in self._predictors:
+                continue
+
+            predictor = self._predictors[key]
+            if isinstance(data, SplineTermData):
+                prediction += _predict_1d_scalar(
+                    predictor,
+                    features,
+                    data.feature,
+                )
+            elif isinstance(data, SplineByGroupTermData):
+                prediction += _predict_spline_by_group_scalar(
+                    predictor,
+                    features,
+                    feature=data.feature,
+                    by_feature=data.by_feature,
+                )
+            elif isinstance(data, SplineByNumericTermData):
+                prediction += _predict_spline_by_numeric_scalar(
+                    predictor,
+                    features,
+                    feature=data.feature,
+                    multiplier_feature=data.multiplier_feature,
+                )
+            elif isinstance(data, TensorTermData):
+                prediction += _predict_tensor_scalar(predictor, features, data)
+            elif isinstance(data, FactorTermData):
+                prediction += _predict_factor_scalar(
+                    predictor,
+                    features,
+                    data.feature,
+                )
+            else:
+                raise ValueError(f"Unknown term type: {type(data)}")
+        return prediction
 
     def _format_term_name(self, data: GAMTermData, group_label: Optional[str] = None) -> str:
         """

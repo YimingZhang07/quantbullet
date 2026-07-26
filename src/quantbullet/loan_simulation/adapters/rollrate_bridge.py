@@ -5,8 +5,6 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Any
 
-import pandas as pd
-
 from quantbullet.model.gam_replay import GAMReplayModel
 from quantbullet.loan_simulation.model_transition import (
     FeatureContext,
@@ -30,14 +28,7 @@ def replay_model_logit(
         )
 
     def logit(context: FeatureContext) -> float:
-        features = pd.DataFrame([dict(feature_builder(context))])
-        predictions = edge_model.predict(features)
-        if len(predictions) != 1:
-            raise ValueError(
-                "GAM replay edge model must return exactly one prediction for "
-                f"one feature row; got {len(predictions)}"
-            )
-        return float(predictions[0])
+        return edge_model.predict_one(feature_builder(context))
 
     return logit
 

@@ -29,6 +29,5 @@ Workbook sheets:
 
 - `portfolio_metrics`
 - `portfolio_cashflows`
-- `path_cashflows`
 
 Generated workbooks are local and ignored by git.
