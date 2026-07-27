@@ -24,6 +24,7 @@ from .runtime_features import EmptyRuntimeFeatureProvider, RuntimeFeatureProvide
 from .simulator import (
     LoanSimulationResult,
     LoanSimulator,
+    PortfolioAggregateResult,
     PortfolioSimulationResult,
     PortfolioSimulator,
 )
@@ -62,6 +63,7 @@ __all__ = [
     "PathFeatureTracker",
     "PaymentPolicy",
     "PeriodCashflow",
+    "PortfolioAggregateResult",
     "RecoveryLagProvider",
     "RecoveryEvent",
     "RuntimeFeatureProvider",
