@@ -225,12 +225,30 @@ def cpi_inflator(
 def round_model_value(value: float, *, rounding_digits: int | None) -> float:
     return value if rounding_digits is None else round(value, rounding_digits)
 
-def load_cpi_lookup(path: Path) -> dict[pd.Period, float]:
+def load_cpi_lookup(
+    path: Path,
+    *,
+    extend_months: int = 120,
+) -> dict[pd.Period, float]:
     lookup: dict[pd.Period, float] = {}
     with path.open("r", encoding="utf-8", newline="") as file:
         reader = csv.DictReader(file)
         for row in reader:
             lookup[pd.Period(row["DATE"], freq="M")] = float(row["CPIAUCNS"])
+
+    last_period = max(lookup)
+    last_cpi = lookup[last_period]
+    cpi_12_months_ago = lookup.get(last_period - 12)
+    annual_rate = (
+        last_cpi / cpi_12_months_ago - 1.0
+        if cpi_12_months_ago and cpi_12_months_ago > 0
+        else 0.025
+    )
+    monthly_rate = (1.0 + annual_rate) ** (1.0 / 12) - 1.0
+    cpi = last_cpi
+    for offset in range(1, extend_months + 1):
+        cpi *= 1.0 + monthly_rate
+        lookup.setdefault(last_period + offset, round(cpi, 3))
     return lookup
 
 def load_fico_coupon_lookup(path: Path) -> dict[str, float]:
@@ -349,59 +367,3 @@ class GenericV4FeatureProvider(RuntimeFeatureProvider):
                 )
 
             setattr(feature_state, spec.name, value)
-
-LOAN_METADATA_COLUMNS = (
-    "account_name",
-    "loan_maturity_date_orig",
-    "loan_age",
-    "rem_term",
-    "annual_inc",
-    "state_borr",
-    "apr",
-    "dti_orig",
-    "loan_ever_modified",
-    "loan_payment_scheduled_amt_orig",
-    "dti_plus_pti_orig",
-    "eop_days_past_due",
-    "loan_id",
-    "term",
-    "ofico",
-    "hm_owner",
-    "employed_f",
-    "purpose",
-    "note_rate",
-    "status",
-    "end_bal",
-    "orig_bal",
-    "grade",
-    "platform_f",
-    "f_pmt_dt",
-    "orig_dt",
-    "r_dt",
-    "opti",
-    "month",
-    "age",
-    "age_pct",
-    "cpi_inflator_36",
-    "cpi_inflator_12",
-    "int_rate",
-    "oterm_f",
-    "pmt_day",
-    "adj_balance_cpi",
-    "rel_fico_ratio_ALL",
-    "rate_incentive_ALL",
-    "term_fico",
-    "term_platform",
-    "vint_qtr",
-    "lending_environment",
-    "_fico_bkt",
-    "_coupon_at_vintage",
-    "c_age_pct",
-    "v_opti",
-    "v_credit_age",
-    "v_ofico",
-    "v_rel_fico_ratio_ALL",
-    "v_rate_incentive_ALL",
-    "c_credit_age",
-    "credit_age",
-)

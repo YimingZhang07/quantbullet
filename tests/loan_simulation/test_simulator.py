@@ -155,6 +155,112 @@ def test_portfolio_simulator_outputs_reproducible_aggregates():
     assert set(first.portfolio_cashflows()["period"]).issubset({1, 2, 3})
 
 
+def test_portfolio_simulator_parallel_matches_sequential():
+    config = _status_config()
+    transition_model = ConstantTransitionModel(
+        {
+            "C": {"C": 0.70, "PIF": 0.30},
+            "PIF": {"PIF": 1.0},
+            "LIQ": {"LIQ": 1.0},
+        },
+        status_config=config,
+    )
+    loans = [
+        Loan("L1", 1200.0, 0.12, 12, status="C"),
+        Loan("L2", 800.0, 0.10, 12, status="C"),
+    ]
+    loan_simulator = LoanSimulator(
+        transition_model,
+        _cashflow_engine(),
+        horizon=3,
+        n_paths=3,
+        seed=7,
+        start_date="2026-01-31",
+    )
+    portfolio_simulator = PortfolioSimulator(loan_simulator)
+
+    sequential = portfolio_simulator.simulate(loans)
+    parallel = portfolio_simulator.simulate_parallel(loans, workers=2)
+
+    pd.testing.assert_frame_equal(
+        parallel.path_cashflows().reset_index(drop=True),
+        sequential.path_cashflows().reset_index(drop=True),
+    )
+    pd.testing.assert_frame_equal(
+        parallel.portfolio_cashflows().reset_index(drop=True),
+        sequential.portfolio_cashflows().reset_index(drop=True),
+    )
+
+
+def test_portfolio_simulator_parallel_aggregate_matches_sequential():
+    config = _status_config()
+    transition_model = ConstantTransitionModel(
+        {
+            "C": {"C": 0.70, "PIF": 0.30},
+            "PIF": {"PIF": 1.0},
+            "LIQ": {"LIQ": 1.0},
+        },
+        status_config=config,
+    )
+    loans = [
+        Loan("L1", 1200.0, 0.12, 12, original_balance=1500.0, status="C"),
+        Loan("L2", 800.0, 0.10, 12, original_balance=1000.0, status="C"),
+    ]
+    loan_simulator = LoanSimulator(
+        transition_model,
+        _cashflow_engine(),
+        horizon=3,
+        n_paths=3,
+        seed=7,
+        start_date="2026-01-31",
+    )
+    portfolio_simulator = PortfolioSimulator(loan_simulator)
+
+    sequential = portfolio_simulator.simulate(loans).portfolio_cashflows()
+    aggregate = portfolio_simulator.simulate_parallel_aggregate(
+        loans,
+        workers=2,
+    ).portfolio_cashflows()
+
+    pd.testing.assert_frame_equal(
+        aggregate.reset_index(drop=True),
+        sequential.reset_index(drop=True),
+    )
+
+
+def test_portfolio_original_balance_includes_inactive_loans():
+    config = _status_config()
+    loan_simulator = LoanSimulator(
+        ConstantTransitionModel(
+            {
+                "C": {"C": 1.0},
+                "PIF": {"PIF": 1.0},
+                "LIQ": {"LIQ": 1.0},
+            },
+            status_config=config,
+        ),
+        _cashflow_engine(),
+        horizon=1,
+        n_paths=1,
+        seed=7,
+        start_date="2026-01-31",
+    )
+    loans = [
+        Loan("active", 100.0, 0.10, 12, original_balance=150.0, status="C"),
+        Loan("inactive", 0.0, 0.10, 12, original_balance=50.0, status="C"),
+    ]
+    portfolio_simulator = PortfolioSimulator(loan_simulator)
+
+    sequential = portfolio_simulator.simulate(loans).portfolio_cashflows()
+    aggregate = portfolio_simulator.simulate_parallel_aggregate(
+        loans,
+        workers=1,
+    ).portfolio_cashflows()
+
+    assert sequential["original_balance"].iloc[0] == 200.0
+    assert aggregate["original_balance"].iloc[0] == 200.0
+
+
 def test_loan_cashflows_average_over_all_paths_after_early_termination():
     """Early-terminated paths contribute zero to later loan-level averages."""
     loan = Loan("L1", 100.0, 0.0, 12)

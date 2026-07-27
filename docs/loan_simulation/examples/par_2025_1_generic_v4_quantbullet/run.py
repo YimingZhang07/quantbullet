@@ -128,20 +128,18 @@ def build_cashflow_engine(status_config: StatusConfig) -> CashflowEngine:
     )
 
 
-def load_prepped_loans() -> list[dict[str, Any]]:
-    with LOANS_PATH.open("r", encoding="utf-8") as file:
+def load_prepped_loans(path: Path) -> list[dict[str, Any]]:
+    with path.open("r", encoding="utf-8") as file:
         loans = json.load(file)
     if not isinstance(loans, list):
-        raise ValueError(f"Expected a list of loans in {LOANS_PATH}")
+        raise ValueError(f"Expected a list of loans in {path}")
     return loans
 
 
-def build_loans() -> list[Loan]:
+def build_loans(loans_path: Path = LOANS_PATH) -> list[Loan]:
     loans = []
-    for feature_row in load_prepped_loans():
-        balance = float(feature_row["end_bal"])
-        if balance <= 0.1:
-            continue
+    for feature_row in load_prepped_loans(loans_path):
+        balance = max(float(feature_row["end_bal"]), 0.0)
         annual_rate = float(feature_row.get("int_rate", feature_row["note_rate"]))
         loans.append(
             Loan(
@@ -160,33 +158,55 @@ def build_loans() -> list[Loan]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the QuantBullet-only demo.")
+    parser.add_argument("--loans", type=Path, default=LOANS_PATH)
     parser.add_argument("--output", type=Path, default=OUTPUT_PATH)
+    parser.add_argument("--horizon", type=int, default=HORIZON)
+    parser.add_argument("--n-paths", type=int, default=N_PATHS)
+    parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument(
+        "--max-loans",
+        type=int,
+        default=0,
+        help="Maximum loans to run. Use 0 or a negative value for all loans.",
+    )
+    parser.add_argument("--no-path-cashflows", action="store_true")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     status_config = build_status_config()
-    loans = build_loans()
+    loans = build_loans(args.loans)
+    if args.max_loans > 0:
+        loans = loans[: args.max_loans]
     transition_model = build_transition_model(status_config)
     cashflow_engine = build_cashflow_engine(status_config)
     loan_simulator = LoanSimulator(
         transition_model=transition_model,
         cashflow_engine=cashflow_engine,
-        horizon=HORIZON,
-        n_paths=N_PATHS,
+        horizon=args.horizon,
+        n_paths=args.n_paths,
         seed=SEED,
         start_date=START_DATE,
         runtime_feature_provider=GenericV4FeatureProvider.from_input_dir(
             EXAMPLE_DIR / "input"
         ),
     )
-    result = PortfolioSimulator(loan_simulator).simulate(loans)
+    portfolio_simulator = PortfolioSimulator(loan_simulator)
+    if args.no_path_cashflows:
+        result = portfolio_simulator.simulate_parallel_aggregate(
+            loans,
+            workers=args.workers,
+        )
+    elif args.workers > 1:
+        result = portfolio_simulator.simulate_parallel(loans, workers=args.workers)
+    else:
+        result = portfolio_simulator.simulate(loans)
     frames = write_simulation_workbook(
         result,
         args.output,
         include_loan_cashflows=False,
-        include_path_cashflows=True,
+        include_path_cashflows=not args.no_path_cashflows,
     )
     portfolio_metrics = frames["portfolio_metrics"]
     print(portfolio_metrics[["period", "cpr", "cdr", "cumulative_loss_rate"]].to_string(index=False))
