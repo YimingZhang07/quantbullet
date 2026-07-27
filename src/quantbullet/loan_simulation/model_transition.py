@@ -13,7 +13,13 @@ from .transition import TransitionModel
 
 @dataclass(frozen=True)
 class FeatureContext:
-    """Inputs available to model-backed transition probability functions."""
+    """Inputs passed to model-backed transition specs.
+
+    A callable edge/logit/probability spec receives one ``FeatureContext`` and
+    returns one numeric value for the specific ``from_status -> to_status`` edge
+    being evaluated. Runtime feature providers are responsible for putting the
+    model-ready feature vector in ``model_features``.
+    """
 
     loan: Loan
     current_state: LoanState
@@ -28,8 +34,11 @@ EdgeSpec = float | Callable[[FeatureContext], float]
 # probabilities. Kept as a separate alias because the semantics differ.
 LogitSpec = float | Callable[[FeatureContext], float]
 
-# Same shape as EdgeSpec, but values are independent binary event probabilities
-# that will compete through odds normalization rather than residual stay.
+# Same shape as EdgeSpec, but values are independent binary event probabilities:
+# either a constant float or ``Callable[[FeatureContext], float]``. The returned
+# value must be >= 0 and < 1. It is not the final multinomial transition
+# probability; ProbabilitySoftmaxTransitionModel converts each value to odds and
+# normalizes those odds against the stay odds.
 ProbabilitySpec = float | Callable[[FeatureContext], float]
 
 
@@ -203,10 +212,19 @@ class SoftmaxTransitionModel(TransitionModel):
 class ProbabilitySoftmaxTransitionModel(TransitionModel):
     """Compete independent binary edge probabilities through odds normalization.
 
-    Each edge spec returns an independent event probability ``p``. The model
-    converts it to odds ``p / (1 - p)`` and normalizes those odds against stay
-    odds of 1. This is useful when separate binary models estimate different
-    mutually-exclusive transition events.
+    ``probabilities`` is a nested mapping:
+
+        from_status -> to_status -> ProbabilitySpec
+
+    A ``ProbabilitySpec`` is either a constant float or a callable accepting a
+    ``FeatureContext`` and returning a float. The value is interpreted as an
+    independent binary event probability ``p`` for that edge and must satisfy
+    ``0 <= p < 1``.
+
+    The model converts every configured edge probability to odds
+    ``p / (1 - p)`` and normalizes those odds against stay odds of 1. This is
+    useful when separate binary models estimate different mutually-exclusive
+    transition events.
     """
 
     def __init__(

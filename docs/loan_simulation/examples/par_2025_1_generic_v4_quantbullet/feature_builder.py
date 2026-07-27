@@ -3,48 +3,36 @@
 from __future__ import annotations
 
 import csv
-import math
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field, fields
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, ClassVar, Literal
+from typing import Any
 
 import pandas as pd
 
 from quantbullet.loan_simulation import (
+    FeatureStateBase,
     Loan,
     LoanState,
-    PeriodCashflow,
     RuntimeFeatureProvider,
 )
 
 MISSING = object()
-FeatureAdvance = Callable[["FeatureState", Mapping[str, Any]], Any]
-FeatureKind = Literal[
-    "static_model",
-    "dynamic_model",
-    "static_context",
-    "dynamic_context",
-]
+
 
 def build_feature_dict(context) -> Mapping[str, Any]:
     return context.model_features
 
-@dataclass(frozen=True)
-class FeatureSpec:
-    name: str
-    kind: FeatureKind
-    deps: tuple[str, ...]
-    advance: FeatureAdvance | None = None
-    carry_forward: bool = False
 
 class FeatureEvaluationError(ValueError):
     pass
 
-def advance_c_age_pct(state: "FeatureState", env: Mapping[str, Any]) -> float:
+
+def advance_c_age_pct(state: FeatureState, env: Mapping[str, Any]) -> float:
     return float(state.age_months) / float(state.term) if state.term else 0.0
 
-def advance_cpi_inflator_12(state: "FeatureState", env: Mapping[str, Any]) -> Any:
+
+def advance_cpi_inflator_12(state: FeatureState, env: Mapping[str, Any]) -> Any:
     return cpi_inflator(
         report_period=state.report_period,
         cpi_lookup=env["cpi_lookup"],
@@ -52,7 +40,8 @@ def advance_cpi_inflator_12(state: "FeatureState", env: Mapping[str, Any]) -> An
         lookback_months=12,
     )
 
-def advance_cpi_inflator_36(state: "FeatureState", env: Mapping[str, Any]) -> Any:
+
+def advance_cpi_inflator_36(state: FeatureState, env: Mapping[str, Any]) -> Any:
     return cpi_inflator(
         report_period=state.report_period,
         cpi_lookup=env["cpi_lookup"],
@@ -60,16 +49,20 @@ def advance_cpi_inflator_36(state: "FeatureState", env: Mapping[str, Any]) -> An
         lookback_months=36,
     )
 
-def advance_days_to_month_end(state: "FeatureState", env: Mapping[str, Any]) -> int:
+
+def advance_days_to_month_end(state: FeatureState, env: Mapping[str, Any]) -> int:
     return derive_days_to_month_end(state.report_period, state.pmt_day)
 
-def advance_month(state: "FeatureState", env: Mapping[str, Any]) -> str:
+
+def advance_month(state: FeatureState, env: Mapping[str, Any]) -> str:
     return state.report_period.strftime("%B")
 
-def advance_month_group(state: "FeatureState", env: Mapping[str, Any]) -> str:
+
+def advance_month_group(state: FeatureState, env: Mapping[str, Any]) -> str:
     return derive_month_group(state.days_to_month_end)
 
-def advance_rate_incentive_all(state: "FeatureState", env: Mapping[str, Any]) -> Any:
+
+def advance_rate_incentive_all(state: FeatureState, env: Mapping[str, Any]) -> Any:
     if state.coupon_at_vintage is None or not state.fico_bkt:
         return MISSING
 
@@ -84,13 +77,9 @@ def advance_rate_incentive_all(state: "FeatureState", env: Mapping[str, Any]) ->
         rounding_digits=env.get("rounding_digits"),
     )
 
-@dataclass
-class FeatureState:
-    FEATURE_SPECS: ClassVar[tuple[FeatureSpec, ...]] = ()
-    MODEL_FEATURE_NAMES: ClassVar[tuple[str, ...]] = ()
-    ADVANCED_FEATURE_NAMES: ClassVar[tuple[str, ...]] = ()
-    PROVIDER_FEATURE_NAMES: ClassVar[tuple[str, ...]] = ()
 
+@dataclass
+class FeatureState(FeatureStateBase):
     # model-facing fields
     adj_balance_cpi: float = field(metadata={"kind": "static_model"})
     c_age_pct: float = field(
@@ -170,41 +159,17 @@ class FeatureState:
     age_months: int = field(metadata={"kind": "dynamic_context"})
     period: int = field(default=0, metadata={"kind": "dynamic_context"})
 
-def build_feature_specs() -> tuple[FeatureSpec, ...]:
-    specs = []
-    for dataclass_field in fields(FeatureState):
-        metadata = dataclass_field.metadata
-        specs.append(
-            FeatureSpec(
-                name=dataclass_field.name,
-                kind=metadata["kind"],
-                deps=tuple(metadata.get("deps", ())),
-                advance=metadata.get("advance"),
-                carry_forward=bool(metadata.get("carry_forward", False)),
-            )
-        )
-    return tuple(specs)
 
-FeatureState.FEATURE_SPECS = build_feature_specs()
-FeatureState.MODEL_FEATURE_NAMES = tuple(
-    spec.name
-    for spec in FeatureState.FEATURE_SPECS
-    if spec.kind in {"static_model", "dynamic_model"}
-)
-FeatureState.ADVANCED_FEATURE_NAMES = tuple(
-    spec.name for spec in FeatureState.FEATURE_SPECS if spec.advance is not None
-)
-FeatureState.PROVIDER_FEATURE_NAMES = tuple(
-    spec.name
-    for spec in FeatureState.FEATURE_SPECS
-    if spec.kind in {"static_context", "dynamic_context"}
-)
+FeatureState.configure_feature_metadata()
+
 
 def derive_days_to_month_end(report_period: pd.Period, pmt_day: int) -> int:
     return report_period.days_in_month - min(pmt_day, report_period.days_in_month)
 
+
 def derive_month_group(days_to_month_end: int) -> str:
     return "30_Day" if days_to_month_end <= 28 else "31_Day"
+
 
 def cpi_inflator(
     *,
@@ -222,8 +187,10 @@ def cpi_inflator(
         rounding_digits=rounding_digits,
     )
 
+
 def round_model_value(value: float, *, rounding_digits: int | None) -> float:
     return value if rounding_digits is None else round(value, rounding_digits)
+
 
 def load_cpi_lookup(
     path: Path,
@@ -251,6 +218,7 @@ def load_cpi_lookup(
         lookup.setdefault(last_period + offset, round(cpi, 3))
     return lookup
 
+
 def load_fico_coupon_lookup(path: Path) -> dict[str, float]:
     lookup: dict[str, float] = {}
     with path.open("r", encoding="utf-8", newline="") as file:
@@ -260,6 +228,7 @@ def load_fico_coupon_lookup(path: Path) -> dict[str, float]:
                 row["fico_bkt_coupon"]
             )
     return lookup
+
 
 class GenericV4FeatureProvider(RuntimeFeatureProvider):
     def __init__(
@@ -274,7 +243,7 @@ class GenericV4FeatureProvider(RuntimeFeatureProvider):
         self.rounding_digits = rounding_digits
 
     @classmethod
-    def from_input_dir(cls, input_dir: Path) -> "GenericV4FeatureProvider":
+    def from_input_dir(cls, input_dir: Path) -> GenericV4FeatureProvider:
         macro_dir = Path(input_dir) / "macro"
         cpi_path = macro_dir / "CPIAUCNS.csv"
         fico_coupon_path = macro_dir / "FICO_BKT_COUPON.csv"
@@ -297,7 +266,9 @@ class GenericV4FeatureProvider(RuntimeFeatureProvider):
             "rounding_digits": self.rounding_digits,
         }
 
-    def initialize_path_state(self, loan: Loan, start_period: pd.Period) -> FeatureState:
+    def initialize_path_state(
+        self, loan: Loan, start_period: pd.Period
+    ) -> FeatureState:
         features = loan.metadata
         report_period = pd.Period(features["r_dt"], freq="M")
         pmt_day = int(features.get("pmt_day", 15))
@@ -337,22 +308,20 @@ class GenericV4FeatureProvider(RuntimeFeatureProvider):
             age_months=loan.age_months,
         )
 
-    def model_features_for_period(self, loan: Loan, current_state: LoanState, period_date: pd.Period, macro_features: Mapping[str, Any], path_features: Mapping[str, Any], feature_state: Any) -> Mapping[str, Any]:
-        features = {
-            name: getattr(feature_state, name)
-            for name in FeatureState.MODEL_FEATURE_NAMES
-        }
-        return features
-
-    def advance_path_state(
+    def prepare_period_state(
         self,
-        feature_state: FeatureState,
-        cashflow: PeriodCashflow,
-        next_state: LoanState,
+        *,
+        loan: Loan,
+        current_state: LoanState,
+        period_date: pd.Period,
+        macro_features: Mapping[str, Any],
+        path_features: Mapping[str, Any],
+        feature_state: Any,
     ) -> None:
-        feature_state.period = next_state.period
-        feature_state.age_months = next_state.age_months
-        feature_state.report_period = feature_state.report_period + 1
+        del loan, macro_features, path_features
+        feature_state.period = current_state.period
+        feature_state.age_months = current_state.age_months
+        feature_state.report_period = pd.Period(period_date, freq="M")
 
         for spec in FeatureState.FEATURE_SPECS:
             if spec.advance is None:
@@ -367,3 +336,17 @@ class GenericV4FeatureProvider(RuntimeFeatureProvider):
                 )
 
             setattr(feature_state, spec.name, value)
+
+    def model_features_for_period(
+        self,
+        loan: Loan,
+        current_state: LoanState,
+        period_date: pd.Period,
+        macro_features: Mapping[str, Any],
+        path_features: Mapping[str, Any],
+        feature_state: Any,
+    ) -> Mapping[str, Any]:
+        return {
+            name: getattr(feature_state, name)
+            for name in FeatureState.MODEL_FEATURE_NAMES
+        }

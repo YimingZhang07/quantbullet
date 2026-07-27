@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from feature_builder import build_feature_dict
 from quantbullet.loan_simulation import (
     FeatureContext,
     LoanStatus,
@@ -30,12 +29,12 @@ class BoundedLinearProbabilityModel:
             raise ValueError("Probability bounds must satisfy 0 <= min <= max < 1")
 
     def __call__(self, context: FeatureContext) -> float:
-        features = build_feature_dict(context)
+        features = context.model_features
         probability = (
             self.intercept
-            + self.age_coefficient * features["age"]
-            + self.incentive_coefficient * features["incentive"]
-            + self.hpi_coefficient * (features["hpi"] - self.hpi_center)
+            + self.age_coefficient * float(features["age"])
+            + self.incentive_coefficient * float(features["incentive"])
+            + self.hpi_coefficient * (float(features["hpi"]) - self.hpi_center)
         )
         return min(max(probability, self.minimum), self.maximum)
 

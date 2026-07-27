@@ -375,10 +375,23 @@ def test_loan_simulator_passes_runtime_model_features_and_updates_provider():
     """Runtime feature providers own per-path model feature lifecycle."""
     class RecordingRuntimeFeatureProvider(RuntimeFeatureProvider):
         def __init__(self):
-            self.updates = []
+            self.prepares = []
 
         def initialize_path_state(self, loan, start_period):
             return {"start_period": str(start_period)}
+
+        def prepare_period_state(
+            self,
+            *,
+            loan,
+            current_state,
+            period_date,
+            macro_features,
+            path_features,
+            feature_state,
+        ):
+            feature_state["prepared_period"] = current_state.period
+            self.prepares.append(str(period_date))
 
         def model_features_for_period(
             self,
@@ -393,11 +406,9 @@ def test_loan_simulator_passes_runtime_model_features_and_updates_provider():
             return {
                 "current_period": current_state.period,
                 "period_date": str(period_date),
+                "prepared_period": feature_state["prepared_period"],
                 "start_period": feature_state["start_period"],
             }
-
-        def advance_path_state(self, *, feature_state, cashflow, next_state):
-            self.updates.append((cashflow.period, next_state.period))
 
     class RecordingTransitionModel(TransitionModel):
         def __init__(self):
@@ -430,12 +441,14 @@ def test_loan_simulator_passes_runtime_model_features_and_updates_provider():
         {
             "current_period": 0,
             "period_date": "2026-02",
+            "prepared_period": 0,
             "start_period": "2026-01",
         },
         {
             "current_period": 1,
             "period_date": "2026-03",
+            "prepared_period": 1,
             "start_period": "2026-01",
         },
     ]
-    assert provider.updates == [(1, 1), (2, 2)]
+    assert provider.prepares == ["2026-02", "2026-03"]

@@ -20,7 +20,15 @@ from .recovery import (
     SeverityProvider,
 )
 from .reporting import simulation_result_frames, write_simulation_workbook
-from .runtime_features import EmptyRuntimeFeatureProvider, RuntimeFeatureProvider
+from .runtime_features import (
+    EmptyRuntimeFeatureProvider,
+    FeatureAdvance,
+    FeatureKind,
+    FeatureSpec,
+    FeatureStateBase,
+    RuntimeFeatureProvider,
+    build_feature_specs,
+)
 from .simulator import (
     LoanSimulationResult,
     LoanSimulator,
@@ -48,11 +56,16 @@ __all__ = [
     "EdgeSpec",
     "EmptyRuntimeFeatureProvider",
     "FeatureContext",
+    "FeatureAdvance",
+    "FeatureKind",
+    "FeatureSpec",
+    "FeatureStateBase",
     "LogitSpec",
     "SoftmaxTransitionModel",
     "ProbabilitySoftmaxTransitionModel",
     "ProbabilitySpec",
     "compute_period_metrics",
+    "build_feature_specs",
     "Loan",
     "LoanSimulationResult",
     "LoanSimulator",

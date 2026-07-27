@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import random
+from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass, replace
 from multiprocessing import Pool
-from typing import Any, Iterable, Mapping
+from typing import Any
 
 import pandas as pd
 
@@ -14,16 +15,15 @@ from .path_features import PathFeatureTracker
 from .runtime_features import EmptyRuntimeFeatureProvider, RuntimeFeatureProvider
 from .transition import TransitionModel, sample_next_status
 
-
 _PARALLEL_LOAN_SIMULATOR: Any = None
 
 
-def _init_parallel_worker(loan_simulator: "LoanSimulator") -> None:
+def _init_parallel_worker(loan_simulator: LoanSimulator) -> None:
     global _PARALLEL_LOAN_SIMULATOR
     _PARALLEL_LOAN_SIMULATOR = loan_simulator
 
 
-def _simulate_loan_parallel(loan: Loan) -> "LoanSimulationResult":
+def _simulate_loan_parallel(loan: Loan) -> LoanSimulationResult:
     if _PARALLEL_LOAN_SIMULATOR is None:
         raise RuntimeError("parallel loan simulator was not initialized")
     return _PARALLEL_LOAN_SIMULATOR.simulate_loan(loan)
@@ -239,16 +239,29 @@ class LoanSimulator:
         while period <= self.horizon or pending_recoveries:
             due_recoveries = pending_recoveries.pop(period, [])
 
-            if period <= self.horizon and state.is_active(self.cashflow_engine.status_config):
+            if period <= self.horizon and state.is_active(
+                self.cashflow_engine.status_config
+            ):
                 macro_features = self._macro_features_for_period(period)
                 path_features = path_feature_tracker.features()
-                model_features = self.runtime_feature_provider.model_features_for_period(
+                period_date = self.start_period + period
+                self.runtime_feature_provider.prepare_period_state(
                     loan=loan,
                     current_state=state,
-                    period_date=self.start_period + period,
+                    period_date=period_date,
                     macro_features=macro_features,
                     path_features=path_features,
                     feature_state=runtime_feature_state,
+                )
+                model_features = (
+                    self.runtime_feature_provider.model_features_for_period(
+                        loan=loan,
+                        current_state=state,
+                        period_date=period_date,
+                        macro_features=macro_features,
+                        path_features=path_features,
+                        feature_state=runtime_feature_state,
+                    )
                 )
                 probabilities = self.transition_model.predict(
                     loan,
@@ -280,11 +293,8 @@ class LoanSimulator:
                 if due_recoveries:
                     cashflow = _add_recoveries(cashflow, due_recoveries)
                 cashflows.append(cashflow)
-                path_feature_tracker.update(cashflow, self.cashflow_engine.status_config)
-                self.runtime_feature_provider.advance_path_state(
-                    feature_state=runtime_feature_state,
-                    cashflow=cashflow,
-                    next_state=result.next_state,
+                path_feature_tracker.update(
+                    cashflow, self.cashflow_engine.status_config
                 )
                 state = result.next_state
             elif due_recoveries:
@@ -385,13 +395,10 @@ class PortfolioSimulator:
 
         return PortfolioAggregateResult(
             period_totals={
-                period: tuple(values)
-                for period, values in portfolio_totals.items()
+                period: tuple(values) for period, values in portfolio_totals.items()
             },
             start_period=self.loan_simulator.start_period,
-            original_balance=sum(
-                float(loan.original_balance) for loan in loan_list
-            ),
+            original_balance=sum(float(loan.original_balance) for loan in loan_list),
         )
 
 
