@@ -6,7 +6,7 @@ from typing import Any, Mapping
 from .entities import Loan, LoanState, PeriodCashflow
 from .payment import PaymentPolicy
 from .recovery import RecoveryLagProvider, SeverityProvider
-from .status import DEFAULT_STATUS_CONFIG, StatusConfig
+from .status import StatusConfig
 
 
 @dataclass(frozen=True)
@@ -42,9 +42,9 @@ class CashflowEngine:
         severity_provider: SeverityProvider,
         recovery_lag_provider: RecoveryLagProvider,
         *,
-        status_config: StatusConfig | None = None,
+        status_config: StatusConfig,
     ) -> None:
-        self.status_config = status_config or DEFAULT_STATUS_CONFIG
+        self.status_config = status_config
         self.payment_policy = payment_policy
         self.severity_provider = severity_provider
         self.recovery_lag_provider = recovery_lag_provider

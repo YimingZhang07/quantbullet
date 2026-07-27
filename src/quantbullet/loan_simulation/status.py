@@ -19,41 +19,17 @@ class LoanStatus:
 class StatusConfig:
     """Business meaning for loan status names.
 
-    Status strings are intentionally configurable. The defaults cover a simple
-    amortizing-loan setup, while custom use cases can add statuses such as
-    LIQ, SOLD, REFI, or CHARGED_OFF without changing the engine.
+    Status strings are intentionally configurable because status vocabularies
+    are product- and data-specific. Callers must provide the full vocabulary
+    and identify which statuses are terminal, prepay, default, or delinquency
+    reporting states.
     """
 
-    valid_statuses: set[str] | frozenset[str] = field(
-        default_factory=lambda: frozenset(
-            {
-                LoanStatus.CURRENT,
-                LoanStatus.DQ30,
-                LoanStatus.DQ60,
-                LoanStatus.DQ90,
-                LoanStatus.DEFAULTED,
-                LoanStatus.PAID_OFF,
-            }
-        )
-    )
-    terminal_statuses: set[str] | frozenset[str] = field(
-        default_factory=lambda: frozenset(
-            {LoanStatus.DEFAULTED, LoanStatus.PAID_OFF}
-        )
-    )
-    prepay_statuses: set[str] | frozenset[str] = field(
-        default_factory=lambda: frozenset({LoanStatus.PAID_OFF})
-    )
-    default_statuses: set[str] | frozenset[str] = field(
-        default_factory=lambda: frozenset({LoanStatus.DEFAULTED})
-    )
-    delinquency_buckets: Mapping[str, str] = field(
-        default_factory=lambda: {
-            LoanStatus.DQ30: "dq30_balance",
-            LoanStatus.DQ60: "dq60_balance",
-            LoanStatus.DQ90: "dq90_balance",
-        }
-    )
+    valid_statuses: set[str] | frozenset[str]
+    terminal_statuses: set[str] | frozenset[str]
+    prepay_statuses: set[str] | frozenset[str]
+    default_statuses: set[str] | frozenset[str]
+    delinquency_buckets: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         valid_statuses = frozenset(
@@ -137,4 +113,23 @@ def normalize_status(status: str) -> str:
     return normalized
 
 
-DEFAULT_STATUS_CONFIG = StatusConfig()
+DEFAULT_STATUS_CONFIG = StatusConfig(
+    valid_statuses=frozenset(
+        {
+            LoanStatus.CURRENT,
+            LoanStatus.DQ30,
+            LoanStatus.DQ60,
+            LoanStatus.DQ90,
+            LoanStatus.DEFAULTED,
+            LoanStatus.PAID_OFF,
+        }
+    ),
+    terminal_statuses=frozenset({LoanStatus.DEFAULTED, LoanStatus.PAID_OFF}),
+    prepay_statuses=frozenset({LoanStatus.PAID_OFF}),
+    default_statuses=frozenset({LoanStatus.DEFAULTED}),
+    delinquency_buckets={
+        LoanStatus.DQ30: "dq30_balance",
+        LoanStatus.DQ60: "dq60_balance",
+        LoanStatus.DQ90: "dq90_balance",
+    },
+)

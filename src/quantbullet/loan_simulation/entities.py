@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
-from .status import DEFAULT_STATUS_CONFIG, LoanStatus, StatusConfig, normalize_status
+from .status import LoanStatus, StatusConfig, normalize_status
 
 
 @dataclass(frozen=True)
@@ -97,9 +97,8 @@ class LoanState:
         if self.balance < 0:
             raise ValueError("balance must be non-negative")
 
-    def is_active(self, status_config: StatusConfig | None = None) -> bool:
-        config = status_config or DEFAULT_STATUS_CONFIG
-        return self.balance > 0 and not config.is_terminal(self.status)
+    def is_active(self, status_config: StatusConfig) -> bool:
+        return self.balance > 0 and not status_config.is_terminal(self.status)
 
 
 @dataclass(frozen=True)

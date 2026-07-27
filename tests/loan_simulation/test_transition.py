@@ -25,6 +25,11 @@ def test_custom_status_config_supports_roll_rate_style_states():
     assert config.delinquency_bucket("D1M") == "dq30_balance"
 
 
+def test_status_config_requires_explicit_status_vocabulary():
+    with pytest.raises(TypeError, match="valid_statuses"):
+        StatusConfig()
+
+
 def test_status_config_rejects_statuses_outside_vocabulary():
     with pytest.raises(ValueError, match="not in valid_statuses"):
         StatusConfig(

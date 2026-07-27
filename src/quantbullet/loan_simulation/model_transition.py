@@ -7,7 +7,7 @@ from types import MappingProxyType
 from typing import Any
 
 from .entities import Loan, LoanState
-from .status import DEFAULT_STATUS_CONFIG, StatusConfig
+from .status import StatusConfig
 from .transition import TransitionModel
 
 
@@ -40,13 +40,13 @@ class CompositeTransitionModel(TransitionModel):
         self,
         edges: Mapping[str, Mapping[str, EdgeSpec]],
         *,
-        status_config: StatusConfig | None = None,
+        status_config: StatusConfig,
         probability_tolerance: float = 1e-12,
     ) -> None:
         if probability_tolerance < 0:
             raise ValueError("probability_tolerance must be non-negative")
 
-        self.status_config = status_config or DEFAULT_STATUS_CONFIG
+        self.status_config = status_config
         self.probability_tolerance = probability_tolerance
         self._edges = _freeze_edge_table(
             edges,
@@ -133,9 +133,9 @@ class SoftmaxTransitionModel(TransitionModel):
         self,
         logits: Mapping[str, Mapping[str, LogitSpec]],
         *,
-        status_config: StatusConfig | None = None,
+        status_config: StatusConfig,
     ) -> None:
-        self.status_config = status_config or DEFAULT_STATUS_CONFIG
+        self.status_config = status_config
         self._logits = _freeze_edge_table(
             logits,
             status_config=self.status_config,
@@ -213,9 +213,9 @@ class ProbabilitySoftmaxTransitionModel(TransitionModel):
         self,
         probabilities: Mapping[str, Mapping[str, ProbabilitySpec]],
         *,
-        status_config: StatusConfig | None = None,
+        status_config: StatusConfig,
     ) -> None:
-        self.status_config = status_config or DEFAULT_STATUS_CONFIG
+        self.status_config = status_config
         self._probabilities = _freeze_edge_table(
             probabilities,
             status_config=self.status_config,

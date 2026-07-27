@@ -124,7 +124,7 @@ def test_dynamic_probability_models_apply_declared_bounds():
 
 def test_current_row_has_no_direct_charge_off_and_uses_odds_normalization():
     context = _context()
-    model = build_transition_model()
+    model = build_transition_model(build_status_config())
 
     probabilities = model.predict(
         context.loan,
@@ -147,7 +147,7 @@ def test_current_row_has_no_direct_charge_off_and_uses_odds_normalization():
 
 
 def test_delinquent_rows_use_constant_competing_probabilities():
-    model = build_transition_model()
+    model = build_transition_model(build_status_config())
 
     assert model.probabilities[DELINQUENT_1] == {
         CURRENT: 0.30,
@@ -165,7 +165,7 @@ def test_delinquent_rows_use_constant_competing_probabilities():
 
 @pytest.mark.parametrize("terminal_status", [PREPAID, CHARGED_OFF])
 def test_terminal_states_are_automatic_self_loops(terminal_status):
-    model = build_transition_model()
+    model = build_transition_model(build_status_config())
     loan = Loan("L1", 100_000.0, 0.09, 120, status=CURRENT)
     state = LoanState(
         "L1",

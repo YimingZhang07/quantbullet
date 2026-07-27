@@ -85,9 +85,8 @@ def build_status_config() -> StatusConfig:
 
 
 def build_transition_model(
-    status_config: StatusConfig | None = None,
+    status_config: StatusConfig,
 ) -> ProbabilitySoftmaxTransitionModel:
-    config = status_config or build_status_config()
     return ProbabilitySoftmaxTransitionModel(
         probabilities={
             CURRENT: {
@@ -107,5 +106,5 @@ def build_transition_model(
                 CHARGED_OFF: 0.25,
             },
         },
-        status_config=config,
+        status_config=status_config,
     )

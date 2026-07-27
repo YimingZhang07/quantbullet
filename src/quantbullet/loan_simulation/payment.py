@@ -5,7 +5,7 @@ from types import MappingProxyType
 from typing import Any, Mapping, Sequence
 
 from .entities import Loan, LoanState
-from .status import DEFAULT_STATUS_CONFIG, StatusConfig
+from .status import StatusConfig
 
 
 class PaymentPolicy(ABC):
@@ -36,9 +36,9 @@ class MatrixPaymentPolicy(PaymentPolicy):
         self,
         payment_periods: Mapping[str, Mapping[str, int]],
         *,
-        status_config: StatusConfig | None = None,
+        status_config: StatusConfig,
     ) -> None:
-        self.status_config = status_config or DEFAULT_STATUS_CONFIG
+        self.status_config = status_config
         self._payment_periods = _freeze_payment_matrix(
             payment_periods,
             status_config=self.status_config,

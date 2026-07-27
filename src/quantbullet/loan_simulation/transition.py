@@ -6,7 +6,7 @@ from types import MappingProxyType
 from typing import Any, Mapping
 
 from .entities import Loan, LoanState
-from .status import DEFAULT_STATUS_CONFIG, StatusConfig
+from .status import StatusConfig
 
 
 class TransitionModel(ABC):
@@ -36,10 +36,10 @@ class ConstantTransitionModel(TransitionModel):
         self,
         transitions: Mapping[str, Mapping[str, float]],
         *,
-        status_config: StatusConfig | None = None,
+        status_config: StatusConfig,
         probability_tolerance: float = 1e-9,
     ) -> None:
-        self.status_config = status_config or DEFAULT_STATUS_CONFIG
+        self.status_config = status_config
         self.probability_tolerance = probability_tolerance
         self._transitions = _freeze_transition_table(
             transitions,
