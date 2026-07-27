@@ -17,8 +17,7 @@ from quantbullet.loan_simulation import (
 )
 
 
-def update_age(state: FeatureState, env: Mapping[str, Any]) -> float:
-    del env
+def update_age(state: FeatureState, _env: Mapping[str, Any]) -> float:
     return float(state.age_months)
 
 
@@ -57,7 +56,6 @@ class SyntheticFeatureProvider(RuntimeFeatureProvider):
         start_period: pd.Period,
     ) -> FeatureState:
         """Initialize a per-path feature state with static loan context."""
-        del start_period
         return FeatureState(
             annual_rate=float(loan.annual_rate),
             age_months=loan.age_months,
@@ -73,7 +71,6 @@ class SyntheticFeatureProvider(RuntimeFeatureProvider):
         path_features: Mapping[str, Any],
         feature_state: Any,
     ) -> None:
-        del period_date, path_features
         state = _require_feature_state(feature_state)
         state.annual_rate = float(loan.annual_rate)
         state.age_months = int(current_state.age_months)
@@ -89,7 +86,6 @@ class SyntheticFeatureProvider(RuntimeFeatureProvider):
         path_features: Mapping[str, Any],
         feature_state: Any,
     ) -> Mapping[str, float]:
-        del loan, current_state, period_date, macro_features, path_features
         return _require_feature_state(feature_state).model_features()
 
 

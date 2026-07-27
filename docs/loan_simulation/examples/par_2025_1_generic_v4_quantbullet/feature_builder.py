@@ -288,7 +288,6 @@ class GenericV4FeatureProvider(RuntimeFeatureProvider):
         path_features: Mapping[str, Any],
         feature_state: Any,
     ) -> None:
-        del loan, macro_features, path_features
         feature_state.period = current_state.period
         feature_state.age_months = current_state.age_months
         feature_state.report_period = pd.Period(period_date, freq="M")
@@ -304,5 +303,4 @@ class GenericV4FeatureProvider(RuntimeFeatureProvider):
         path_features: Mapping[str, Any],
         feature_state: Any,
     ) -> Mapping[str, Any]:
-        del loan, current_state, period_date, macro_features, path_features
         return feature_state.model_features()
