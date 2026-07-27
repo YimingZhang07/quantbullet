@@ -25,9 +25,7 @@
 ## Phase 5: Run-Level Model Adapter
 
 - `run_level_model_adapter_plan.md`: 设计 run-level layout，让不同 dataset、coefficient set、feature builder 各自独立，不 hardcode 进 core infra。
-- `examples/par_2025_1_generic_v4_quantbullet/`: self-contained QuantBullet demo，只用本 folder 的 coefficients、prepared loan sample 和 config 输出 cashflows / metrics。
-- `examples/par_2025_1_generic_v4_rollrate/`: pure roll-rate reference run，只运行 roll-rate-model 并输出 reference cashflows / metrics。
-- `examples/par_2025_1_generic_v4_compare/`: workbook comparison，读取 QuantBullet 和 roll-rate outputs 并生成 diff workbook。
+- `examples/par_2025_1_generic_v4_quantbullet/`: self-contained QuantBullet demo，包含 runtime feature provider、full prepared-loan run 和 roll-rate production workbook comparison。
 
 ## Running Scripts
 
@@ -36,8 +34,7 @@
 .\.venv\Scripts\python.exe docs\loan_simulation\model_backed_example.py
 .\.venv\Scripts\python.exe docs\loan_simulation\gam_tieout.py --roll-rate-root C:\path\to\roll-rate-model
 .\.venv\Scripts\python.exe docs\loan_simulation\examples\par_2025_1_generic_v4_quantbullet\run.py
-.\.venv\Scripts\python.exe docs\loan_simulation\examples\par_2025_1_generic_v4_rollrate\run.py --roll-rate-root C:\path\to\roll-rate-model
-.\.venv\Scripts\python.exe docs\loan_simulation\examples\par_2025_1_generic_v4_compare\compare.py
+.\.venv\Scripts\python.exe docs\loan_simulation\examples\par_2025_1_generic_v4_quantbullet\compare_prod.py --rollrate-workbook C:\path\to\roll-rate-model\output\PAR_2025_1\base\sim_results.xlsx
 .\.venv\Scripts\python.exe docs\loan_simulation\reconcile.py --roll-rate-root C:\path\to\roll-rate-model
 ```
 

@@ -20,6 +20,87 @@ From repo root:
 .\.venv\Scripts\python.exe docs\loan_simulation\examples\par_2025_1_generic_v4_quantbullet\run.py
 ```
 
+By default this uses the checked-in 20-loan sample. To run against full prepared loans:
+
+```powershell
+.\.venv\Scripts\python.exe docs\loan_simulation\examples\par_2025_1_generic_v4_quantbullet\run.py --loans C:\path\to\roll-rate-model\input\deals\PAR_2025_1\loans_prepped.json
+```
+
+## High-path subset diagnostic
+
+This diagnostic uses a deterministic 100-loan sample with 2,000 paths and a
+24-month horizon. From the QuantBullet repo root:
+
+```powershell
+$quantbulletRoot = (Get-Location).Path
+$rollRateRoot = "C:\path\to\roll-rate-model"
+$env:ROLL_RATE_MODEL_ROOT = $rollRateRoot
+$subset = Join-Path $env:TEMP "par_2025_1_representative_100_loans.json"
+```
+
+Create the deterministic subset:
+
+```powershell
+@'
+import json
+import random
+import os
+from pathlib import Path
+
+root = Path(os.environ["ROLL_RATE_MODEL_ROOT"])
+loans = json.loads(
+    (root / "input/deals/PAR_2025_1/loans_prepped.json").read_text()
+)
+active = [loan for loan in loans if float(loan.get("end_bal", 0) or 0) > 0.1]
+selected = random.Random(20260726).sample(active, 100)
+selected.sort(key=lambda loan: str(loan["loan_id"]))
+(Path(os.environ["TEMP"]) / "par_2025_1_representative_100_loans.json").write_text(
+    json.dumps(selected, indent=2)
+)
+'@ | .\.venv\Scripts\python.exe -
+```
+
+Run QuantBullet:
+
+```powershell
+.\.venv\Scripts\python.exe `
+  docs\loan_simulation\examples\par_2025_1_generic_v4_quantbullet\run.py `
+  --loans $subset `
+  --workers 8 `
+  --n-paths 2000 `
+  --horizon 24 `
+  --no-path-cashflows `
+  --output docs\loan_simulation\examples\par_2025_1_generic_v4_quantbullet\quantbullet_subset100_paths2000.xlsx
+```
+
+Run roll-rate production:
+
+```powershell
+Push-Location $rollRateRoot
+& "$quantbulletRoot\.venv\Scripts\python.exe" `
+  python\run.py `
+  --deal-name PAR_2025_1 `
+  --coef-version GENERIC_v4 `
+  --loans $subset `
+  --n-per 24 `
+  --dup 2000 `
+  --seed 20260725 `
+  --mode pool `
+  --workers 8 `
+  --output output\PAR_2025_1\base\prod_subset100_paths2000_dynamic_macro.xlsx
+Pop-Location
+```
+
+Compare the production workbooks:
+
+```powershell
+.\.venv\Scripts\python.exe `
+  docs\loan_simulation\examples\par_2025_1_generic_v4_quantbullet\compare_prod.py `
+  --quantbullet-workbook docs\loan_simulation\examples\par_2025_1_generic_v4_quantbullet\quantbullet_subset100_paths2000.xlsx `
+  --rollrate-workbook "$rollRateRoot\output\PAR_2025_1\base\prod_subset100_paths2000_dynamic_macro.xlsx" `
+  --output docs\loan_simulation\examples\par_2025_1_generic_v4_quantbullet\prod_comparison.xlsx
+```
+
 ## Output
 
 Default output:
