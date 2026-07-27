@@ -126,33 +126,10 @@ def _load_macro_series(path: Path, value_column: str) -> pd.DataFrame:
 
 
 def build_payment_policy(status_config: StatusConfig) -> MatrixPaymentPolicy:
-    statuses = [CURRENT, DELINQUENT_1, DELINQUENT_2, PREPAID, CHARGED_OFF]
-    payment_matrix = {
-        CURRENT: {
-            CURRENT: 1,
-            DELINQUENT_1: 0,
-            DELINQUENT_2: 0,
-            PREPAID: 0,
-            CHARGED_OFF: 0,
-        },
-        DELINQUENT_1: {
-            CURRENT: 2,
-            DELINQUENT_1: 1,
-            DELINQUENT_2: 0,
-            PREPAID: 0,
-            CHARGED_OFF: 0,
-        },
-        DELINQUENT_2: {
-            CURRENT: 3,
-            DELINQUENT_1: 2,
-            DELINQUENT_2: 1,
-            PREPAID: 0,
-            CHARGED_OFF: 0,
-        },
-        PREPAID: {status: 0 for status in statuses},
-        CHARGED_OFF: {status: 0 for status in statuses},
-    }
-    return MatrixPaymentPolicy(payment_matrix, status_config=status_config)
+    return MatrixPaymentPolicy.from_delinquency_chain(
+        [CURRENT, DELINQUENT_1, DELINQUENT_2],
+        status_config=status_config,
+    )
 
 
 def build_cashflow_engine(status_config: StatusConfig) -> CashflowEngine:

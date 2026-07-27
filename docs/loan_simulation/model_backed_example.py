@@ -87,13 +87,10 @@ def build_transition_model(status_config: StatusConfig) -> CompositeTransitionMo
 
 
 def build_payment_policy(status_config: StatusConfig) -> MatrixPaymentPolicy:
-    payment_periods = {
-        "C": {"C": 1, "D1M": 0, "PIF": 0, "LIQ": 0},
-        "D1M": {"C": 2, "D1M": 1, "PIF": 0, "LIQ": 0},
-        "PIF": {"C": 0, "D1M": 0, "PIF": 0, "LIQ": 0},
-        "LIQ": {"C": 0, "D1M": 0, "PIF": 0, "LIQ": 0},
-    }
-    return MatrixPaymentPolicy(payment_periods, status_config=status_config)
+    return MatrixPaymentPolicy.from_delinquency_chain(
+        ["C", "D1M"],
+        status_config=status_config,
+    )
 
 
 def build_macro_provider(start_date: str, horizon: int) -> DataFrameMacroFeatureProvider:

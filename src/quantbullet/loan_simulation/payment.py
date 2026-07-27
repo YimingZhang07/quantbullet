@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from .entities import Loan, LoanState
 from .status import DEFAULT_STATUS_CONFIG, StatusConfig
@@ -43,6 +43,71 @@ class MatrixPaymentPolicy(PaymentPolicy):
             payment_periods,
             status_config=self.status_config,
         )
+
+    @classmethod
+    def from_delinquency_chain(
+        cls,
+        delinquency_chain: Sequence[str],
+        *,
+        status_config: StatusConfig,
+    ) -> MatrixPaymentPolicy:
+        """Build the standard roll-rate payment matrix from a status ladder.
+
+        ``delinquency_chain`` lists the performing statuses ordered by
+        delinquency depth, starting with the current status. Each period one
+        scheduled payment comes due, so ending at depth ``j`` after starting
+        at depth ``i`` implies ``max(i + 1 - j, 0)`` payments were collected:
+        staying current pays one, rolling deeper pays nothing, and a cure
+        collects the catch-up installments. Transitions into terminal
+        statuses collect nothing, and terminal rows are all zero.
+
+        Every valid status must either appear in the chain or be terminal;
+        build the matrix explicitly for setups with other non-terminal
+        statuses.
+        """
+        chain = [
+            status_config.require_valid_status(status)
+            for status in delinquency_chain
+        ]
+        if not chain:
+            raise ValueError("delinquency_chain must be non-empty")
+        if len(set(chain)) != len(chain):
+            raise ValueError(
+                "delinquency_chain must not contain duplicate statuses"
+            )
+        terminal_in_chain = sorted(
+            status for status in chain if status_config.is_terminal(status)
+        )
+        if terminal_in_chain:
+            raise ValueError(
+                "delinquency_chain must not contain terminal statuses: "
+                f"{terminal_in_chain}"
+            )
+        uncovered = (
+            status_config.valid_statuses
+            - frozenset(chain)
+            - status_config.terminal_statuses
+        )
+        if uncovered:
+            raise ValueError(
+                "Statuses are neither in delinquency_chain nor terminal: "
+                f"{sorted(uncovered)}"
+            )
+
+        depth = {status: index for index, status in enumerate(chain)}
+        statuses = chain + sorted(status_config.terminal_statuses)
+        payment_periods: dict[str, dict[str, int]] = {}
+        for begin_status in statuses:
+            begin_depth = depth.get(begin_status)
+            row: dict[str, int] = {}
+            for end_status in statuses:
+                end_depth = depth.get(end_status)
+                if begin_depth is None or end_depth is None:
+                    row[end_status] = 0
+                else:
+                    row[end_status] = max(begin_depth + 1 - end_depth, 0)
+            payment_periods[begin_status] = row
+        return cls(payment_periods, status_config=status_config)
 
     @property
     def payment_matrix(self) -> Mapping[str, Mapping[str, int]]:

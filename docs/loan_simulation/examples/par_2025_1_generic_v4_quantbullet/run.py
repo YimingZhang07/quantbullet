@@ -46,17 +46,6 @@ STATUS_TO_ROLL = {
     "D4M": ["D4M", "C", "D1M", "D2M", "D3M", "PIF", "LIQ"],
 }
 
-PAYMENT_MATRIX = {
-    "C": {"C": 1, "D1M": 0, "D2M": 0, "D3M": 0, "D4M": 0, "PIF": 0, "LIQ": 0},
-    "D1M": {"C": 2, "D1M": 1, "D2M": 0, "D3M": 0, "D4M": 0, "PIF": 0, "LIQ": 0},
-    "D2M": {"C": 3, "D1M": 2, "D2M": 1, "D3M": 0, "D4M": 0, "PIF": 0, "LIQ": 0},
-    "D3M": {"C": 4, "D1M": 3, "D2M": 2, "D3M": 1, "D4M": 0, "PIF": 0, "LIQ": 0},
-    "D4M": {"C": 5, "D1M": 4, "D2M": 3, "D3M": 2, "D4M": 1, "PIF": 0, "LIQ": 0},
-    "PIF": {"C": 0, "D1M": 0, "D2M": 0, "D3M": 0, "D4M": 0, "PIF": 0, "LIQ": 0},
-    "LIQ": {"C": 0, "D1M": 0, "D2M": 0, "D3M": 0, "D4M": 0, "PIF": 0, "LIQ": 0},
-}
-
-
 class RollToOrderedTransitionModel:
     """Return probabilities in the configured roll_to order before sampling."""
 
@@ -116,7 +105,10 @@ def build_transition_model(status_config: StatusConfig):
 
 
 def build_payment_policy(status_config: StatusConfig) -> MatrixPaymentPolicy:
-    return MatrixPaymentPolicy(PAYMENT_MATRIX, status_config=status_config)
+    return MatrixPaymentPolicy.from_delinquency_chain(
+        FROM_STATUSES,
+        status_config=status_config,
+    )
 
 
 def build_cashflow_engine(status_config: StatusConfig) -> CashflowEngine:
