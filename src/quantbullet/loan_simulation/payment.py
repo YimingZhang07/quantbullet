@@ -48,6 +48,21 @@ class MatrixPaymentPolicy(PaymentPolicy):
     def payment_matrix(self) -> Mapping[str, Mapping[str, int]]:
         return self._payment_periods
 
+    def __getstate__(self) -> dict[str, Any]:
+        return {
+            "payment_periods": {
+                status: dict(row)
+                for status, row in self._payment_periods.items()
+            },
+            "status_config": self.status_config,
+        }
+
+    def __setstate__(self, state: Mapping[str, Any]) -> None:
+        self.__init__(
+            state["payment_periods"],
+            status_config=state["status_config"],
+        )
+
     def payment_periods(
         self,
         loan: Loan,

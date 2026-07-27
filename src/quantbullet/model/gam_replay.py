@@ -17,6 +17,29 @@ from quantbullet.model.gam.utils import load_partial_dependence_json
 from quantbullet.model.smooth_fit import make_monotone_predictor_pchip
 
 
+class Pchip1DPredictor:
+    def __init__(self, predictor) -> None:
+        self.predictor = predictor
+
+    def __call__(self, x_new):
+        return self.predictor(x_new)
+
+    def predict_one(self, value):
+        return float(self.predictor(float(value)))
+
+
+class Linear1DPredictor:
+    def __init__(self, x_values: np.ndarray, y_values: np.ndarray) -> None:
+        self.x_values = np.asarray(x_values, dtype=float)
+        self.y_values = np.asarray(y_values, dtype=float)
+
+    def __call__(self, x_new):
+        return np.interp(np.asarray(x_new, dtype=float), self.x_values, self.y_values)
+
+    def predict_one(self, value):
+        return float(np.interp(float(value), self.x_values, self.y_values))
+
+
 def _build_1d_predictor(
     x: np.ndarray,
     y: np.ndarray,
@@ -25,13 +48,9 @@ def _build_1d_predictor(
 ):
     """Build a flat-extrapolating 1D predictor for a replayed smooth term."""
     if interpolation == "pchip":
-        predictor = make_monotone_predictor_pchip(x, y, extrapolate="flat")
-
-        def predict_one(value):
-            return float(predictor(float(value)))
-
-        predictor.predict_one = predict_one
-        return predictor
+        return Pchip1DPredictor(
+            make_monotone_predictor_pchip(x, y, extrapolate="flat")
+        )
     if interpolation == "linear":
         x_values = np.asarray(x, dtype=float)
         y_values = np.asarray(y, dtype=float)
@@ -42,14 +61,7 @@ def _build_1d_predictor(
         if len(x_values) == 0 or np.any(np.diff(x_values) <= 0):
             raise ValueError("Linear spline x values must be strictly increasing")
 
-        def predictor(x_new):
-            return np.interp(np.asarray(x_new, dtype=float), x_values, y_values)
-
-        def predict_one(value):
-            return float(np.interp(float(value), x_values, y_values))
-
-        predictor.predict_one = predict_one
-        return predictor
+        return Linear1DPredictor(x_values, y_values)
     raise ValueError(f"Unsupported spline interpolation method: {interpolation!r}")
 
 

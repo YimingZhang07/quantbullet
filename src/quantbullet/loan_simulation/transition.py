@@ -51,6 +51,25 @@ class ConstantTransitionModel(TransitionModel):
     def transitions(self) -> Mapping[str, Mapping[str, float]]:
         return self._transitions
 
+    def __getstate__(self) -> dict[str, Any]:
+        return {
+            "transitions": {
+                status: dict(probabilities)
+                for status, probabilities in self._transitions.items()
+            },
+            "status_config": self.status_config,
+            "probability_tolerance": self.probability_tolerance,
+        }
+
+    def __setstate__(self, state: Mapping[str, Any]) -> None:
+        self.status_config = state["status_config"]
+        self.probability_tolerance = state["probability_tolerance"]
+        self._transitions = _freeze_transition_table(
+            state["transitions"],
+            status_config=self.status_config,
+            probability_tolerance=self.probability_tolerance,
+        )
+
     def predict(
         self,
         loan: Loan,

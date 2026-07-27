@@ -6,11 +6,11 @@ from pathlib import Path
 import pandas as pd
 
 from .metrics import compute_period_metrics
-from .simulator import PortfolioSimulationResult
+from .simulator import PortfolioAggregateResult, PortfolioSimulationResult
 
 
 def simulation_result_frames(
-    result: PortfolioSimulationResult,
+    result: PortfolioSimulationResult | PortfolioAggregateResult,
     *,
     include_loan_cashflows: bool = True,
     include_path_cashflows: bool = True,
@@ -23,15 +23,19 @@ def simulation_result_frames(
     if include_portfolio_metrics:
         frames["portfolio_metrics"] = compute_period_metrics(portfolio_cashflows)
     if include_loan_cashflows:
+        if isinstance(result, PortfolioAggregateResult):
+            raise ValueError("loan cashflows are unavailable for aggregate results")
         frames["loan_cashflows"] = result.loan_cashflows()
     if include_path_cashflows:
+        if isinstance(result, PortfolioAggregateResult):
+            raise ValueError("path cashflows are unavailable for aggregate results")
         frames["path_cashflows"] = result.path_cashflows()
 
     return frames
 
 
 def write_simulation_workbook(
-    result: PortfolioSimulationResult,
+    result: PortfolioSimulationResult | PortfolioAggregateResult,
     output_path: str | Path,
     *,
     include_loan_cashflows: bool = True,

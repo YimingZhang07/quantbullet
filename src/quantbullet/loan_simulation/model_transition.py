@@ -59,6 +59,20 @@ class CompositeTransitionModel(TransitionModel):
     def edges(self) -> Mapping[str, Mapping[str, EdgeSpec]]:
         return self._edges
 
+    def __getstate__(self) -> dict[str, Any]:
+        return {
+            "edges": _plain_edge_table(self._edges),
+            "status_config": self.status_config,
+            "probability_tolerance": self.probability_tolerance,
+        }
+
+    def __setstate__(self, state: Mapping[str, Any]) -> None:
+        self.__init__(
+            state["edges"],
+            status_config=state["status_config"],
+            probability_tolerance=state["probability_tolerance"],
+        )
+
     def predict(
         self,
         loan: Loan,
@@ -133,6 +147,15 @@ class SoftmaxTransitionModel(TransitionModel):
     def logits(self) -> Mapping[str, Mapping[str, LogitSpec]]:
         return self._logits
 
+    def __getstate__(self) -> dict[str, Any]:
+        return {
+            "logits": _plain_edge_table(self._logits),
+            "status_config": self.status_config,
+        }
+
+    def __setstate__(self, state: Mapping[str, Any]) -> None:
+        self.__init__(state["logits"], status_config=state["status_config"])
+
     def predict(
         self,
         loan: Loan,
@@ -204,6 +227,15 @@ class ProbabilitySoftmaxTransitionModel(TransitionModel):
     def probabilities(self) -> Mapping[str, Mapping[str, ProbabilitySpec]]:
         return self._probabilities
 
+    def __getstate__(self) -> dict[str, Any]:
+        return {
+            "probabilities": _plain_edge_table(self._probabilities),
+            "status_config": self.status_config,
+        }
+
+    def __setstate__(self, state: Mapping[str, Any]) -> None:
+        self.__init__(state["probabilities"], status_config=state["status_config"])
+
     def predict(
         self,
         loan: Loan,
@@ -249,6 +281,10 @@ def _evaluate_edge_probability(edge: EdgeSpec, context: FeatureContext) -> float
     if probability < 0 or probability > 1:
         raise ValueError(f"Edge probability must be between 0 and 1; got {probability}")
     return probability
+
+
+def _plain_edge_table(table: Mapping[str, Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
+    return {from_status: dict(row) for from_status, row in table.items()}
 
 
 def _evaluate_competing_probability(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import random
 from dataclasses import asdict, dataclass, replace
+from multiprocessing import Pool
 from typing import Any, Iterable, Mapping
 
 import pandas as pd
@@ -12,6 +13,46 @@ from .macro import MacroFeatureProvider
 from .path_features import PathFeatureTracker
 from .runtime_features import EmptyRuntimeFeatureProvider, RuntimeFeatureProvider
 from .transition import TransitionModel, sample_next_status
+
+
+_PARALLEL_LOAN_SIMULATOR: Any = None
+
+
+def _init_parallel_worker(loan_simulator: "LoanSimulator") -> None:
+    global _PARALLEL_LOAN_SIMULATOR
+    _PARALLEL_LOAN_SIMULATOR = loan_simulator
+
+
+def _simulate_loan_parallel(loan: Loan) -> "LoanSimulationResult":
+    if _PARALLEL_LOAN_SIMULATOR is None:
+        raise RuntimeError("parallel loan simulator was not initialized")
+    return _PARALLEL_LOAN_SIMULATOR.simulate_loan(loan)
+
+
+def _simulate_loan_totals_parallel(
+    loan: Loan,
+) -> dict[int, tuple[float, ...]]:
+    if _PARALLEL_LOAN_SIMULATOR is None:
+        raise RuntimeError("parallel loan simulator was not initialized")
+    return _PARALLEL_LOAN_SIMULATOR.simulate_loan_totals(loan)
+
+
+AGGREGATE_CASHFLOW_FIELDS = (
+    "begin_balance",
+    "end_balance",
+    "scheduled_interest",
+    "scheduled_principal",
+    "interest_collected",
+    "principal_collected",
+    "default_balance",
+    "loss",
+    "gross_recovery",
+    "recovery_cost",
+    "net_recovery",
+    "delinquent_balance",
+    "prepayment_amount",
+    "total_cashflow",
+)
 
 
 @dataclass(frozen=True)
@@ -75,12 +116,46 @@ class PortfolioSimulationResult:
         if frame.empty:
             return frame
         numeric_cols = _numeric_cashflow_columns(frame)
-        return (
+        portfolio = (
             frame.groupby(["period", "period_date"], as_index=False)[numeric_cols]
             .sum()
             .sort_values("period")
             .reset_index(drop=True)
         )
+        portfolio["original_balance"] = sum(
+            float(result.loan.original_balance) for result in self.loan_results
+        )
+        return portfolio
+
+
+@dataclass(frozen=True)
+class PortfolioAggregateResult:
+    """Compact portfolio totals for runs that do not retain path rows."""
+
+    period_totals: dict[int, tuple[float, ...]]
+    start_period: pd.Period
+    original_balance: float
+
+    def portfolio_cashflows(self) -> pd.DataFrame:
+        rows = []
+        for period in sorted(self.period_totals):
+            values = self.period_totals[period]
+            row = {
+                "period": period,
+                "period_date": str(self.start_period + period),
+            }
+            row.update(
+                {
+                    field: value
+                    for field, value in zip(
+                        AGGREGATE_CASHFLOW_FIELDS,
+                        values,
+                    )
+                }
+            )
+            row["original_balance"] = self.original_balance
+            rows.append(row)
+        return pd.DataFrame(rows)
 
 
 class LoanSimulator:
@@ -127,6 +202,22 @@ class LoanSimulator:
             start_period=self.start_period,
             n_paths=self.n_paths,
         )
+
+    def simulate_loan_totals(self, loan: Loan) -> dict[int, tuple[float, ...]]:
+        totals: dict[int, list[float]] = {}
+        for path_id in range(self.n_paths):
+            rng = random.Random(_stable_seed(self.seed, loan.loan_id, path_id))
+            for cashflow in self._simulate_path(loan, path_id=path_id, rng=rng):
+                period_totals = totals.setdefault(
+                    cashflow.period,
+                    [0.0] * len(AGGREGATE_CASHFLOW_FIELDS),
+                )
+                for index, value in enumerate(_aggregate_cashflow_values(cashflow)):
+                    period_totals[index] += value
+        return {
+            period: tuple(value / self.n_paths for value in values)
+            for period, values in totals.items()
+        }
 
     def _simulate_path(
         self,
@@ -233,6 +324,76 @@ class PortfolioSimulator:
             [self.loan_simulator.simulate_loan(loan) for loan in loans]
         )
 
+    def simulate_parallel(
+        self,
+        loans: Iterable[Loan],
+        *,
+        workers: int,
+        chunksize: int | None = None,
+    ) -> PortfolioSimulationResult:
+        if workers <= 1:
+            return self.simulate(loans)
+
+        loan_list = list(loans)
+        if not loan_list:
+            return PortfolioSimulationResult([])
+
+        with Pool(
+            processes=workers,
+            initializer=_init_parallel_worker,
+            initargs=(self.loan_simulator,),
+        ) as pool:
+            loan_results = pool.map(
+                _simulate_loan_parallel,
+                loan_list,
+                chunksize=chunksize,
+            )
+        return PortfolioSimulationResult(loan_results)
+
+    def simulate_parallel_aggregate(
+        self,
+        loans: Iterable[Loan],
+        *,
+        workers: int,
+        chunksize: int | None = None,
+    ) -> PortfolioAggregateResult:
+        loan_list = list(loans)
+        portfolio_totals: dict[int, list[float]] = {}
+
+        if workers <= 1:
+            for loan in loan_list:
+                _merge_period_totals(
+                    portfolio_totals,
+                    self.loan_simulator.simulate_loan_totals(loan),
+                )
+        elif loan_list:
+            effective_chunksize = chunksize or max(
+                1,
+                len(loan_list) // (workers * 4),
+            )
+            with Pool(
+                processes=workers,
+                initializer=_init_parallel_worker,
+                initargs=(self.loan_simulator,),
+            ) as pool:
+                for loan_totals in pool.imap(
+                    _simulate_loan_totals_parallel,
+                    loan_list,
+                    chunksize=effective_chunksize,
+                ):
+                    _merge_period_totals(portfolio_totals, loan_totals)
+
+        return PortfolioAggregateResult(
+            period_totals={
+                period: tuple(values)
+                for period, values in portfolio_totals.items()
+            },
+            start_period=self.loan_simulator.start_period,
+            original_balance=sum(
+                float(loan.original_balance) for loan in loan_list
+            ),
+        )
+
 
 def _cashflows_to_frame(
     cashflows: list[PeriodCashflow],
@@ -249,6 +410,35 @@ def _cashflows_to_frame(
         row["total_cashflow"] = cashflow.total_cashflow
         rows.append(row)
     return pd.DataFrame(rows)
+
+
+def _aggregate_cashflow_values(cashflow: PeriodCashflow) -> tuple[float, ...]:
+    return (
+        cashflow.begin_balance,
+        cashflow.end_balance,
+        cashflow.scheduled_interest,
+        cashflow.scheduled_principal,
+        cashflow.interest_collected,
+        cashflow.principal_collected,
+        cashflow.default_balance,
+        cashflow.loss,
+        cashflow.gross_recovery,
+        cashflow.recovery_cost,
+        cashflow.net_recovery,
+        cashflow.delinquent_balance,
+        cashflow.prepayment_amount,
+        cashflow.total_cashflow,
+    )
+
+
+def _merge_period_totals(
+    portfolio_totals: dict[int, list[float]],
+    loan_totals: dict[int, tuple[float, ...]],
+) -> None:
+    for period, values in loan_totals.items():
+        totals = portfolio_totals.setdefault(period, [0.0] * len(values))
+        for index, value in enumerate(values):
+            totals[index] += value
 
 
 def _numeric_cashflow_columns(frame: pd.DataFrame) -> list[str]:

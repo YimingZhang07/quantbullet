@@ -17,6 +17,21 @@ from quantbullet.loan_simulation.status import StatusConfig
 FeatureBuilder = Callable[[FeatureContext], Mapping[str, Any]]
 
 
+class GAMReplayLogit:
+    """Pickle-safe ``FeatureContext -> logit`` adapter."""
+
+    def __init__(
+        self,
+        edge_model: GAMReplayModel,
+        feature_builder: FeatureBuilder,
+    ) -> None:
+        self.edge_model = edge_model
+        self.feature_builder = feature_builder
+
+    def __call__(self, context: FeatureContext) -> float:
+        return self.edge_model.predict_one(self.feature_builder(context))
+
+
 def replay_model_logit(
     edge_model: GAMReplayModel,
     feature_builder: FeatureBuilder,
@@ -26,11 +41,7 @@ def replay_model_logit(
         raise TypeError(
             "edge_model must be a quantbullet.model.gam_replay.GAMReplayModel"
         )
-
-    def logit(context: FeatureContext) -> float:
-        return edge_model.predict_one(feature_builder(context))
-
-    return logit
+    return GAMReplayLogit(edge_model, feature_builder)
 
 
 def build_softmax_transition_model(
