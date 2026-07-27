@@ -7,7 +7,7 @@ probability models, Monte Carlo paths, cashflow projection, and Excel reporting.
 ## Inputs
 
 - `input/loans.csv`: 100 deterministic synthetic loans. All loans originate on
-  `2000-01-31`, start at age `0` in status `C`, and have `balance` equal to
+  `2000-01-31`, start at age `0` in status `CURRENT`, and have `balance` equal to
   `original_balance`. Terms are limited to 3, 5, or 10 years. Each loan coupon
   is the market rate at origination plus a seeded spread of 1% to 4%.
 - `input/hpi.csv`: monthly HPI index values.
@@ -31,9 +31,9 @@ This keeps raw macro lookup, feature construction, and model scoring separate.
 
 ## Transition model
 
-Active states are `C`, `D1`, and `D2`. `PIF` is prepaid and `CO` is charged off;
-both are terminal. Normal scheduled paydown is not a separate state: the path
-ends naturally when amortization reduces its balance to zero.
+Active states are `CURRENT`, `DQ30`, and `DQ60`. `PREPAID` and `CHARGED_OFF`
+are terminal. Normal scheduled paydown is not a separate state: the path ends
+naturally when amortization reduces its balance to zero.
 
 `ProbabilitySoftmaxTransitionModel` treats every configured edge value as an
 independent binary probability. It converts each probability to odds
@@ -42,16 +42,16 @@ independent binary probability. It converts each probability to odds
 The two feature-backed probability models are deliberately elevated so their
 effect is visible in a small demo:
 
-- `C -> D1`:
+- `CURRENT -> DQ30`:
   `clip(0.045 + 0.00015*age + 0.40*incentive - 0.0005*(hpi-100), 0.02, 0.12)`.
-- `C -> PIF`:
+- `CURRENT -> PREPAID`:
   `clip(0.025 + 0.00025*age + 1.20*incentive + 0.0003*(hpi-100), 0.02, 0.18)`.
 
-There is no direct `C -> CO` edge. The other competing probability specs are
-constants:
+There is no direct `CURRENT -> CHARGED_OFF` edge. The other competing
+probability specs are constants:
 
-- From `D1`: `C=0.30`, `D2=0.25`, `PIF=0.03`, `CO=0.02`.
-- From `D2`: `C=0.10`, `D1=0.20`, `PIF=0.02`, `CO=0.25`.
+- From `DQ30`: `CURRENT=0.30`, `DQ60=0.25`, `PREPAID=0.03`, `CHARGED_OFF=0.02`.
+- From `DQ60`: `CURRENT=0.10`, `DQ30=0.20`, `PREPAID=0.02`, `CHARGED_OFF=0.25`.
 
 Charge-off uses 60% severity and a three-month recovery lag. The payment matrix
 uses normal roll-rate semantics: delinquency misses payments and cures collect

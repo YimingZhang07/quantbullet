@@ -7,16 +7,17 @@ from dataclasses import dataclass
 from feature_builder import build_feature_dict
 from quantbullet.loan_simulation import (
     FeatureContext,
+    LoanStatus,
     ProbabilitySoftmaxTransitionModel,
     StatusConfig,
 )
 
 
-CURRENT = "C"
-DELINQUENT_1 = "D1"
-DELINQUENT_2 = "D2"
-PREPAID = "PIF"
-CHARGED_OFF = "CO"
+CURRENT = LoanStatus.CURRENT
+DELINQUENT_1 = LoanStatus.DQ30
+DELINQUENT_2 = LoanStatus.DQ60
+PREPAID = LoanStatus.PREPAID
+CHARGED_OFF = LoanStatus.CHARGED_OFF
 
 
 @dataclass(frozen=True)

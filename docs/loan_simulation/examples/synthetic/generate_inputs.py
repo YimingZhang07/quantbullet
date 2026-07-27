@@ -11,6 +11,8 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from quantbullet.loan_simulation import LoanStatus
+
 
 EXAMPLE_DIR = Path(__file__).resolve().parent
 INPUT_DIR = EXAMPLE_DIR / "input"
@@ -66,7 +68,7 @@ def build_loan_rows(origination_base_rate: float) -> list[dict[str, Any]]:
                 "annual_rate": f"{annual_rate:.6f}",
                 "term_months": rng.choice(LOAN_TERM_MONTHS),
                 "age_months": 0,
-                "status": "C",
+                "status": LoanStatus.CURRENT,
             }
         )
 

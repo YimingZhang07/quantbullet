@@ -1,18 +1,29 @@
 from __future__ import annotations
 
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
-from typing import Mapping
+from enum import StrEnum
 
 
-class LoanStatus:
-    """Default status names for the first phase of the simulation framework."""
+class LoanStatus(StrEnum):
+    """Recommended loan status string constants.
+
+    These constants are a convenience catalog, not a closed vocabulary. Callers
+    can still pass custom status strings through ``StatusConfig``.
+    """
 
     CURRENT = "CURRENT"
     DQ30 = "DQ30"
     DQ60 = "DQ60"
     DQ90 = "DQ90"
+    DQ120 = "DQ120"
     DEFAULTED = "DEFAULTED"
+    CHARGED_OFF = "CHARGED_OFF"
     PAID_OFF = "PAID_OFF"
+    PREPAID = "PREPAID"
+    REFI = "REFI"
+    SOLD = "SOLD"
+    LIQUIDATED = "LIQUIDATED"
 
 
 @dataclass(frozen=True)
@@ -25,10 +36,10 @@ class StatusConfig:
     reporting states.
     """
 
-    valid_statuses: set[str] | frozenset[str]
-    terminal_statuses: set[str] | frozenset[str]
-    prepay_statuses: set[str] | frozenset[str]
-    default_statuses: set[str] | frozenset[str]
+    valid_statuses: Collection[str]
+    terminal_statuses: Collection[str]
+    prepay_statuses: Collection[str]
+    default_statuses: Collection[str]
     delinquency_buckets: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:

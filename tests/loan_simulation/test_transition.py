@@ -5,6 +5,7 @@ import pytest
 from quantbullet.loan_simulation import (
     ConstantTransitionModel,
     Loan,
+    LoanStatus,
     StatusConfig,
     sample_next_status,
 )
@@ -28,6 +29,21 @@ def test_custom_status_config_supports_roll_rate_style_states():
 def test_status_config_requires_explicit_status_vocabulary():
     with pytest.raises(TypeError, match="valid_statuses"):
         StatusConfig()
+
+
+def test_status_config_accepts_standard_status_constants():
+    config = StatusConfig(
+        valid_statuses={LoanStatus.CURRENT, LoanStatus.DQ30, LoanStatus.PREPAID},
+        terminal_statuses={LoanStatus.PREPAID},
+        prepay_statuses={LoanStatus.PREPAID},
+        default_statuses=set(),
+        delinquency_buckets={LoanStatus.DQ30: "dq30_balance"},
+    )
+
+    assert config.require_valid_status(LoanStatus.CURRENT) == "CURRENT"
+    assert str(LoanStatus.CURRENT) == "CURRENT"
+    assert config.require_valid_status(LoanStatus.PREPAID) == "PREPAID"
+    assert config.delinquency_bucket(LoanStatus.DQ30) == "dq30_balance"
 
 
 def test_status_config_rejects_statuses_outside_vocabulary():
