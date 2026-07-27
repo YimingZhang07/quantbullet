@@ -6,17 +6,9 @@ import argparse
 from pathlib import Path
 
 import pandas as pd
-
 from feature_builder import SyntheticFeatureProvider
-from models import (
-    CHARGED_OFF,
-    CURRENT,
-    DELINQUENT_1,
-    DELINQUENT_2,
-    PREPAID,
-    build_status_config,
-    build_transition_model,
-)
+from models import build_status_config, build_transition_model
+
 from quantbullet.loan_simulation import (
     CashflowEngine,
     ConstantRecoveryLagProvider,
@@ -24,12 +16,12 @@ from quantbullet.loan_simulation import (
     DataFrameMacroFeatureProvider,
     Loan,
     LoanSimulator,
+    LoanStatus,
     MatrixPaymentPolicy,
     PortfolioSimulator,
     StatusConfig,
     write_simulation_workbook,
 )
-
 
 EXAMPLE_DIR = Path(__file__).resolve().parent
 INPUT_DIR = EXAMPLE_DIR / "input"
@@ -127,7 +119,7 @@ def _load_macro_series(path: Path, value_column: str) -> pd.DataFrame:
 
 def build_payment_policy(status_config: StatusConfig) -> MatrixPaymentPolicy:
     return MatrixPaymentPolicy.from_delinquency_chain(
-        [CURRENT, DELINQUENT_1, DELINQUENT_2],
+        [LoanStatus.CURRENT, LoanStatus.DQ30, LoanStatus.DQ60],
         status_config=status_config,
     )
 

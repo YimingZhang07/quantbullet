@@ -13,13 +13,6 @@ from quantbullet.loan_simulation import (
 )
 
 
-CURRENT = LoanStatus.CURRENT
-DELINQUENT_1 = LoanStatus.DQ30
-DELINQUENT_2 = LoanStatus.DQ60
-PREPAID = LoanStatus.PREPAID
-CHARGED_OFF = LoanStatus.CHARGED_OFF
-
-
 @dataclass(frozen=True)
 class BoundedLinearProbabilityModel:
     """Score a bounded binary probability from age, incentive, and HPI."""
@@ -47,7 +40,7 @@ class BoundedLinearProbabilityModel:
         return min(max(probability, self.minimum), self.maximum)
 
 
-C_TO_D1_MODEL = BoundedLinearProbabilityModel(
+CURRENT_TO_DQ30_MODEL = BoundedLinearProbabilityModel(
     intercept=0.045,
     age_coefficient=0.00015,
     incentive_coefficient=0.40,
@@ -56,7 +49,7 @@ C_TO_D1_MODEL = BoundedLinearProbabilityModel(
     maximum=0.12,
 )
 
-C_TO_PIF_MODEL = BoundedLinearProbabilityModel(
+CURRENT_TO_PREPAID_MODEL = BoundedLinearProbabilityModel(
     intercept=0.025,
     age_coefficient=0.00025,
     incentive_coefficient=1.20,
@@ -69,18 +62,18 @@ C_TO_PIF_MODEL = BoundedLinearProbabilityModel(
 def build_status_config() -> StatusConfig:
     return StatusConfig(
         valid_statuses={
-            CURRENT,
-            DELINQUENT_1,
-            DELINQUENT_2,
-            PREPAID,
-            CHARGED_OFF,
+            LoanStatus.CURRENT,
+            LoanStatus.DQ30,
+            LoanStatus.DQ60,
+            LoanStatus.PREPAID,
+            LoanStatus.CHARGED_OFF,
         },
-        terminal_statuses={PREPAID, CHARGED_OFF},
-        prepay_statuses={PREPAID},
-        default_statuses={CHARGED_OFF},
+        terminal_statuses={LoanStatus.PREPAID, LoanStatus.CHARGED_OFF},
+        prepay_statuses={LoanStatus.PREPAID},
+        default_statuses={LoanStatus.CHARGED_OFF},
         delinquency_buckets={
-            DELINQUENT_1: "dq30_balance",
-            DELINQUENT_2: "dq60_balance",
+            LoanStatus.DQ30: "dq30_balance",
+            LoanStatus.DQ60: "dq60_balance",
         },
     )
 
@@ -90,21 +83,21 @@ def build_transition_model(
 ) -> ProbabilitySoftmaxTransitionModel:
     return ProbabilitySoftmaxTransitionModel(
         probabilities={
-            CURRENT: {
-                DELINQUENT_1: C_TO_D1_MODEL,
-                PREPAID: C_TO_PIF_MODEL,
+            LoanStatus.CURRENT: {
+                LoanStatus.DQ30: CURRENT_TO_DQ30_MODEL,
+                LoanStatus.PREPAID: CURRENT_TO_PREPAID_MODEL,
             },
-            DELINQUENT_1: {
-                CURRENT: 0.30,
-                DELINQUENT_2: 0.25,
-                PREPAID: 0.03,
-                CHARGED_OFF: 0.02,
+            LoanStatus.DQ30: {
+                LoanStatus.CURRENT: 0.30,
+                LoanStatus.DQ60: 0.25,
+                LoanStatus.PREPAID: 0.03,
+                LoanStatus.CHARGED_OFF: 0.02,
             },
-            DELINQUENT_2: {
-                CURRENT: 0.10,
-                DELINQUENT_1: 0.20,
-                PREPAID: 0.02,
-                CHARGED_OFF: 0.25,
+            LoanStatus.DQ60: {
+                LoanStatus.CURRENT: 0.10,
+                LoanStatus.DQ30: 0.20,
+                LoanStatus.PREPAID: 0.02,
+                LoanStatus.CHARGED_OFF: 0.25,
             },
         },
         status_config=status_config,
