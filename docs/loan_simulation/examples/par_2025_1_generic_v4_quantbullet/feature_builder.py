@@ -4,28 +4,24 @@ from __future__ import annotations
 
 import csv
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
 from quantbullet.loan_simulation import (
+    MISSING,
     FeatureStateBase,
     Loan,
     LoanState,
     RuntimeFeatureProvider,
+    model_feature,
 )
-
-MISSING = object()
 
 
 def build_feature_dict(context) -> Mapping[str, Any]:
     return context.model_features
-
-
-class FeatureEvaluationError(ValueError):
-    pass
 
 
 def advance_c_age_pct(state: FeatureState, env: Mapping[str, Any]) -> float:
@@ -80,87 +76,61 @@ def advance_rate_incentive_all(state: FeatureState, env: Mapping[str, Any]) -> A
 
 @dataclass
 class FeatureState(FeatureStateBase):
-    # model-facing fields
-    adj_balance_cpi: float = field(metadata={"kind": "static_model"})
-    c_age_pct: float = field(
-        metadata={
-            "kind": "dynamic_model",
-            "deps": ("age_months", "term"),
-            "advance": advance_c_age_pct,
-        }
-    )
-    c_credit_age: float = field(metadata={"kind": "static_model"})
-    cpi_inflator_12: float = field(
-        metadata={
-            "kind": "dynamic_model",
-            "deps": ("report_period",),
-            "advance": advance_cpi_inflator_12,
-            "carry_forward": True,
-        }
-    )
-    cpi_inflator_36: float = field(
-        metadata={
-            "kind": "dynamic_model",
-            "deps": ("report_period",),
-            "advance": advance_cpi_inflator_36,
-            "carry_forward": True,
-        }
-    )
-    credit_age: float = field(metadata={"kind": "static_model"})
-    days_to_month_end: int = field(
-        metadata={
-            "kind": "dynamic_model",
-            "deps": ("report_period", "pmt_day"),
-            "advance": advance_days_to_month_end,
-        }
-    )
-    employed_f: str = field(metadata={"kind": "static_model"})
-    hm_owner: str = field(metadata={"kind": "static_model"})
-    lending_environment: float = field(metadata={"kind": "static_model"})
-    month: str = field(
-        metadata={
-            "kind": "dynamic_model",
-            "deps": ("report_period",),
-            "advance": advance_month,
-        }
-    )
-    month_group: str = field(
-        metadata={
-            "kind": "dynamic_model",
-            "deps": ("days_to_month_end",),
-            "advance": advance_month_group,
-        }
-    )
-    ofico: float = field(metadata={"kind": "static_model"})
-    opti: float = field(metadata={"kind": "static_model"})
-    oterm_f: str = field(metadata={"kind": "static_model"})
-    purpose: str = field(metadata={"kind": "static_model"})
-    rate_incentive_ALL: float = field(
-        metadata={
-            "kind": "dynamic_model",
-            "deps": ("report_period", "fico_bkt", "coupon_at_vintage"),
-            "advance": advance_rate_incentive_all,
-            "carry_forward": True,
-        }
-    )
-    rel_fico_ratio_ALL: float = field(metadata={"kind": "static_model"})
-    v_credit_age: float = field(metadata={"kind": "static_model"})
-    v_ofico: float = field(metadata={"kind": "static_model"})
-    v_opti: float = field(metadata={"kind": "static_model"})
-    v_rate_incentive_ALL: float = field(metadata={"kind": "static_model"})
-    v_rel_fico_ratio_ALL: float = field(metadata={"kind": "static_model"})
+    """GENERIC_v4 runtime feature state.
 
-    # provider-only context for advancing model-facing fields
-    report_period: pd.Period = field(metadata={"kind": "dynamic_context"})
-    term: int = field(metadata={"kind": "static_context"})
-    pmt_day: int = field(metadata={"kind": "static_context"})
-    fico_bkt: str = field(metadata={"kind": "static_context"})
-    coupon_at_vintage: float | None = field(metadata={"kind": "static_context"})
-    age_months: int = field(metadata={"kind": "dynamic_context"})
-    period: int = field(default=0, metadata={"kind": "dynamic_context"})
+    ``model_feature`` fields are the model input schema; static ones are loaded
+    from the prepared loan tape at path start, dynamic ones own their update
+    logic. Plain fields are provider context used to advance model features.
+    """
 
+    # model features
+    adj_balance_cpi: float = model_feature()
+    c_age_pct: float = model_feature(advance_c_age_pct, deps=("age_months", "term"))
+    c_credit_age: float = model_feature()
+    cpi_inflator_12: float = model_feature(
+        advance_cpi_inflator_12,
+        deps=("report_period",),
+        carry_forward=True,
+    )
+    cpi_inflator_36: float = model_feature(
+        advance_cpi_inflator_36,
+        deps=("report_period",),
+        carry_forward=True,
+    )
+    credit_age: float = model_feature()
+    days_to_month_end: int = model_feature(
+        advance_days_to_month_end,
+        deps=("report_period", "pmt_day"),
+    )
+    employed_f: str = model_feature()
+    hm_owner: str = model_feature()
+    lending_environment: float = model_feature()
+    month: str = model_feature(advance_month, deps=("report_period",))
+    month_group: str = model_feature(advance_month_group, deps=("days_to_month_end",))
+    ofico: float = model_feature()
+    opti: float = model_feature()
+    oterm_f: str = model_feature()
+    purpose: str = model_feature()
+    rate_incentive_ALL: float = model_feature(
+        advance_rate_incentive_all,
+        deps=("report_period", "fico_bkt", "coupon_at_vintage"),
+        carry_forward=True,
+    )
+    rel_fico_ratio_ALL: float = model_feature()
+    v_credit_age: float = model_feature()
+    v_ofico: float = model_feature()
+    v_opti: float = model_feature()
+    v_rate_incentive_ALL: float = model_feature()
+    v_rel_fico_ratio_ALL: float = model_feature()
 
-FeatureState.configure_feature_metadata()
+    # provider-only context for advancing model features
+    report_period: pd.Period
+    term: int
+    pmt_day: int
+    fico_bkt: str
+    coupon_at_vintage: float | None
+    age_months: int
+    period: int = 0
 
 
 def derive_days_to_month_end(report_period: pd.Period, pmt_day: int) -> int:
@@ -322,23 +292,11 @@ class GenericV4FeatureProvider(RuntimeFeatureProvider):
         feature_state.period = current_state.period
         feature_state.age_months = current_state.age_months
         feature_state.report_period = pd.Period(period_date, freq="M")
-
-        for spec in FeatureState.FEATURE_SPECS:
-            if spec.advance is None:
-                continue
-
-            value = spec.advance(feature_state, self.inputs)
-            if value is MISSING:
-                if spec.carry_forward:
-                    continue
-                raise FeatureEvaluationError(
-                    f"feature {spec.name!r} is missing for period {feature_state.period}"
-                )
-
-            setattr(feature_state, spec.name, value)
+        feature_state.update_features(self.inputs)
 
     def model_features_for_period(
         self,
+        *,
         loan: Loan,
         current_state: LoanState,
         period_date: pd.Period,
@@ -346,7 +304,5 @@ class GenericV4FeatureProvider(RuntimeFeatureProvider):
         path_features: Mapping[str, Any],
         feature_state: Any,
     ) -> Mapping[str, Any]:
-        return {
-            name: getattr(feature_state, name)
-            for name in FeatureState.MODEL_FEATURE_NAMES
-        }
+        del loan, current_state, period_date, macro_features, path_features
+        return feature_state.model_features()

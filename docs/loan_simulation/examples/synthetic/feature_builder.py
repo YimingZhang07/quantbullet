@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import pandas as pd
@@ -13,75 +13,39 @@ from quantbullet.loan_simulation import (
     Loan,
     LoanState,
     RuntimeFeatureProvider,
+    model_feature,
 )
 
 
-def advance_age(state: FeatureState, env: Mapping[str, Any]) -> float:
+def update_age(state: FeatureState, env: Mapping[str, Any]) -> float:
     del env
     return float(state.age_months)
 
 
-def advance_incentive(state: FeatureState, env: Mapping[str, Any]) -> float:
+def update_incentive(state: FeatureState, env: Mapping[str, Any]) -> float:
     return float(state.annual_rate) - float(env["market_rate"])
 
 
-def advance_hpi(state: FeatureState, env: Mapping[str, Any]) -> float:
+def update_hpi(state: FeatureState, env: Mapping[str, Any]) -> float:
     return float(env["hpi"])
 
 
 @dataclass
 class FeatureState(FeatureStateBase):
-    """Synthetic model feature state and metadata.
+    """Synthetic runtime feature state.
 
-    The fields with ``*_model`` metadata define the model input schema. Context
-    fields are provider-owned inputs used to advance those model-facing fields.
+    Plain fields are provider context. ``model_feature`` fields form the model
+    input schema, and each one owns its per-period update logic.
     """
 
-    # model-facing fields
-    age: float = field(
-        init=False,
-        metadata={
-            "kind": "dynamic_model",
-            "deps": ("age_months",),
-            "advance": advance_age,
-        },
-    )
-    incentive: float = field(
-        init=False,
-        metadata={
-            "kind": "dynamic_model",
-            "deps": ("annual_rate", "market_rate"),
-            "advance": advance_incentive,
-        },
-    )
-    hpi: float = field(
-        init=False,
-        metadata={
-            "kind": "dynamic_model",
-            "deps": ("hpi",),
-            "advance": advance_hpi,
-        },
-    )
+    # provider context
+    annual_rate: float
+    age_months: int
 
-    # provider-only context
-    annual_rate: float = field(metadata={"kind": "static_context"})
-    age_months: int = field(metadata={"kind": "dynamic_context"})
-
-    def update_for_period(
-        self,
-        *,
-        loan: Loan,
-        current_state: LoanState,
-        macro_features: Mapping[str, Any],
-    ) -> None:
-        self.annual_rate = float(loan.annual_rate)
-        self.age_months = int(current_state.age_months)
-        for spec in self.FEATURE_SPECS:
-            if spec.advance is not None:
-                setattr(self, spec.name, spec.advance(self, macro_features))
-
-
-FeatureState.configure_feature_metadata()
+    # model features
+    age: float = model_feature(update_age, init=False)
+    incentive: float = model_feature(update_incentive, init=False)
+    hpi: float = model_feature(update_hpi, init=False)
 
 
 class SyntheticFeatureProvider(RuntimeFeatureProvider):
@@ -111,11 +75,9 @@ class SyntheticFeatureProvider(RuntimeFeatureProvider):
     ) -> None:
         del period_date, path_features
         state = _require_feature_state(feature_state)
-        state.update_for_period(
-            loan=loan,
-            current_state=current_state,
-            macro_features=macro_features,
-        )
+        state.annual_rate = float(loan.annual_rate)
+        state.age_months = int(current_state.age_months)
+        state.update_features(macro_features)
 
     def model_features_for_period(
         self,
@@ -128,8 +90,7 @@ class SyntheticFeatureProvider(RuntimeFeatureProvider):
         feature_state: Any,
     ) -> Mapping[str, float]:
         del loan, current_state, period_date, macro_features, path_features
-        state = _require_feature_state(feature_state)
-        return state.model_features()
+        return _require_feature_state(feature_state).model_features()
 
 
 def _require_feature_state(feature_state: Any) -> FeatureState:

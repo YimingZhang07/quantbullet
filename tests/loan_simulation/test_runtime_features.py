@@ -1,34 +1,62 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from typing import Any
 
-from quantbullet.loan_simulation import FeatureStateBase
+import pytest
+
+from quantbullet.loan_simulation import (
+    MISSING,
+    FeatureStateBase,
+    FeatureUpdateError,
+    model_feature,
+)
 
 
-def test_feature_state_base_derives_schema_metadata():
-    def advance_score(state, env):
-        return state.base_score + env["lift"]
+def update_score(state: Any, env: Any) -> float:
+    return state.base_score + env["lift"]
 
+
+def update_lookup(state: Any, env: Any) -> Any:
+    return env.get("lookup", MISSING)
+
+
+@dataclass
+class ExampleFeatureState(FeatureStateBase):
+    base_score: float
+    score: float = model_feature(update_score, deps=("base_score",), init=False)
+    grade: str = model_feature(default="A")
+    lookup: float = model_feature(update_lookup, carry_forward=True, default=1.5)
+
+
+def test_model_feature_fields_define_schema_and_update_logic():
+    state = ExampleFeatureState(base_score=1.0)
+
+    state.update_features({"lift": 2.0})
+
+    assert state.model_feature_names == ("score", "grade", "lookup")
+    assert state.feature_specs[0].deps == ("base_score",)
+    assert state.model_features() == {"score": 3.0, "grade": "A", "lookup": 1.5}
+
+
+def test_carry_forward_keeps_previous_value_on_missing():
+    state = ExampleFeatureState(base_score=1.0)
+
+    state.update_features({"lift": 0.0, "lookup": 2.5})
+    state.update_features({"lift": 0.0})
+
+    assert state.lookup == 2.5
+
+
+def test_missing_without_carry_forward_raises():
     @dataclass
-    class ExampleFeatureState(FeatureStateBase):
-        score: float = field(
-            default=0.0,
-            metadata={
-                "kind": "dynamic_model",
-                "deps": ("base_score", "lift"),
-                "advance": advance_score,
-            },
-        )
-        base_score: float = field(
-            default=1.0,
-            metadata={"kind": "static_context"},
-        )
+    class StrictFeatureState(FeatureStateBase):
+        value: float = model_feature(lambda state, env: MISSING, default=0.0)
 
-    ExampleFeatureState.configure_feature_metadata()
-    state = ExampleFeatureState()
+    with pytest.raises(FeatureUpdateError, match="'value'"):
+        StrictFeatureState().update_features({})
 
-    assert ExampleFeatureState.MODEL_FEATURE_NAMES == ("score",)
-    assert ExampleFeatureState.ADVANCED_FEATURE_NAMES == ("score",)
-    assert ExampleFeatureState.PROVIDER_FEATURE_NAMES == ("base_score",)
-    assert ExampleFeatureState.FEATURE_SPECS[0].deps == ("base_score", "lift")
 
-    state.score = ExampleFeatureState.FEATURE_SPECS[0].advance(state, {"lift": 2.0})
-    assert state.model_features() == {"score": 3.0}
+def test_feature_specs_are_cached_per_class_not_per_instance():
+    first = ExampleFeatureState(base_score=1.0)
+    second = ExampleFeatureState(base_score=2.0)
+
+    assert first.feature_specs is second.feature_specs
