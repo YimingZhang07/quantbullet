@@ -12,19 +12,29 @@ from typing import Dict, Any, Optional, List
 from quantbullet.parametric_model import (
     DoubleLogisticModel,
     AsymQuadModel,
+    DoubleExponentialModel,
+    ExpPlateauModel,
+    HillDoubleLogisticModel,
     InterpolatedModel,
     SigmoidModel,
     BathtubModel,
     SplineModel,
+    StretchedExponentialModel,
 )
 
+# Keys must match each class's ``default_model_name`` so that a component can be
+# serialized with ``ComponentConfig(class_name=model.default_model_name)``.
 MODEL_REGISTRY = {
     "DoubleLogisticModel": DoubleLogisticModel,
     "AsymQuadModel": AsymQuadModel,
+    "DoubleExponentialModel": DoubleExponentialModel,
+    "ExpPlateauModel": ExpPlateauModel,
+    "HillDoubleLogisticModel": HillDoubleLogisticModel,
     "InterpolatedModel": InterpolatedModel,
     "SigmoidModel": SigmoidModel,
     "BathtubModel": BathtubModel,
     "SplineModel": SplineModel,
+    "StretchedExponentialModel": StretchedExponentialModel,
 }
 
 @dataclass

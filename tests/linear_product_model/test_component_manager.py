@@ -6,13 +6,14 @@ import unittest
 from unittest.mock import patch
 
 from quantbullet.linear_product_model.component_manager import (
+    MODEL_REGISTRY,
     ComponentConfig,
     ComponentRegistry,
     ComponentManager,
     dataclass_to_dict,
     dict_to_dataclass,
 )
-from quantbullet.parametric_model import AsymQuadModel, DoubleLogisticModel
+from quantbullet.parametric_model import AsymQuadModel, DoubleLogisticModel, ExpPlateauModel
 
 
 class TestComponentConfig(unittest.TestCase):
@@ -27,6 +28,25 @@ class TestComponentConfig(unittest.TestCase):
         model = config.build()
         self.assertIsInstance(model, AsymQuadModel)
         self.assertEqual(model.params_dict, {"a": 1.0, "b": 2.0, "x0": 0.0, "c": 1.0})
+
+
+class TestModelRegistry(unittest.TestCase):
+    """Guard the registry keys against the class names used to serialize components."""
+
+    def test_registry_keys_match_default_model_names(self):
+        for key, cls in MODEL_REGISTRY.items():
+            self.assertEqual(key, cls.default_model_name)
+
+    def test_registered_class_builds_from_config(self):
+        params = {"L": 1.0, "k": 0.01, "y0": 0.5}
+        config = ComponentConfig(
+            class_name=ExpPlateauModel.default_model_name,
+            args={"params_dict": params},
+        )
+
+        model = config.build()
+        self.assertIsInstance(model, ExpPlateauModel)
+        self.assertEqual(model.params_dict, params)
 
 
 class TestComponentRegistry(unittest.TestCase):
