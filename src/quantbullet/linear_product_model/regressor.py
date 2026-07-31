@@ -374,13 +374,16 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
             )
 
     def _compute_block_means(self, data_blocks, X, weights=None):
-        """Recompute ``block_means_`` from final ``coef_`` (including A/E scalars for interactions)."""
+        """Recompute ``block_means_`` from final ``coef_`` (including A/E scalars for interactions).
+
+        Dispatch goes through ``_predict_group`` so that frozen submodel blocks
+        report the submodel's own prediction.  Multiplying the raw block by the
+        placeholder coefficient left in ``coef_`` would produce a meaningless mean.
+        """
         for key in self.feature_groups_:
-            if key in self.interactions_:
-                coef = self.coef_[key]
-                block_pred = self._predict_group(key, data_blocks[key], cat_series=X.orig[coef.by])
-            else:
-                block_pred = data_blocks[key] @ self.coef_[key]
+            coef = self.coef_[key]
+            cat_series = X.orig[coef.by] if isinstance(coef, InteractionCoef) else None
+            block_pred = self._predict_group(key, data_blocks[key], cat_series=cat_series)
             self.block_means_[key] = np.average(block_pred, weights=weights) if weights is not None else np.mean(block_pred)
 
     # ------------------------------------------------------------------

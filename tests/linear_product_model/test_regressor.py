@@ -12,8 +12,9 @@ from quantbullet.linear_product_model import (
 from quantbullet.preprocessing import FlatRampTransformer
 from quantbullet.linear_product_model.datacontainer import ProductModelDataContainer
 from quantbullet.model.feature import DataType, Feature, FeatureRole, FeatureSpec
+from quantbullet.parametric_model import InterpolatedModel
 
-def _setup_data():
+def _setup_toolkit():
     np.random.seed(42)
     n_samples = int( 10e4 )
     df = pd.DataFrame({
@@ -50,9 +51,12 @@ def _setup_data():
     )
 
     tk = LinearProductModelToolkit( feature_spec=feature_spec, preprocess_config=preprocess_config ).fit( df )
-    expanded_df = tk.get_expanded_df( df )
 
-    return df, expanded_df, tk.feature_groups
+    return df, tk
+
+def _setup_data():
+    df, tk = _setup_toolkit()
+    return df, tk.get_expanded_df( df ), tk.feature_groups
 
 class TestLinearProductRegressorBCD(unittest.TestCase):
     def setUp(self):
@@ -94,6 +98,67 @@ class TestLinearProductRegressorBCD(unittest.TestCase):
         
         # check whether the global scale converges to the mean of y
         self.assertTrue( abs( lprm_ols.global_scalar_ / df['y'].mean() -1 ) < 0.05 )
+
+class TestFrozenSubmodelBlocks(unittest.TestCase):
+    """A block passed through ``submodels`` is held fixed during BCD.
+
+    Every read path has to route through the submodel rather than the placeholder
+    coefficient that init leaves behind in ``coef_``, otherwise fitting and
+    prediction silently disagree about what that block contributes.
+    """
+
+    def setUp(self):
+        self.df, self.toolkit = _setup_toolkit()
+
+    def _fit_with_frozen_x1(self):
+        df = self.df
+        # Dropping x1 from the preprocess config is what turns its expanded block
+        # into the raw column, which is the input the submodel expects.
+        component_tk = self.toolkit.clone( exclude_preprocess_features=['x1'] )
+        component_tk.fit( df )
+        expanded_df = component_tk.get_expanded_df( df )
+        self.assertEqual( component_tk.feature_groups['x1'], ['x1'] )
+
+        grid = np.linspace( df['x1'].min(), df['x1'].max(), 40 )
+        submodel = InterpolatedModel().fit( grid, 1.0 + 0.05 * np.cos( grid ) )
+
+        dcontainer = ProductModelDataContainer(
+            df, expanded_df, response=df['y'], feature_groups=component_tk.feature_groups )
+        model = LinearProductRegressorBCD()
+        model.fit(
+            dcontainer,
+            feature_groups=component_tk.feature_groups,
+            submodels={'x1': submodel},
+            n_iterations=20,
+            early_stopping_rounds=5,
+        )
+        return model, dcontainer, submodel
+
+    def test_block_mean_reads_from_submodel(self):
+        model, dcontainer, submodel = self._fit_with_frozen_x1()
+        block = dcontainer.get_expanded_array_for_feature_group('x1')
+
+        self.assertAlmostEqual(
+            model.block_means_['x1'], float( np.mean( submodel.predict( block ) ) ), places=10 )
+
+    def test_frozen_block_prediction_matches_submodel(self):
+        model, dcontainer, submodel = self._fit_with_frozen_x1()
+        block = dcontainer.get_expanded_array_for_feature_group('x1')
+
+        self.assertTrue( np.allclose(
+            model.single_feature_group_predict('x1', dcontainer), submodel.predict( block ) ) )
+
+    def test_full_prediction_factors_through_submodel(self):
+        model, dcontainer, submodel = self._fit_with_frozen_x1()
+        block = dcontainer.get_expanded_array_for_feature_group('x1')
+
+        # Dividing the full prediction by every other block must leave exactly the
+        # submodel curve times the global scalar.
+        others = model.leave_out_feature_group_predict('x1', dcontainer)
+        implied = model.predict( dcontainer ) / others
+
+        self.assertTrue( np.allclose( implied, submodel.predict( block ), rtol=1e-6 ) )
+
 
 class TestLinearProductRegressorScipy(unittest.TestCase):
     def setUp(self):
