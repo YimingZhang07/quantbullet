@@ -2,7 +2,7 @@
 alwaysApply: true
 ---
 # Rules
-- **Environment**: ALWAYS use the local virtual environment `.venv`.
+- **Environment**: ALWAYS use the local virtual environment `.venv`, created and managed by uv.
 - **Execution**: Run scripts via `./.venv/bin/python` (Unix) or `.\.venv\Scripts\python.exe` (Windows).
 - **Prohibition**: DO NOT use global python or system-wide packages.
-- **Dependency**: Use `pip` inside `.venv` for installs.
+- **Dependency**: Use `uv sync` to install the project and `uv add` to add packages. Do not use bare `pip install`.

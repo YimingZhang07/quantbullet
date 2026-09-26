@@ -43,10 +43,16 @@ If you are proposing a feature:
 Ready to contribute? Here's how to set up `quantbullet` for local development.
 
 1. Download a copy of `quantbullet` locally.
-2. Install `quantbullet` using `poetry`:
+2. Install `quantbullet` using `uv`:
 
     ```console
-    $ poetry install
+    $ uv sync
+    ```
+
+    For the full local environment, including the `torch`, `r`, and `docs` extras:
+
+    ```console
+    $ uv sync --all-extras
     ```
 
 3. Use `git` (or similar) to create a branch for local development and make your changes:

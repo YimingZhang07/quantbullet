@@ -1,12 +1,11 @@
-[tool.poetry]
+[project]
 name = "quantbullet"
 version = "0.1.1"
 description = "Toolkit for swift quant analysis"
-authors = ["Yiming Zhang"]
-license = "MIT"
 readme = "README.md"
-homepage = "https://github.com/YimingZhang07/quantbullet"
-repository = "https://github.com/YimingZhang07/quantbullet"
+license = "MIT"
+authors = [{ name = "Yiming Zhang" }]
+requires-python = ">=3.11"
 keywords = ["quantitative-finance", "statistics", "regime-switching", "backtesting"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -18,34 +17,62 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
 ]
+dependencies = [
+    "matplotlib>=3.8",
+    "cvxpy>=1.4",
+    "pandas>=2.1",
+    "polars>=1.0",
+    "scikit-learn>=1.4",
+    "tqdm>=4.66",
+    "statsmodels>=0.14",
+    "xgboost>=2.0",
+    "seaborn>=0.13",
+    "optuna>=3.4",
+    "pygam>=0.12.0 ; python_version < '3.15'",
+    "numpy",
+    "scipy",
+    "numexpr",
+    "lazy-loader",
+    "cryptography",
+    "sqlalchemy",
+    "openpyxl",
+    "reportlab",
+    "pypdf",
+]
 
-[tool.poetry.dependencies]
-python = ">=3.11"
-matplotlib = "^3.8"
-cvxpy = "^1.4"
-pandas = "^2.1"
-polars = "^1.0"
-scikit-learn = "^1.4"
-tqdm = "^4.66"
-statsmodels = "^0.14"
-xgboost = "^2.0"
-seaborn = "^0.13"
-optuna = "^3.4"
-pygam = {version = "^0.12.0", python = ">=3.10,<3.15"}
+[project.urls]
+Homepage = "https://github.com/YimingZhang07/quantbullet"
+Repository = "https://github.com/YimingZhang07/quantbullet"
 
-[tool.poetry.group.dev.dependencies]
-pytest = "^8.0"
-pytest-cov = "^5.0"
-myst-nb = {version = "^0.17.2", python = "^3.10"}
-sphinx-autoapi = "^2.1"
-pydata-sphinx-theme = "^0.15"
-yfinance = "^0.2"
-pandas-datareader = "^0.10"
-setuptools = "^69.1"
+[project.optional-dependencies]
+torch = ["torch"]
+r = ["rpy2>=3.5", "pyarrow"]
+docs = [
+    "myst-nb>=0.17.2",
+    "sphinx",
+    "sphinx-autoapi>=2.1",
+    "pydata-sphinx-theme>=0.15",
+    "nbsphinx",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "yfinance>=0.2",
+    "numba",
+    "line-profiler",
+    "pyyaml",
+    "ipykernel",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-s"
+markers = [
+    "manual: trigger run from the Test panel; skipped during a full suite run",
+]
 
 [build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"

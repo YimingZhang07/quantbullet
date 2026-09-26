@@ -2,6 +2,11 @@ import unittest
 import shutil
 import time
 from pathlib import Path
+
+import pytest
+
+pytest.importorskip("rpy2")
+
 from quantbullet.r.mgcv_bam import MgcvBamWrapper
 
 DEV_MODE = True

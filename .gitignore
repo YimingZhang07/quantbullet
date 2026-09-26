@@ -17,4 +17,8 @@ credentials.yml
 
 _treasure/
 
+docs/_safe/
+
+tests/_cache_dir/
+
 intex/
