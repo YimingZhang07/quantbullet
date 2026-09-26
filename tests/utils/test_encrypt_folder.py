@@ -9,7 +9,6 @@ from scripts.encrypt_folder import decrypt_folder, encrypt_folder, read_passphra
 
 PLAIN = Path("docs/_treasure")
 ENCRYPTED = Path("docs/_safe")
-CREDENTIALS = Path("credentials.yml")
 
 
 class TestEncryptFile(unittest.TestCase):
@@ -38,7 +37,7 @@ class TestEncryptFolder(unittest.TestCase):
     """Buttons in the Test panel. A full pytest run skips these."""
 
     def test_encrypt_folder(self):
-        encrypt_folder(PLAIN, ENCRYPTED, read_passphrase(CREDENTIALS))
+        encrypt_folder(PLAIN, ENCRYPTED, read_passphrase())
 
     def test_decrypt_folder(self):
-        decrypt_folder(ENCRYPTED, PLAIN, read_passphrase(CREDENTIALS))
+        decrypt_folder(ENCRYPTED, PLAIN, read_passphrase())

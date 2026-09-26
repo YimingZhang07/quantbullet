@@ -8,30 +8,32 @@ The same actions are Test panel buttons on ``TestEncryptFolder`` in
 
 ``encrypt`` reads ``--plain`` (default ``docs/_treasure``) and writes
 ``--encrypted`` (default ``docs/_safe``). ``decrypt`` restores the plain
-folder from that encrypted copy. The passphrase comes from ``credentials.yml``.
+folder from that encrypted copy. The passphrase comes from
+``QUANTBULLET_PASSPHRASE`` in the repo ``.env``.
 """
 
 import argparse
 import hashlib
+import os
 from pathlib import Path
 
 import yaml
+from dotenv import load_dotenv
 
 from quantbullet.utils.encrypt import decrypt_file, encrypt_file
 
+_REPO_ROOT = Path(__file__).resolve().parents[1]
 
-def read_passphrase(path: Path) -> str:
-    """Read the encryption passphrase from a YAML file."""
-    if not path.exists():
-        raise FileNotFoundError(f"Credentials file not found: {path}")
 
-    with path.open("r", encoding="utf-8") as handle:
-        credentials = yaml.safe_load(handle)
-
-    if not isinstance(credentials, dict) or "passphrase" not in credentials:
-        raise KeyError(f"'passphrase' key not found in {path}")
-
-    return credentials["passphrase"]
+def read_passphrase() -> str:
+    """Read QUANTBULLET_PASSPHRASE from the repo .env or the environment."""
+    load_dotenv(_REPO_ROOT / ".env", override=False)
+    passphrase = os.environ.get("QUANTBULLET_PASSPHRASE")
+    if not passphrase:
+        raise RuntimeError(
+            "QUANTBULLET_PASSPHRASE is not set. Add it to the repo .env file."
+        )
+    return passphrase
 
 
 def fuzz_filename(relative_path: str, passphrase: str) -> str:
@@ -101,12 +103,6 @@ def _add_folder_args(parser: argparse.ArgumentParser) -> None:
         default=Path("docs/_safe"),
         help="encrypted folder (default: docs/_safe)",
     )
-    parser.add_argument(
-        "--credentials",
-        type=Path,
-        default=Path("credentials.yml"),
-        help="YAML file with a passphrase key (default: credentials.yml)",
-    )
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -127,7 +123,7 @@ def main(argv: list[str] | None = None) -> None:
     _add_folder_args(decrypt_parser)
 
     args = parser.parse_args(argv)
-    passphrase = read_passphrase(args.credentials)
+    passphrase = read_passphrase()
     if args.command == "encrypt":
         mapping = encrypt_folder(args.plain, args.encrypted, passphrase)
         print(f"Encrypted {len(mapping)} file(s) into {args.encrypted}")

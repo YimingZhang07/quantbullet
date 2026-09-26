@@ -64,6 +64,7 @@ dev = [
     "line-profiler",
     "pyyaml",
     "ipykernel",
+    "python-dotenv>=1.2.3",
 ]
 
 [tool.pytest.ini_options]
