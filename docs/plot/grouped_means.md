@@ -138,4 +138,6 @@ groups, stacked counts, wrapped facets, a two-dimensional matrix, binned facets
 with groups, and a single metric on categorical x.
 
 Open `tests/_cache_dir/grouped_means/gallery.html` after running the tests.
+Each image shows the exact `plot_grouped_means(...)` call used to generate it.
+Replace `self.df` in those unittest calls with your own DataFrame.
 Individual PNGs are saved beside it. Generated artifacts are ignored by Git.

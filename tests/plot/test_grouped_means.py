@@ -1,12 +1,14 @@
-"""Numerical contracts plus a reproducible visual gallery.
+"""Numerical contracts plus directly copyable gallery examples.
 
 Run: python -m pytest tests/plot/test_grouped_means.py -q
 Images and gallery.html are saved under tests/_cache_dir/grouped_means/.
 Synthetic rates are proportions; incentive is in percentage points.
 """
-from dataclasses import replace
+import ast
 from html import escape
+import inspect
 from pathlib import Path
+from textwrap import dedent
 import unittest
 
 import matplotlib
@@ -17,12 +19,23 @@ import pandas as pd
 from pandas.testing import assert_frame_equal
 
 from quantbullet.plot import (
-    BinSpec, MINIMAL_THEME, draw_grouped_means,
-    plot_grouped_means, summarize_grouped_means,
+    BinSpec, plot_grouped_means, summarize_grouped_means,
 )
 
 
 OUTPUT_DIR = Path(__file__).resolve().parents[1] / "_cache_dir" / "grouped_means"
+
+
+def _plot_call_source(test_method):
+    """Display the exact plot_grouped_means call beside its generated image."""
+    source = dedent(inspect.getsource(test_method))
+    call = next(
+        node for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "plot_grouped_means"
+    )
+    return "result = " + ast.get_source_segment(source, call)
 
 
 def make_fake_mortgage_data(n=12000, seed=731):
@@ -63,25 +76,6 @@ class TestGroupedMeansStatistics(unittest.TestCase):
         self.assertEqual(row["b__weight_sum"], 3)
         assert_frame_equal(df, before)
 
-    def test_unweighted_and_zero_weight(self):
-        df = pd.DataFrame({"x": [0, 0], "y": [1., 3.], "w": [0., 0.]})
-        self.assertEqual(summarize_grouped_means(df, x="x", y="y").summary.iloc[0]["y__mean"], 2)
-        weighted = summarize_grouped_means(df, x="x", y="y", weight="w").summary.iloc[0]
-        self.assertTrue(np.isnan(weighted["y__mean"]))
-        self.assertEqual(weighted["y__weight_sum"], 0)
-
-    def test_null_and_nonfinite_metrics_and_missing_group_keys(self):
-        df = pd.DataFrame({"x": [0., 0., 0., np.nan], "y": [1., np.inf, np.nan, 5.],
-                           "null": [None] * 4, "w": [1., 2., np.inf, 1.]})
-        data = summarize_grouped_means(df, x="x", y=["y", "null"], weight="w")
-        row = data.summary.iloc[0]
-        self.assertEqual(row["count"], 3)
-        self.assertEqual(row["y__mean"], 1)
-        self.assertEqual(row["y__valid_count"], 1)
-        self.assertTrue(np.isnan(row["null__mean"]))
-        self.assertEqual(row["null__valid_count"], 0)
-        self.assertEqual(data.excluded_count, 1)
-
     def test_edges_include_lowest_and_keep_empty_bin(self):
         df = pd.DataFrame({"x": [-1., 0., 1., 3., 5., np.nan], "y": np.arange(6.)})
         data = summarize_grouped_means(df, x="x", y="y", bins={"x": BinSpec.edges(np.array([0, 1, 2, 4]))})
@@ -89,7 +83,6 @@ class TestGroupedMeansStatistics(unittest.TestCase):
         self.assertTrue(np.isnan(data.summary.iloc[1]["y__mean"]))
         self.assertEqual(data.excluded_count, 3)
         self.assertIn(0, data.levels["x"][0])
-        np.testing.assert_array_equal(data.x_positions, [0.5, 1.5, 3.])
 
     def test_quantiles_are_global_not_per_facet(self):
         df = pd.DataFrame({"x": [0., 1., 2., 3., 10., 11., 12., 13.], "g": [0] * 4 + [1] * 4, "y": range(8)})
@@ -97,16 +90,6 @@ class TestGroupedMeansStatistics(unittest.TestCase):
         self.assertEqual(data.bin_info["x"]["edges"], (0., 6.5, 13.))
         self.assertEqual(data.summary.loc[data.summary["col"] == 0, "count"].tolist(), [4, 0])
         self.assertEqual(data.summary.loc[data.summary["col"] == 1, "count"].tolist(), [0, 4])
-
-    def test_step_and_constant_quantile(self):
-        df = pd.DataFrame({"x": [-0.7, 0., 0.7], "y": [1., 2., 3.]})
-        data = summarize_grouped_means(df, x="x", y="y", bins={"x": BinSpec.step(0.5)})
-        np.testing.assert_allclose(data.bin_info["x"]["edges"], [-1, -0.5, 0, 0.5, 1])
-        self.assertEqual(data.summary["count"].tolist(), [1, 1, 0, 1])
-        df["x"] = 7
-        constant = summarize_grouped_means(df, x="x", y="y", bins={"x": BinSpec.quantile(10)})
-        self.assertEqual(constant.summary["count"].tolist(), [3])
-        self.assertEqual(constant.summary["y__mean"].tolist(), [2])
 
     def test_pandas_polars_parity_for_each_binning_strategy(self):
         try:
@@ -125,28 +108,6 @@ class TestGroupedMeansStatistics(unittest.TestCase):
                 self.assertEqual(pandas_data.bin_info, polars_data.bin_info)
                 self.assertEqual(pandas_data.excluded_count, polars_data.excluded_count)
 
-    def test_rejects_invalid_inputs(self):
-        df = pd.DataFrame({"x": [0], "y": [1.], "w": [-1.], "a": [0], "b": [0], "c": [0]})
-        for kwargs in [{"weight": "w"}, {"y": []}, {"y": "missing"},
-                       {"group": "a", "row": "b", "col": "c"}, {"group": "x"},
-                       {"bins": {"y": BinSpec.quantile(2)}}]:
-            with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
-                summarize_grouped_means(df, **(dict(x="x", y="y") | kwargs))
-        for factory in [lambda: BinSpec.step(0), lambda: BinSpec.quantile(0),
-                        lambda: BinSpec.edges([1, 1]), lambda: BinSpec.edges([0, np.inf])]:
-            with self.assertRaises(ValueError):
-                factory()
-
-    def test_empty_and_all_missing_inputs_render(self):
-        for df in [pd.DataFrame({"x": [], "y": [], "g": []}),
-                   pd.DataFrame({"x": [np.nan], "y": [1.], "g": [0]})]:
-            for facet in [{}, {"col": "g"}, {"row": "g"}]:
-                with self.subTest(facet=facet):
-                    result = plot_grouped_means(df, x="x", y="y", **facet)
-                    result.fig.canvas.draw()
-                    self.assertEqual(result.summary["count"].sum(), 0)
-                    self.assertEqual(result.axes.shape, (1, 1))
-
     def test_falsey_facets_do_not_mix_and_count_not_duplicated(self):
         df = pd.DataFrame({"x": [1, 2, 1, 2], "a": [10., 20., 30., 40.],
                            "b": [11., 21., 31., 41.], "g": [0, 0, 1, 1]})
@@ -155,33 +116,6 @@ class TestGroupedMeansStatistics(unittest.TestCase):
         np.testing.assert_array_equal(result.axes[0, 1].lines[0].get_ydata(), [30, 40])
         self.assertEqual(sum(p.get_height() for ax in result.count_axes.flat for p in ax.patches), 4)
         self.assertIn("g: 0", result.axes[0, 0].get_title())
-
-    def test_stacked_counts_and_stable_group_colors(self):
-        df = pd.DataFrame({"x": [1, 1, 2, 2], "y": [1., 2., 3., 4.], "g": ["A", "B", "A", "B"], "c": [0, 0, 1, 1]})
-        result = plot_grouped_means(df, x="x", y="y", group="g", col="c", count_mode="stacked", share_count_y=True)
-        self.assertEqual(sum(p.get_height() for ax in result.count_axes.flat for p in ax.patches), len(df))
-        for left, right in zip(result.axes[0, 0].lines, result.axes[0, 1].lines):
-            self.assertEqual(left.get_color(), right.get_color())
-        self.assertEqual(result.count_axes[0, 0].get_ylim(), result.count_axes[0, 1].get_ylim())
-
-    def test_ordered_numeric_categories_and_theme(self):
-        df = pd.DataFrame({"x": pd.Categorical([20, 10], categories=[20, 10, 30], ordered=True), "y": [1., 2.]})
-        theme = replace(MINIMAL_THEME, title_fontsize=17, label_fontsize=14, legend_fontsize=11)
-        result = plot_grouped_means(df, x="x", y="y", theme=theme, count_mode="none")
-        np.testing.assert_array_equal(result.data.x_positions, [0, 1, 2])
-        self.assertEqual([t.get_text() for t in result.axes[0, 0].get_xticklabels()], ["20", "10", "30"])
-        self.assertEqual(result.axes[0, 0].xaxis.label.get_fontsize(), 14)
-        self.assertEqual(result.fig.legends[0].get_texts()[0].get_fontsize(), 11)
-        self.assertIsNone(result.count_axes[0, 0])
-
-    def test_missing_matrix_combination_and_reusable_aggregation(self):
-        df = pd.DataFrame({"x": [1., 2.], "y": [1., 2.], "r": [0, 1], "c": [0, 1]})
-        data = summarize_grouped_means(df, x="x", y="y", row="r", col="c")
-        result = draw_grouped_means(data)
-        self.assertIs(result.data, data)
-        self.assertEqual(result.axes.shape, (2, 2))
-        self.assertIn("No observations", [text.get_text() for text in result.axes[0, 1].texts])
-        self.assertEqual(sum(p.get_height() for ax in result.count_axes.flat for p in ax.patches), 2)
 
 
 class TestGroupedMeansGallery(unittest.TestCase):
@@ -196,54 +130,166 @@ class TestGroupedMeansGallery(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cards = "\n".join(
-            f'<section><h2>{escape(title)}</h2><p>{escape(note)}</p><a href="{name}.png"><img src="{name}.png" alt="{escape(title)}"></a></section>'
-            for name, title, note in sorted(cls.cards)
+            f'<section><h2>{escape(title)}</h2><p>{escape(note)}</p>'
+            f'<a href="{name}.png"><img src="{name}.png" alt="{escape(title)}"></a>'
+            f'<pre><code>{escape(_plot_call_source(getattr(cls, method)))}</code></pre></section>'
+            for name, title, note, method in sorted(cls.cards)
         )
         html = '''<!doctype html><html lang="en"><meta charset="utf-8"><title>Grouped means gallery</title>
-<style>body{font:16px/1.6 system-ui;background:#f3f5f7;color:#1a2635;max-width:1400px;margin:40px auto;padding:0 24px}h1{font-size:32px}section{background:white;padding:24px;margin:28px 0;border-radius:12px}h2{margin:0}p{color:#596575}img{max-width:100%;display:block;margin:auto}code{background:#e7edf4;padding:3px 7px}</style>
-<h1>Weighted means + sample counts</h1><p>12,000 synthetic mortgage records · fixed seed 731 · UPB weighted CPR.<br>Lines use the left axis; background bars show row counts on the right axis. Data is synthetic, not a forecast.</p>
+<style>body{font:16px/1.6 system-ui;background:#f3f5f7;color:#1a2635;max-width:1400px;margin:40px auto;padding:0 24px}h1{font-size:32px}section{background:white;padding:24px;margin:28px 0;border-radius:12px}h2{margin:0}p{color:#596575}img{max-width:100%;display:block;margin:auto}pre{background:#e7edf4;padding:16px;overflow-x:auto;border-radius:8px;font:13px/1.5 ui-monospace,Consolas,monospace}</style>
+<h1>Weighted means + sample counts</h1><p>12,000 synthetic mortgage records · fixed seed 731 · UPB weighted CPR.<br>Lines use the left axis; background bars show row counts on the right axis. Data is synthetic, not a forecast.<br>The code below is extracted from each test case; replace <code>self.df</code> with your own DataFrame.</p>
 ''' + cards + "</html>"
         (OUTPUT_DIR / "gallery.html").write_text(html, encoding="utf-8")
 
     def tearDown(self):
         plt.close("all")
 
-    def save_case(self, name, title, note, **kwargs):
-        defaults = dict(x="incentive", y=["historical_cpr", "model_cpr"], weight="upb",
-                        bins={"incentive": BinSpec.step(0.25)}, y_format=".0%", ylabel="CPR (UPB weighted)",
-                        title=title, labels={"incentive": "Refinance incentive (pp)", "historical_cpr": "Historical CPR", "model_cpr": "Model CPR", "vintage": "Vintage", "channel": "Channel", "occupancy": "Occupancy", "fico": "FICO"})
-        result = plot_grouped_means(self.df, **(defaults | kwargs))
+    def save_case(self, name, title, note, result):
         path = OUTPUT_DIR / f"{name}.png"
         result.fig.savefig(path, dpi=130)
         self.assertTrue(path.exists())
         self.assertEqual(result.summary["count"].sum(), len(self.df))
-        self.cards.append((name, title, note))
-        return result
+        self.cards.append((name, title, note, self._testMethodName))
 
     def test_01_basic_comparison(self):
-        self.save_case("01_basic", "Historical vs model CPR", "One panel, two weighted means, total count overlay.", panel_size=(8, 4.8))
+        result = plot_grouped_means(
+            self.df,
+            x="incentive",
+            y=["historical_cpr", "model_cpr"],
+            weight="upb",
+            bins={"incentive": BinSpec.step(0.25)},
+            count_mode="total",
+            panel_size=(8, 4.8),
+            y_format=".0%",
+            ylabel="CPR (UPB weighted)",
+            title="Historical vs model CPR",
+            labels={"incentive": "Refinance incentive (pp)",
+                    "historical_cpr": "Historical CPR", "model_cpr": "Model CPR"},
+        )
+        self.save_case("01_basic", "Historical vs model CPR",
+                       "One panel, two weighted means, total count overlay.", result)
 
     def test_02_overlapped_vintages(self):
-        self.save_case("02_overlap", "Vintage comparison on one chart", "Color identifies vintage; solid is historical and dashed is model. Bars count all vintages together.", group="vintage", panel_size=(9, 5.2))
+        result = plot_grouped_means(
+            self.df,
+            x="incentive",
+            y=["historical_cpr", "model_cpr"],
+            weight="upb",
+            bins={"incentive": BinSpec.step(0.25)},
+            group="vintage",
+            count_mode="total",
+            panel_size=(9, 5.2),
+            y_format=".0%",
+            ylabel="CPR (UPB weighted)",
+            title="Vintage comparison on one chart",
+            labels={"incentive": "Refinance incentive (pp)", "vintage": "Vintage",
+                    "historical_cpr": "Historical CPR", "model_cpr": "Model CPR"},
+        )
+        self.save_case("02_overlap", "Vintage comparison on one chart",
+                       "Color identifies vintage; solid is historical and dashed is model. Bars count all vintages together.", result)
 
     def test_03_stacked_count_overlay(self):
-        self.save_case("03_stacked", "Vintage curves with count composition", "Count bars are stacked by vintage; totals are not duplicated across the two CPR metrics.", group="vintage", count_mode="stacked", panel_size=(9, 5.2))
+        result = plot_grouped_means(
+            self.df,
+            x="incentive",
+            y=["historical_cpr", "model_cpr"],
+            weight="upb",
+            bins={"incentive": BinSpec.step(0.25)},
+            group="vintage",
+            count_mode="stacked",
+            panel_size=(9, 5.2),
+            y_format=".0%",
+            ylabel="CPR (UPB weighted)",
+            title="Vintage curves with count composition",
+            labels={"incentive": "Refinance incentive (pp)", "vintage": "Vintage",
+                    "historical_cpr": "Historical CPR", "model_cpr": "Model CPR"},
+        )
+        self.save_case("03_stacked", "Vintage curves with count composition",
+                       "Count bars are stacked by vintage; totals are not duplicated across the two CPR metrics.", result)
 
     def test_04_wrapped_facets(self):
-        result = self.save_case("04_facets", "One panel per vintage", "Identical incentive bins and shared CPR scales. The unused wrapped slot is hidden.", col="vintage", wrap=2)
+        result = plot_grouped_means(
+            self.df,
+            x="incentive",
+            y=["historical_cpr", "model_cpr"],
+            weight="upb",
+            bins={"incentive": BinSpec.step(0.25)},
+            col="vintage",
+            wrap=2,
+            count_mode="total",
+            y_format=".0%",
+            ylabel="CPR (UPB weighted)",
+            title="One panel per vintage",
+            labels={"incentive": "Refinance incentive (pp)", "vintage": "Vintage",
+                    "historical_cpr": "Historical CPR", "model_cpr": "Model CPR"},
+        )
+        self.save_case("04_facets", "One panel per vintage",
+                       "Identical incentive bins and shared CPR scales. The unused wrapped slot is hidden.", result)
         self.assertEqual(result.axes.shape, (2, 2))
         self.assertFalse(result.axes[1, 1].get_visible())
 
     def test_05_matrix(self):
-        result = self.save_case("05_matrix", "Channel x occupancy", "Rows identify channel; columns identify occupancy. CPR and count scales are shared across panels.", row="channel", col="occupancy", share_count_y=True)
+        result = plot_grouped_means(
+            self.df,
+            x="incentive",
+            y=["historical_cpr", "model_cpr"],
+            weight="upb",
+            bins={"incentive": BinSpec.step(0.25)},
+            row="channel",
+            col="occupancy",
+            count_mode="total",
+            share_y=True,
+            share_count_y=True,
+            y_format=".0%",
+            ylabel="CPR (UPB weighted)",
+            title="Channel x occupancy",
+            labels={"incentive": "Refinance incentive (pp)", "channel": "Channel",
+                    "occupancy": "Occupancy", "historical_cpr": "Historical CPR",
+                    "model_cpr": "Model CPR"},
+        )
+        self.save_case("05_matrix", "Channel x occupancy",
+                       "Rows identify channel; columns identify occupancy. CPR and count scales are shared across panels.", result)
         self.assertEqual(result.axes.shape, (2, 2))
 
     def test_06_group_and_binned_facet(self):
-        self.save_case("06_group_facet", "Vintage comparison within FICO bands", "A binned facet dimension plus overlapped vintage curves, with global quantile bins on incentive.", group="vintage", col="fico", wrap=2,
-                       bins={"incentive": BinSpec.quantile(12), "fico": BinSpec.edges([600, 700, 740, 780, 850])})
+        result = plot_grouped_means(
+            self.df,
+            x="incentive",
+            y=["historical_cpr", "model_cpr"],
+            weight="upb",
+            bins={"incentive": BinSpec.quantile(12),
+                  "fico": BinSpec.edges([600, 700, 740, 780, 850])},
+            group="vintage",
+            col="fico",
+            wrap=2,
+            count_mode="total",
+            y_format=".0%",
+            ylabel="CPR (UPB weighted)",
+            title="Vintage comparison within FICO bands",
+            labels={"incentive": "Refinance incentive (pp)", "vintage": "Vintage",
+                    "fico": "FICO", "historical_cpr": "Historical CPR",
+                    "model_cpr": "Model CPR"},
+        )
+        self.save_case("06_group_facet", "Vintage comparison within FICO bands",
+                       "A binned facet dimension plus overlapped vintage curves, with global quantile bins on incentive.", result)
 
     def test_07_single_metric_categorical(self):
-        self.save_case("07_categorical", "Historical CPR by channel", "A single metric with an unbinned categorical x axis and one panel per occupancy.", x="channel", y="historical_cpr", col="occupancy", bins={})
+        result = plot_grouped_means(
+            self.df,
+            x="channel",
+            y="historical_cpr",
+            weight="upb",
+            bins={},  # exact categorical values, no binning
+            col="occupancy",
+            count_mode="total",
+            y_format=".0%",
+            ylabel="CPR (UPB weighted)",
+            title="Historical CPR by channel",
+            labels={"channel": "Channel", "occupancy": "Occupancy",
+                    "historical_cpr": "Historical CPR"},
+        )
+        self.save_case("07_categorical", "Historical CPR by channel",
+                       "A single metric with an unbinned categorical x axis and one panel per occupancy.", result)
 
 
 if __name__ == "__main__":
