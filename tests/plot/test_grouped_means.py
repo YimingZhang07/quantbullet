@@ -127,16 +127,21 @@ class TestGroupedMeansGallery(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        ordered_cards = sorted(cls.cards)
+        index = "\n".join(
+            f'<a href="#{escape(name, quote=True)}">{escape(title)}</a>'
+            for name, title, _, _ in ordered_cards
+        )
         cards = "\n".join(
-            f'<section><h2>{escape(title)}</h2><p>{escape(note)}</p>'
+            f'<section id="{escape(name, quote=True)}"><h2>{escape(title)}</h2><p>{escape(note)}</p>'
             f'<a href="{name}.png"><img src="{name}.png" alt="{escape(title)}"></a>'
             f'<pre><code>{escape(_plot_call_source(getattr(cls, method)))}</code></pre></section>'
-            for name, title, note, method in sorted(cls.cards)
+            for name, title, note, method in ordered_cards
         )
-        html = '''<!doctype html><html lang="en"><meta charset="utf-8"><title>Grouped means gallery</title>
-<style>body{font:16px/1.6 system-ui;background:#f3f5f7;color:#1a2635;max-width:1400px;margin:40px auto;padding:0 24px}h1{font-size:32px}section{background:white;padding:24px;margin:28px 0;border-radius:12px}h2{margin:0}p{color:#596575}img{max-width:100%;display:block;margin:auto}pre{background:#e7edf4;padding:16px;overflow-x:auto;border-radius:8px;font:13px/1.5 ui-monospace,Consolas,monospace}</style>
-<h1>Weighted means + sample counts</h1><p>12,000 synthetic mortgage records · fixed seed 731 · UPB weighted CPR.<br>Lines use the left axis; background bars show row counts on the right axis. Data is synthetic, not a forecast.<br>The code below is extracted from each test case; replace <code>self.df</code> with your own DataFrame.</p>
-''' + cards + "</html>"
+        html = '''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>Grouped means gallery</title>
+<style>body{font:16px/1.6 system-ui;background:#f3f5f7;color:#1a2635;max-width:1400px;margin:40px auto;padding:0 24px}h1{font-size:32px}section{background:white;padding:24px;margin:28px 0;border-radius:12px}h2{margin:0}p{color:#596575}nav{display:flex;flex-wrap:wrap;gap:8px 18px;padding:16px 0}nav a{color:#2e45b8}img{max-width:100%;display:block;margin:auto}pre{background:#e7edf4;padding:16px;overflow-x:auto;border-radius:8px;font:13px/1.5 ui-monospace,Consolas,monospace}</style>
+<h1>Weighted means + sample counts</h1><p>12,000 synthetic mortgage records · fixed seed 731 · UPB weighted CPR.<br>Lines and points use the left axis; background bars show row counts on the right axis. Data is synthetic, not a forecast.<br>The code below is extracted from each test case; replace <code>self.df</code> with your own DataFrame.</p>
+<nav aria-label="Chart examples">''' + index + "</nav>" + cards + "</html>"
         (cls.output_dir / "gallery.html").write_text(html, encoding="utf-8")
 
     def tearDown(self):
@@ -164,7 +169,7 @@ class TestGroupedMeansGallery(unittest.TestCase):
             labels={"incentive": "Refinance incentive (pp)",
                     "historical_cpr": "Historical CPR", "model_cpr": "Model CPR"},
         )
-        self.save_case("01_basic", "One chart · Multiple metrics",
+        self.save_case("01_basic", "基础双曲线图 · Basic two-line chart",
                        "y=[...] draws multiple weighted means; count_mode='total' overlays one count series on the right axis.", result)
 
     def test_02_overlapped_vintages(self):
@@ -183,7 +188,7 @@ class TestGroupedMeansGallery(unittest.TestCase):
             labels={"incentive": "Refinance incentive (pp)", "vintage": "Vintage",
                     "historical_cpr": "Historical CPR", "model_cpr": "Model CPR"},
         )
-        self.save_case("02_overlap", "One chart · Overlaid groups",
+        self.save_case("02_overlap", "重叠曲线图 · Overlaid group curves",
                        "group=... overlays group curves in one panel; color identifies groups and line style identifies metrics.", result)
 
     def test_03_stacked_count_overlay(self):
@@ -202,7 +207,7 @@ class TestGroupedMeansGallery(unittest.TestCase):
             labels={"incentive": "Refinance incentive (pp)", "vintage": "Vintage",
                     "historical_cpr": "Historical CPR", "model_cpr": "Model CPR"},
         )
-        self.save_case("03_stacked", "One chart · Overlaid groups + stacked counts",
+        self.save_case("03_stacked", "堆叠计数图 · Stacked count overlay",
                        "group=... overlays curves; count_mode='stacked' shows each group's contribution to the count bars.", result)
 
     def test_04_wrapped_facets(self):
@@ -221,7 +226,7 @@ class TestGroupedMeansGallery(unittest.TestCase):
             labels={"incentive": "Refinance incentive (pp)", "vintage": "Vintage",
                     "historical_cpr": "Historical CPR", "model_cpr": "Model CPR"},
         )
-        self.save_case("04_facets", "Wrapped charts · One facet dimension",
+        self.save_case("04_facets", "单维分面图 · Wrapped facets",
                        "col=... creates one panel per category; wrap=2 arranges panels in two columns.", result)
         self.assertEqual(result.axes.shape, (2, 2))
         self.assertFalse(result.axes[1, 1].get_visible())
@@ -245,7 +250,7 @@ class TestGroupedMeansGallery(unittest.TestCase):
                     "occupancy": "Occupancy", "historical_cpr": "Historical CPR",
                     "model_cpr": "Model CPR"},
         )
-        self.save_case("05_matrix", "Chart matrix · Two facet dimensions",
+        self.save_case("05_matrix", "矩阵图 · Two-dimensional facets",
                        "row=... and col=... create a matrix; share_y and share_count_y align scales across panels.", result)
         self.assertEqual(result.axes.shape, (2, 2))
 
@@ -268,7 +273,7 @@ class TestGroupedMeansGallery(unittest.TestCase):
                     "fico": "FICO", "historical_cpr": "Historical CPR",
                     "model_cpr": "Model CPR"},
         )
-        self.save_case("06_group_facet", "Wrapped charts · Binned facets + overlaid groups",
+        self.save_case("06_group_facet", "分箱分面图 · Binned facets with groups",
                        "Bin the col dimension into panels, then use group=... to overlay curves within each panel.", result)
 
     def test_07_single_metric_categorical(self):
@@ -286,8 +291,8 @@ class TestGroupedMeansGallery(unittest.TestCase):
             labels={"channel": "Channel", "occupancy": "Occupancy",
                     "historical_cpr": "Historical CPR"},
         )
-        self.save_case("07_categorical", "Faceted charts · Categorical x-axis",
-                       "Use an unbinned categorical x axis and col=... to draw one panel per category.", result)
+        self.save_case("07_categorical", "分类轴点图 · Categorical point chart",
+                       "Use an unbinned categorical x axis for unconnected metric points; col=... creates one panel per occupancy.", result)
 
 
 if __name__ == "__main__":

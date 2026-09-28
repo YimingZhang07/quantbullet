@@ -49,6 +49,9 @@ class GroupedMeansStyle:
     legend_line_width: float = 2.0
     marker: str | None = "o"
     marker_size: float = 3.0
+    categorical_metric_markers: tuple[str, ...] = ("o", "s", "^", "D", "v", "P", "X")
+    categorical_marker_size: float = 5.0
+    connect_categorical: bool = False
     count_color: str = "#AEB8C2"
     count_edgecolor: str = "none"
     total_count_alpha: float = 0.27
@@ -89,9 +92,11 @@ def draw_grouped_means(
     equally spaced. Counts are rows, never duplicated across y metrics.
 
     With group, colors identify groups and line styles identify metrics;
-    otherwise colors identify metrics. ``stacked`` requires group. Axes use
-    a common x scale, and primary y scales are shared by default. Count axes
-    are independent unless ``share_count_y=True``. Missing means break lines.
+    otherwise colors identify metrics and lines stay solid. Categorical x
+    uses unconnected markers, with marker shapes identifying metrics, unless
+    ``style.connect_categorical`` is true. ``stacked`` requires group. Axes
+    use a common x scale, and primary y scales are shared by default. Count
+    axes are independent unless ``share_count_y=True``. Missing means break lines.
     """
     if count_mode not in {"total", "stacked", "none"}:
         raise ValueError("count_mode must be total, stacked, or none")
@@ -107,6 +112,10 @@ def draw_grouped_means(
         raise ValueError("style.metric_linestyles must contain at least one line style")
     labels = dict(labels or {})
     dim = data.dimensions
+    categorical_x = bool(data.bin_info[dim["x"]].get("categorical", False))
+    points_only = categorical_x and not style.connect_categorical
+    if points_only and not style.categorical_metric_markers:
+        raise ValueError("style.categorical_metric_markers must contain at least one marker")
     rows = data.levels.get("row", (None,)) or (None,)
     cols = data.levels.get("col", (None,)) or (None,)
     panels = list(product(rows, cols))
@@ -120,6 +129,15 @@ def draw_grouped_means(
     groups = data.levels.get("group", (None,))
     xlevels = list(data.levels["x"])
     xpos, widths = data.x_positions, data.x_widths * style.bar_width_ratio
+
+    def metric_appearance(index: int) -> dict:
+        if points_only:
+            return {"linestyle": "None",
+                    "marker": style.categorical_metric_markers[index % len(style.categorical_metric_markers)],
+                    "markersize": style.categorical_marker_size}
+        return {"linestyle": styles[index % len(styles)] if "group" in dim else "-",
+                "marker": style.marker, "markersize": style.marker_size}
+
     for index, (rv, cv) in enumerate(panels):
         ax = axes.flat[index]
         panel = data.summary
@@ -165,10 +183,8 @@ def draw_grouped_means(
             subset = subset.set_index("x").reindex(xlevels)
             for mi, metric in enumerate(data.metrics):
                 color = palette[(gi if "group" in dim else mi) % len(palette)]
-                linestyle = styles[mi % len(styles)] if "group" in dim else styles[0]
                 ax.plot(xpos, subset[f"{metric}__mean"].to_numpy(dtype=float), color=color,
-                        linestyle=linestyle, linewidth=style.line_width,
-                        marker=style.marker, markersize=style.marker_size)
+                        linewidth=style.line_width, **metric_appearance(mi))
         if panel.empty or not panel["count"].sum():
             ax.text(0.5, 0.5, "No observations", transform=ax.transAxes, ha="center",
                     color=theme.muted_text_color)
@@ -184,7 +200,7 @@ def draw_grouped_means(
         ax.set_ylabel(ylabel, fontsize=theme.label_fontsize, fontweight=theme.label_fontweight, color=theme.label_color)
         if y_format is not None:
             ax.yaxis.set_major_formatter(lambda value, _: format(value, y_format))
-        if xlevels and data.bin_info[dim["x"]].get("categorical", False):
+        if xlevels and categorical_x:
             ax.set_xticks(xpos, [str(v) for v in xlevels],
                           rotation=style.categorical_tick_rotation, ha="right")
         # Wrapped grids can have a hidden last-row slot. Keep every visible
@@ -207,17 +223,20 @@ def draw_grouped_means(
         for gi, value in enumerate(groups):
             handles.append(Line2D([], [], color=palette[gi % len(palette)],
                                   label=f"{labels.get(dim['group'], dim['group'])}: {_level_label(value, gi == 0)}",
-                                  linewidth=style.legend_line_width))
-        for mi, metric in enumerate(data.metrics):
-            handles.append(Line2D([], [], color=theme.label_color,
-                                  linestyle=styles[mi % len(styles)], label=labels.get(metric, metric),
                                   linewidth=style.legend_line_width,
-                                  marker=style.marker, markersize=style.marker_size))
+                                  **(metric_appearance(0) if points_only else {})))
+        for mi, metric in enumerate(data.metrics):
+            appearance = metric_appearance(mi)
+            if not points_only:
+                # The common marker can obscure a short dashed legend sample.
+                appearance["marker"] = None
+            handles.append(Line2D([], [], color=theme.label_color,
+                                  label=labels.get(metric, metric),
+                                  linewidth=style.legend_line_width, **appearance))
     else:
         handles = [Line2D([], [], color=palette[mi % len(palette)],
-                          linestyle=styles[0], label=labels.get(metric, metric),
-                          linewidth=style.legend_line_width,
-                          marker=style.marker, markersize=style.marker_size)
+                          label=labels.get(metric, metric),
+                          linewidth=style.legend_line_width, **metric_appearance(mi))
                    for mi, metric in enumerate(data.metrics)]
     if count_mode == "total":
         handles.append(Patch(facecolor=style.count_color, alpha=style.total_count_alpha,

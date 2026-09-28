@@ -45,8 +45,11 @@ result.summary  # exact statistics used in the figure
 - `share_y=True` shares the metric scale. Count scales are independent unless
   `share_count_y=True`. All panels share the x scale.
 
-Without `group`, colors identify metrics. With `group`, colors identify groups
-and line styles identify metrics. Encodings are consistent across all panels.
+Without `group`, colors identify metrics and numeric/binned curves are solid.
+With `group`, colors identify groups and line styles identify metrics.
+Categorical x values are shown as unconnected points by default; marker shapes
+identify metrics, including when colors identify groups. Encodings are
+consistent across all panels.
 Empty matrix combinations display "No observations"; unused wrapped slots are
 hidden. The result's `axes` and `count_axes` always have two dimensions.
 
@@ -77,6 +80,8 @@ The actual edges and levels are available through `result.bin_info`.
 Binned x uses numeric interval midpoints, raw numeric x uses its values, and
 categorical x uses equal spacing. Ordered pandas categoricals preserve their
 declared order (including empty categories); other raw levels sort by value.
+Categorical values remain unconnected even when their declared order is known;
+set `style.connect_categorical=True` when connecting them has meaning.
 Empty x bins within observed contexts retain missing means, breaking curves.
 
 ## Means and counts
@@ -119,11 +124,12 @@ second = draw_grouped_means(data, count_mode="stacked", y_format=".0%")
 ```
 
 `PlotTheme` controls shared colors, axes, titles, labels, and legend appearance;
-`GroupedMeansStyle` controls the mean curves, count bars, and categorical ticks.
+`GroupedMeansStyle` controls the mean curves or points, count bars, and categorical ticks.
 Both are immutable, so derive a variant with `dataclasses.replace`:
 
 ```python
 from dataclasses import replace
+import pandas as pd
 from quantbullet.plot import (
     MINIMAL_THEME, DEFAULT_GROUPED_MEANS_STYLE, plot_grouped_means,
 )
@@ -145,6 +151,16 @@ result = plot_grouped_means(
     df, x="incentive", y=["historical_cpr", "model_cpr"],
     weight="upb", group="vintage", count_mode="stacked",
     theme=custom_theme, style=custom_style,
+)
+
+# Connect categorical values only when their order has meaning.
+ordered_df = df.assign(vintage_label=pd.Categorical(
+    df["vintage"].astype(str), categories=["2019", "2020", "2021"], ordered=True,
+))
+connected_style = replace(DEFAULT_GROUPED_MEANS_STYLE, connect_categorical=True)
+categorical_result = plot_grouped_means(
+    ordered_df, x="vintage_label", y="historical_cpr", weight="upb",
+    style=connected_style,
 )
 ```
 
@@ -170,6 +186,7 @@ Set `QB_TEST_KEEP_ARTIFACTS=1` in your `.env` (see `.env.example`) or process
 environment before running the tests to retain the gallery. Then open
 `tests/_cache_dir/grouped_means/gallery.html`. With the setting off, the gallery
 is generated in a temporary directory and cleaned up after the unittest class.
+The page has a linked index and bilingual, function-oriented section titles.
 Each image shows the exact `plot_grouped_means(...)` call used to generate it.
 Replace `self.df` in those unittest calls with your own DataFrame.
 Individual PNGs are saved beside it. Generated artifacts are ignored by Git.
