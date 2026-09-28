@@ -164,8 +164,8 @@ class TestGroupedMeansGallery(unittest.TestCase):
             labels={"incentive": "Refinance incentive (pp)",
                     "historical_cpr": "Historical CPR", "model_cpr": "Model CPR"},
         )
-        self.save_case("01_basic", "Historical vs model CPR",
-                       "One panel, two weighted means, total count overlay.", result)
+        self.save_case("01_basic", "One chart · Multiple metrics",
+                       "y=[...] draws multiple weighted means; count_mode='total' overlays one count series on the right axis.", result)
 
     def test_02_overlapped_vintages(self):
         result = plot_grouped_means(
@@ -183,8 +183,8 @@ class TestGroupedMeansGallery(unittest.TestCase):
             labels={"incentive": "Refinance incentive (pp)", "vintage": "Vintage",
                     "historical_cpr": "Historical CPR", "model_cpr": "Model CPR"},
         )
-        self.save_case("02_overlap", "Vintage comparison on one chart",
-                       "Color identifies vintage; solid is historical and dashed is model. Bars count all vintages together.", result)
+        self.save_case("02_overlap", "One chart · Overlaid groups",
+                       "group=... overlays group curves in one panel; color identifies groups and line style identifies metrics.", result)
 
     def test_03_stacked_count_overlay(self):
         result = plot_grouped_means(
@@ -202,8 +202,8 @@ class TestGroupedMeansGallery(unittest.TestCase):
             labels={"incentive": "Refinance incentive (pp)", "vintage": "Vintage",
                     "historical_cpr": "Historical CPR", "model_cpr": "Model CPR"},
         )
-        self.save_case("03_stacked", "Vintage curves with count composition",
-                       "Count bars are stacked by vintage; totals are not duplicated across the two CPR metrics.", result)
+        self.save_case("03_stacked", "One chart · Overlaid groups + stacked counts",
+                       "group=... overlays curves; count_mode='stacked' shows each group's contribution to the count bars.", result)
 
     def test_04_wrapped_facets(self):
         result = plot_grouped_means(
@@ -221,8 +221,8 @@ class TestGroupedMeansGallery(unittest.TestCase):
             labels={"incentive": "Refinance incentive (pp)", "vintage": "Vintage",
                     "historical_cpr": "Historical CPR", "model_cpr": "Model CPR"},
         )
-        self.save_case("04_facets", "One panel per vintage",
-                       "Identical incentive bins and shared CPR scales. The unused wrapped slot is hidden.", result)
+        self.save_case("04_facets", "Wrapped charts · One facet dimension",
+                       "col=... creates one panel per category; wrap=2 arranges panels in two columns.", result)
         self.assertEqual(result.axes.shape, (2, 2))
         self.assertFalse(result.axes[1, 1].get_visible())
 
@@ -245,8 +245,8 @@ class TestGroupedMeansGallery(unittest.TestCase):
                     "occupancy": "Occupancy", "historical_cpr": "Historical CPR",
                     "model_cpr": "Model CPR"},
         )
-        self.save_case("05_matrix", "Channel x occupancy",
-                       "Rows identify channel; columns identify occupancy. CPR and count scales are shared across panels.", result)
+        self.save_case("05_matrix", "Chart matrix · Two facet dimensions",
+                       "row=... and col=... create a matrix; share_y and share_count_y align scales across panels.", result)
         self.assertEqual(result.axes.shape, (2, 2))
 
     def test_06_group_and_binned_facet(self):
@@ -268,8 +268,8 @@ class TestGroupedMeansGallery(unittest.TestCase):
                     "fico": "FICO", "historical_cpr": "Historical CPR",
                     "model_cpr": "Model CPR"},
         )
-        self.save_case("06_group_facet", "Vintage comparison within FICO bands",
-                       "A binned facet dimension plus overlapped vintage curves, with global quantile bins on incentive.", result)
+        self.save_case("06_group_facet", "Wrapped charts · Binned facets + overlaid groups",
+                       "Bin the col dimension into panels, then use group=... to overlay curves within each panel.", result)
 
     def test_07_single_metric_categorical(self):
         result = plot_grouped_means(
@@ -286,8 +286,8 @@ class TestGroupedMeansGallery(unittest.TestCase):
             labels={"channel": "Channel", "occupancy": "Occupancy",
                     "historical_cpr": "Historical CPR"},
         )
-        self.save_case("07_categorical", "Historical CPR by channel",
-                       "A single metric with an unbinned categorical x axis and one panel per occupancy.", result)
+        self.save_case("07_categorical", "Faceted charts · Categorical x-axis",
+                       "Use an unbinned categorical x axis and col=... to draw one panel per category.", result)
 
 
 if __name__ == "__main__":
