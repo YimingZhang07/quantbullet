@@ -118,8 +118,37 @@ first = draw_grouped_means(data, count_mode="total", y_format=".0%")
 second = draw_grouped_means(data, count_mode="stacked", y_format=".0%")
 ```
 
-Pass an existing `PlotTheme` to `theme` for axes, title, labels and legend
-appearance. All data processing is separate from rendering. The implementation
+`PlotTheme` controls shared colors, axes, titles, labels, and legend appearance;
+`GroupedMeansStyle` controls the mean curves, count bars, and categorical ticks.
+Both are immutable, so derive a variant with `dataclasses.replace`:
+
+```python
+from dataclasses import replace
+from quantbullet.plot import (
+    MINIMAL_THEME, DEFAULT_GROUPED_MEANS_STYLE, plot_grouped_means,
+)
+
+custom_theme = replace(
+    MINIMAL_THEME,
+    palette=("#16697A", "#DB6400"),
+    facecolor="#F4F8F7",
+    muted_text_color="#5D6D70",
+    figure_title_fontsize=16,
+)
+custom_style = replace(
+    DEFAULT_GROUPED_MEANS_STYLE,
+    metric_linestyles=("-", ":"),
+    marker="s",
+    stacked_count_alpha=0.25,
+)
+result = plot_grouped_means(
+    df, x="incentive", y=["historical_cpr", "model_cpr"],
+    weight="upb", group="vintage", count_mode="stacked",
+    theme=custom_theme, style=custom_style,
+)
+```
+
+All data processing is separate from rendering. The implementation
 extracts selected columns and uses vectorized NumPy aggregation for identical
 pandas/Polars semantics; it is not a streaming/LazyFrame implementation.
 

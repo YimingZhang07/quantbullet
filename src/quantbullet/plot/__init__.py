@@ -7,4 +7,5 @@ from .binned_plots import plot_binned_actual_vs_pred
 from .scatter_binned import plot_scatter_multi_y
 from .dist import plot_distributions
 from .grouped_data import BinSpec, GroupedMeansData, summarize_grouped_means
-from .grouped_means import GroupedMeansPlot, draw_grouped_means, plot_grouped_means
+from .grouped_means import (GroupedMeansPlot, GroupedMeansStyle, DEFAULT_GROUPED_MEANS_STYLE,
+                            draw_grouped_means, plot_grouped_means)

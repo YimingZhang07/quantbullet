@@ -3,9 +3,8 @@ import numpy as np
 from quantbullet.plot.cycles import use_economist_cycle
 
 def compare_models(models, x, y = None):
-    fig, ax = plt.subplots()
-    
     with use_economist_cycle():
+        fig, ax = plt.subplots()
         for model in models:
             x_min = np.min(x)
             x_max = np.max(x)

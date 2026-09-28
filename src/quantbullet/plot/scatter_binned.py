@@ -8,7 +8,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 from quantbullet.dfutils.label import get_bins_and_labels
-from quantbullet.plot.cycles import ECONOMIST_COLORS, use_economist_cycle
+from quantbullet.plot.cycles import ECONOMIST_COLORS
 
 
 @dataclass(frozen=True)
@@ -184,11 +184,8 @@ def plot_scatter_multi_y(
     else:
         fig = ax.figure
 
-    # Ensure we use your Economist palette/cycle without hardcoding colors here.
-    # We still "pin" one color per y-series (so errorbars/lines/bands match).
-    with use_economist_cycle():
-        palette = plt.rcParams["axes.prop_cycle"].by_key().get("color", None) or ECONOMIST_COLORS
-    palette = list(palette)
+    # Pin one color per y-series so errorbars, lines and bands match.
+    palette = ECONOMIST_COLORS
 
     if mode == "scatter":
         for i, y in enumerate(y_cols_l):

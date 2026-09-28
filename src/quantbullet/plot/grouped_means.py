@@ -13,7 +13,6 @@ from matplotlib.ticker import MaxNLocator
 import numpy as np
 import pandas as pd
 
-from .cycles import ECONOMIST_COLORS
 from .formatter import PlotFormatter
 from .grouped_data import BinSpec, GroupedMeansData, summarize_grouped_means
 from .theme import MINIMAL_THEME, PlotTheme
@@ -41,6 +40,26 @@ class GroupedMeansPlot:
         return self.data.bin_info
 
 
+@dataclass(frozen=True)
+class GroupedMeansStyle:
+    """Visual settings specific to weighted-mean curves and count bars."""
+
+    metric_linestyles: tuple[str, ...] = ("-", "--", "-.", ":")
+    line_width: float = 1.8
+    legend_line_width: float = 2.0
+    marker: str | None = "o"
+    marker_size: float = 3.0
+    count_color: str = "#AEB8C2"
+    count_edgecolor: str = "none"
+    total_count_alpha: float = 0.27
+    stacked_count_alpha: float = 0.18
+    bar_width_ratio: float = 0.86
+    categorical_tick_rotation: float = 30.0
+
+
+DEFAULT_GROUPED_MEANS_STYLE = GroupedMeansStyle()
+
+
 def _level_label(value, first=False):
     if isinstance(value, pd.Interval):
         return f"{'[' if first or value.closed == 'both' else '('}{value.left:g}, {value.right:g}]"
@@ -56,6 +75,7 @@ def draw_grouped_means(
     share_y: bool = True,
     share_count_y: bool = False,
     theme: PlotTheme = MINIMAL_THEME,
+    style: GroupedMeansStyle = DEFAULT_GROUPED_MEANS_STYLE,
     labels: Mapping[str, str] | None = None,
     title: str | None = None,
     ylabel: str = "Weighted mean",
@@ -81,6 +101,10 @@ def draw_grouped_means(
         raise ValueError("wrap must be a positive integer and requires col without row")
     if len(panel_size) != 2 or not all(np.isfinite(v) and v > 0 for v in panel_size):
         raise ValueError("panel_size must contain two positive finite values")
+    if not theme.palette:
+        raise ValueError("theme.palette must contain at least one color")
+    if not style.metric_linestyles:
+        raise ValueError("style.metric_linestyles must contain at least one line style")
     labels = dict(labels or {})
     dim = data.dimensions
     rows = data.levels.get("row", (None,)) or (None,)
@@ -91,11 +115,11 @@ def draw_grouped_means(
     fig, axes = plt.subplots(nrows, ncols, squeeze=False, sharex=True, sharey=share_y,
                              figsize=(panel_size[0] * ncols, panel_size[1] * nrows), layout="constrained")
     count_axes = np.full(axes.shape, None, dtype=object)
-    palette = list(ECONOMIST_COLORS)
-    styles = ["-", "--", "-.", ":"]
+    palette = theme.palette
+    styles = style.metric_linestyles
     groups = data.levels.get("group", (None,))
     xlevels = list(data.levels["x"])
-    xpos, widths = data.x_positions, data.x_widths * 0.86
+    xpos, widths = data.x_positions, data.x_widths * style.bar_width_ratio
     for index, (rv, cv) in enumerate(panels):
         ax = axes.flat[index]
         panel = data.summary
@@ -111,23 +135,26 @@ def draw_grouped_means(
             # Draw the primary axes last, with its background transparent.
             ax.set_zorder(twin.get_zorder() + 1)
             ax.patch.set_visible(False)
-            twin.set_facecolor(theme.facecolor or "white")
+            twin.set_facecolor(ax.get_facecolor())
             twin.grid(False)
-            twin.set_ylabel("Count", fontsize=theme.label_fontsize, color="#777777")
-            twin.tick_params(axis="y", labelsize=theme.tick_labelsize, colors="#777777")
+            twin.set_ylabel("Count", fontsize=theme.label_fontsize, color=theme.muted_text_color)
+            twin.tick_params(axis="y", labelsize=theme.tick_labelsize, colors=theme.muted_text_color)
             twin.yaxis.set_major_locator(MaxNLocator(nbins=4, integer=True))
             for spine in twin.spines.values():
                 spine.set_visible(False)
             twin.spines["right"].set_visible(True)
-            twin.spines["right"].set_color("#BBBBBB")
+            twin.spines["right"].set_color(theme.secondary_spine_color)
             if count_mode == "total":
                 counts = panel.groupby("x", observed=True)["count"].sum().reindex(xlevels, fill_value=0)
-                twin.bar(xpos, counts, width=widths, color="#AEB8C2", alpha=0.27, edgecolor="none")
+                twin.bar(xpos, counts, width=widths, color=style.count_color,
+                         alpha=style.total_count_alpha, edgecolor=style.count_edgecolor)
             else:
                 bottom = np.zeros(len(xlevels))
                 for gi, value in enumerate(groups):
                     counts = panel.loc[panel["group"] == value].set_index("x")["count"].reindex(xlevels, fill_value=0).to_numpy()
-                    twin.bar(xpos, counts, bottom=bottom, width=widths, color=palette[gi % len(palette)], alpha=0.18, edgecolor="none")
+                    twin.bar(xpos, counts, bottom=bottom, width=widths,
+                             color=palette[gi % len(palette)], alpha=style.stacked_count_alpha,
+                             edgecolor=style.count_edgecolor)
                     bottom += counts
             twin.set_ylim(bottom=0)
             if panel.empty or not panel["count"].sum():
@@ -138,11 +165,13 @@ def draw_grouped_means(
             subset = subset.set_index("x").reindex(xlevels)
             for mi, metric in enumerate(data.metrics):
                 color = palette[(gi if "group" in dim else mi) % len(palette)]
-                style = styles[mi % len(styles)] if "group" in dim else "-"
+                linestyle = styles[mi % len(styles)] if "group" in dim else styles[0]
                 ax.plot(xpos, subset[f"{metric}__mean"].to_numpy(dtype=float), color=color,
-                        linestyle=style, linewidth=1.8, marker="o", markersize=3)
+                        linestyle=linestyle, linewidth=style.line_width,
+                        marker=style.marker, markersize=style.marker_size)
         if panel.empty or not panel["count"].sum():
-            ax.text(0.5, 0.5, "No observations", transform=ax.transAxes, ha="center", color="#777777")
+            ax.text(0.5, 0.5, "No observations", transform=ax.transAxes, ha="center",
+                    color=theme.muted_text_color)
 
         caption = []
         for role, value in (("row", rv), ("col", cv)):
@@ -156,7 +185,8 @@ def draw_grouped_means(
         if y_format is not None:
             ax.yaxis.set_major_formatter(lambda value, _: format(value, y_format))
         if xlevels and data.bin_info[dim["x"]].get("categorical", False):
-            ax.set_xticks(xpos, [str(v) for v in xlevels], rotation=30, ha="right")
+            ax.set_xticks(xpos, [str(v) for v in xlevels],
+                          rotation=style.categorical_tick_rotation, ha="right")
         # Wrapped grids can have a hidden last-row slot. Keep every visible
         # panel's x ticks readable even when its shared-axis sibling is hidden.
         ax.tick_params(axis="x", labelbottom=True)
@@ -175,18 +205,34 @@ def draw_grouped_means(
     handles = []
     if "group" in dim:
         for gi, value in enumerate(groups):
-            handles.append(Line2D([], [], color=palette[gi % len(palette)], label=f"{labels.get(dim['group'], dim['group'])}: {_level_label(value, gi == 0)}", linewidth=2))
+            handles.append(Line2D([], [], color=palette[gi % len(palette)],
+                                  label=f"{labels.get(dim['group'], dim['group'])}: {_level_label(value, gi == 0)}",
+                                  linewidth=style.legend_line_width))
         for mi, metric in enumerate(data.metrics):
-            handles.append(Line2D([], [], color="#333333", linestyle=styles[mi % len(styles)], label=labels.get(metric, metric)))
+            handles.append(Line2D([], [], color=theme.label_color,
+                                  linestyle=styles[mi % len(styles)], label=labels.get(metric, metric),
+                                  linewidth=style.legend_line_width,
+                                  marker=style.marker, markersize=style.marker_size))
     else:
-        handles = [Line2D([], [], color=palette[mi % len(palette)], label=labels.get(metric, metric), linewidth=2) for mi, metric in enumerate(data.metrics)]
-    if count_mode != "none":
-        handles.append(Patch(facecolor="#AEB8C2", alpha=0.27,
-                             label="Count (right axis)" if count_mode == "total" else "Count by group (right axis)"))
+        handles = [Line2D([], [], color=palette[mi % len(palette)],
+                          linestyle=styles[0], label=labels.get(metric, metric),
+                          linewidth=style.legend_line_width,
+                          marker=style.marker, markersize=style.marker_size)
+                   for mi, metric in enumerate(data.metrics)]
+    if count_mode == "total":
+        handles.append(Patch(facecolor=style.count_color, alpha=style.total_count_alpha,
+                             edgecolor=style.count_edgecolor, label="Count (right axis)"))
+    elif count_mode == "stacked":
+        for gi, value in enumerate(groups):
+            handles.append(Patch(facecolor=palette[gi % len(palette)],
+                                 alpha=style.stacked_count_alpha, edgecolor=style.count_edgecolor,
+                                 label=f"Count: {_level_label(value, gi == 0)} (right axis)"))
     fig.legend(handles=handles, loc="outside lower center", ncol=min(len(handles), 4),
                frameon=theme.legend_frameon, fontsize=theme.legend_fontsize)
     if title:
-        fig.suptitle(title, fontsize=theme.title_fontsize + 2, fontweight=theme.title_fontweight, color=theme.title_color)
+        title_size = theme.figure_title_fontsize
+        fig.suptitle(title, fontsize=theme.title_fontsize + 2 if title_size is None else title_size,
+                     fontweight=theme.title_fontweight, color=theme.title_color)
     return GroupedMeansPlot(fig, axes, count_axes, data)
 
 
@@ -206,6 +252,7 @@ def plot_grouped_means(
     share_y: bool = True,
     share_count_y: bool = False,
     theme: PlotTheme = MINIMAL_THEME,
+    style: GroupedMeansStyle = DEFAULT_GROUPED_MEANS_STYLE,
     labels: Mapping[str, str] | None = None,
     title: str | None = None,
     ylabel: str = "Weighted mean",
@@ -224,5 +271,5 @@ def plot_grouped_means(
     data = summarize_grouped_means(df, x=x, y=y, weight=weight, group=group,
                                    row=row, col=col, bins=bins)
     return draw_grouped_means(data, count_mode=count_mode, wrap=wrap, panel_size=panel_size,
-                              share_y=share_y, share_count_y=share_count_y, theme=theme,
+                              share_y=share_y, share_count_y=share_count_y, theme=theme, style=style,
                               labels=labels, title=title, ylabel=ylabel, y_format=y_format)

@@ -9,9 +9,9 @@ ECONOMIST_COLORS = [
     EconomistBrandColor.SINGAPORE_55, # orange
     EconomistBrandColor.HONG_KONG_45, # green
     EconomistBrandColor.TOKYO_45,     # red
-    EconomistBrandColor.NEW_YORK_55,  # yellow
     EconomistBrandColor.PURPLE_70,    # purple
     EconomistBrandColor.LONDON_20,    # Black/Grey
+    EconomistBrandColor.NEW_YORK_55,  # yellow; lower contrast on white, so use last
 ]
 
 # Export for external use (e.g., in binned plots)
@@ -27,6 +27,7 @@ _ECONOMIST_CYCLE = cycler(
 
 @contextmanager
 def use_economist_cycle():
+    """Apply the color/linestyle cycle to axes created inside this context."""
     orig_cycle = plt.rcParams['axes.prop_cycle']
     try:
         plt.rcParams['axes.prop_cycle'] = _ECONOMIST_CYCLE
@@ -50,6 +51,7 @@ ECONOMIST_SIDE_BY_SIDE_CYCLE = cycler(
 
 @contextmanager
 def use_economist_side_by_side_cycle():
+    """Apply the side-by-side cycle to axes created inside this context."""
     orig_cycle = plt.rcParams['axes.prop_cycle']
     try:
         plt.rcParams['axes.prop_cycle'] = ECONOMIST_SIDE_BY_SIDE_CYCLE

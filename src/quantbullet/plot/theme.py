@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace  # noqa: F401 – re-export replace for users
 
+from .cycles import ECONOMIST_COLORS
+
 
 @dataclass(frozen=True)
 class PlotTheme:
@@ -41,12 +43,18 @@ class PlotTheme:
     # -- background -----------------------------------------------------------
     facecolor: str | None = None
 
+    # -- shared colors --------------------------------------------------------
+    palette: tuple[str, ...] = tuple(ECONOMIST_COLORS)
+    muted_text_color: str = "#777777"
+    secondary_spine_color: str = "#BBBBBB"
+
     # -- title ----------------------------------------------------------------
     title_fontsize: float = 12
     title_fontweight: str = "bold"
     title_pad: float = 10
     title_loc: str = "center"
     title_color: str = "#1A1A1A"
+    figure_title_fontsize: float | None = None
 
     # -- axis labels ----------------------------------------------------------
     label_fontsize: float = 10
