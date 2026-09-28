@@ -1,4 +1,3 @@
-import shutil
 import unittest
 from pathlib import Path
 
@@ -10,26 +9,12 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from quantbullet.torch.gate import BoundedWindowGate
-
-DEV_MODE = False
+from tests.artifacts import artifact_dir
 
 class TestBoundedWindowGate(unittest.TestCase):
 
     def setUp(self):
-        self.cache_dir = "./tests/_cache_dir"
-        if DEV_MODE:
-            # In DEV_MODE, ensure directory exists but don't clear it
-            Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
-        else:
-            # In non-DEV_MODE, clear and recreate
-            shutil.rmtree(self.cache_dir, ignore_errors=True)
-            Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
-    
-    def tearDown(self):
-        # only clear cache dir in non-dev mode
-        # we want to keep files for inspection in dev mode
-        if not DEV_MODE:
-            shutil.rmtree(self.cache_dir, ignore_errors=True)
+        self.cache_dir = artifact_dir(self, "torch/gate")
 
 
     def test_fully_set( self ):

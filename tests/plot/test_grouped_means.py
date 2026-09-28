@@ -1,13 +1,13 @@
 """Numerical contracts plus directly copyable gallery examples.
 
 Run: python -m pytest tests/plot/test_grouped_means.py -q
-Images and gallery.html are saved under tests/_cache_dir/grouped_means/.
+Set QB_TEST_KEEP_ARTIFACTS=1 to keep images and gallery.html under
+tests/_cache_dir/grouped_means/. Otherwise they are temporary.
 Synthetic rates are proportions; incentive is in percentage points.
 """
 import ast
 from html import escape
 import inspect
-from pathlib import Path
 from textwrap import dedent
 import unittest
 
@@ -21,9 +21,7 @@ from pandas.testing import assert_frame_equal
 from quantbullet.plot import (
     BinSpec, plot_grouped_means, summarize_grouped_means,
 )
-
-
-OUTPUT_DIR = Path(__file__).resolve().parents[1] / "_cache_dir" / "grouped_means"
+from tests.artifacts import gallery_dir
 
 
 def _plot_call_source(test_method):
@@ -123,7 +121,7 @@ class TestGroupedMeansGallery(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        cls.output_dir = gallery_dir(cls)
         cls.df = make_fake_mortgage_data()
         cls.cards = []
 
@@ -139,13 +137,13 @@ class TestGroupedMeansGallery(unittest.TestCase):
 <style>body{font:16px/1.6 system-ui;background:#f3f5f7;color:#1a2635;max-width:1400px;margin:40px auto;padding:0 24px}h1{font-size:32px}section{background:white;padding:24px;margin:28px 0;border-radius:12px}h2{margin:0}p{color:#596575}img{max-width:100%;display:block;margin:auto}pre{background:#e7edf4;padding:16px;overflow-x:auto;border-radius:8px;font:13px/1.5 ui-monospace,Consolas,monospace}</style>
 <h1>Weighted means + sample counts</h1><p>12,000 synthetic mortgage records · fixed seed 731 · UPB weighted CPR.<br>Lines use the left axis; background bars show row counts on the right axis. Data is synthetic, not a forecast.<br>The code below is extracted from each test case; replace <code>self.df</code> with your own DataFrame.</p>
 ''' + cards + "</html>"
-        (OUTPUT_DIR / "gallery.html").write_text(html, encoding="utf-8")
+        (cls.output_dir / "gallery.html").write_text(html, encoding="utf-8")
 
     def tearDown(self):
         plt.close("all")
 
     def save_case(self, name, title, note, result):
-        path = OUTPUT_DIR / f"{name}.png"
+        path = self.output_dir / f"{name}.png"
         result.fig.savefig(path, dpi=130)
         self.assertTrue(path.exists())
         self.assertEqual(result.summary["count"].sum(), len(self.df))

@@ -1,5 +1,4 @@
 import unittest
-import shutil
 from pathlib import Path
 
 import numpy as np
@@ -7,23 +6,12 @@ import pandas as pd
 
 from quantbullet.plot.scatter_binned import plot_scatter_multi_y
 from quantbullet.plot.scatter_binned import _prepare_binned_stats
-
-
-DEV_MODE = True
+from tests.artifacts import artifact_dir
 
 
 class TestScatterBinned(unittest.TestCase):
     def setUp(self):
-        self.cache_dir = "./tests/_cache_dir"
-        if DEV_MODE:
-            Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
-        else:
-            shutil.rmtree(self.cache_dir, ignore_errors=True)
-            Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
-
-    def tearDown(self):
-        if not DEV_MODE:
-            shutil.rmtree(self.cache_dir, ignore_errors=True)
+        self.cache_dir = artifact_dir(self, "plot/scatter_binned")
 
     def test_scatter_multi_y_basic(self):
         np.random.seed(1)

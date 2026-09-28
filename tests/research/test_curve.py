@@ -1,22 +1,14 @@
 # fmt: off
 import unittest
-import shutil
 import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
 from quantbullet.research.curve import MVOCCurve
+from tests.artifacts import artifact_dir
 
 class TestCurveModel( unittest.TestCase ):
     def setUp( self ):
-        self.cache_dir = "./tests/_cache_dir"
-        # just remove all files in the cache dir, but not the dir itself
-        shutil.rmtree(self.cache_dir, ignore_errors=True)
-        Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
-
-    def tearDown(self):
-        # shutil.rmtree(self.cache_dir, ignore_errors=True)
-        # Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
-        pass
+        self.cache_dir = artifact_dir(self, "research/curve")
     
     def test_build_curve( self ):
         left_bound      = 0

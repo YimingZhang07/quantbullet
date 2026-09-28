@@ -1,5 +1,4 @@
 import unittest
-import shutil
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -7,19 +6,11 @@ from quantbullet.reporting.pdf_text_report import PdfTextReport, PdfColumnFormat
 from pathlib import Path
 from quantbullet.dfutils import sort_multiindex_by_hierarchy
 from quantbullet.reporting.formatters import flex_number_formatter
+from tests.artifacts import artifact_dir
 
 class TestPDFTextReport(unittest.TestCase):
     def setUp(self):
-        self.cache_dir = "./tests/_cache_dir"
-        # just remove all files in the cache dir, but not the dir itself
-        shutil.rmtree(self.cache_dir, ignore_errors=True)
-        Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
-        pass
-    
-    def tearDown(self):
-        shutil.rmtree(self.cache_dir, ignore_errors=True)
-        Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
-        pass
+        self.cache_dir = artifact_dir(self, "reporting/pdf_text_report")
 
     def test_pdf_text_report_main( self ):
         report = PdfTextReport( file_path=str( Path(self.cache_dir) / "test_report.pdf" ), report_title="Test Report", page_numbering=True )

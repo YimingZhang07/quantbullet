@@ -63,6 +63,12 @@ Ready to contribute? Here's how to set up `quantbullet` for local development.
 
 4. When you're done making changes, check that your changes conform to any code formatting requirements and pass any tests.
 
+   To retain test images and reports for inspection, add
+   `QB_TEST_KEEP_ARTIFACTS=1` to the repository `.env` (see `.env.example`).
+   The default uses isolated temporary directories under the ignored
+   `tests/_cache_dir/_tmp` directory. A value set in the process environment
+   takes precedence over `.env`.
+
 5. Commit your changes and open a pull request.
 
 ## Pull Request Guidelines

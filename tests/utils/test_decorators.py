@@ -1,16 +1,15 @@
 import unittest
 import os
-import shutil
 import time
 from datetime import date
 from quantbullet.utils.decorators import normalize_date_args, disk_cache
+from tests.artifacts import temporary_artifact_dir
 
 @normalize_date_args("as_of_date", "settle_date")
 def func(as_of_date, settle_date=None):
     return as_of_date, settle_date
 
-@disk_cache("./tests/_cache_dir")
-def cached_func(x, y):
+def slow_func(x, y):
     time.sleep(2)  # Simulate a time-consuming computation
     return x + y
 
@@ -41,16 +40,15 @@ class TestDecorators(unittest.TestCase):
 class TestDiskCache(unittest.TestCase):
 
     def setUp(self):
-        self.cache_dir = "./tests/_cache_dir"
-        shutil.rmtree(self.cache_dir, ignore_errors=True)
-        os.makedirs(self.cache_dir, exist_ok=True)
-
-    def tearDown(self):
-        shutil.rmtree(self.cache_dir, ignore_errors=True)
+        # Cache behavior tests always start cold, regardless of artifact policy.
+        temporary = temporary_artifact_dir(prefix="disk-cache-")
+        self.addCleanup(temporary.cleanup)
+        self.cache_dir = temporary.name
+        self.cached_func = disk_cache(self.cache_dir)(slow_func)
 
     def test_basic_caching(self):
         # First call should compute and cache
-        result1 = cached_func(3, 4)
+        result1 = self.cached_func(3, 4)
         self.assertEqual(result1, 7)
 
         # Cache file should exist
@@ -59,43 +57,43 @@ class TestDiskCache(unittest.TestCase):
         self.assertTrue(any(f.endswith(".json") for f in files))
 
         # Second call should load from cache (no recompute)
-        result2 = cached_func(3, 4)
+        result2 = self.cached_func(3, 4)
         self.assertEqual(result2, 7)
 
         # Different args → new cache entry
-        result3 = cached_func(5, 6)
+        result3 = self.cached_func(5, 6)
         self.assertEqual(result3, 11)
         files_after = os.listdir(self.cache_dir)
         self.assertGreater(len(files_after), len(files))
 
     def test_force_recache(self):
         # First call
-        result1 = cached_func(10, 20)
+        result1 = self.cached_func(10, 20)
         self.assertEqual(result1, 30)
 
         # Force recache
-        result2 = cached_func(10, 20, force_recache=True)
+        result2 = self.cached_func(10, 20, force_recache=True)
         self.assertEqual(result2, 30)
 
     def test_expire_days(self):
         # First call → cached
-        result1 = cached_func(1, 2)
+        result1 = self.cached_func(1, 2)
         self.assertEqual(result1, 3)
 
         # Expire immediately → should recompute
-        result2 = cached_func(1, 2, expire_days=0)
+        result2 = self.cached_func(1, 2, expire_days=0)
         self.assertEqual(result2, 3)
 
     def test_cache_speedup(self):
         # First call: should be slow
         start = time.time()
-        result1 = cached_func(3, 4)
+        result1 = self.cached_func(3, 4)
         elapsed_first = time.time() - start
         self.assertEqual(result1, 7)
 
         # Second call: should be much faster (cache hit)
         start = time.time()
-        result2 = cached_func(3, 4)
+        result2 = self.cached_func(3, 4)
         elapsed_second = time.time() - start
         self.assertEqual(result2, 7)
 
@@ -105,11 +103,11 @@ class TestDiskCache(unittest.TestCase):
 
     def test_force_recache_speed(self):
         # Warm up cache
-        cached_func(5, 6)
+        self.cached_func(5, 6)
 
         # Call with force_recache: should take ~2s again
         start = time.time()
-        result = cached_func(5, 6, force_recache=True)
+        result = self.cached_func(5, 6, force_recache=True)
         elapsed = time.time() - start
         self.assertEqual(result, 11)
         self.assertTrue(elapsed >= 2, "force_recache should recompute, but was too fast")

@@ -1,5 +1,4 @@
 import unittest
-import shutil
 from pathlib import Path
 import numpy as np
 from quantbullet.plot.binned_plots import (
@@ -9,25 +8,11 @@ from quantbullet.plot.binned_plots import (
 )
 import pandas as pd
 from quantbullet.reporting.pdf_text_report import PdfTextReport
-
-DEV_MODE = True
+from tests.artifacts import artifact_dir
 
 class TestPlotBinnedPlots(unittest.TestCase):
     def setUp(self):
-        self.cache_dir = "./tests/_cache_dir"
-        if DEV_MODE:
-            # In DEV_MODE, ensure directory exists but don't clear it
-            Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
-        else:
-            # In non-DEV_MODE, clear and recreate
-            shutil.rmtree(self.cache_dir, ignore_errors=True)
-            Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
-    
-    def tearDown(self):
-        # only clear cache dir in non-dev mode
-        # we want to keep files for inspection in dev mode
-        if not DEV_MODE:
-            shutil.rmtree(self.cache_dir, ignore_errors=True)
+        self.cache_dir = artifact_dir(self, "plot/binned_plots")
 
     def test_basic_functionality(self):
         # Create a DataFrame for testing with more data
@@ -263,16 +248,7 @@ class TestPlotBinnedPlots(unittest.TestCase):
 
 class TestPlotBinnedPlotsPlotnine(unittest.TestCase):
     def setUp(self):
-        self.cache_dir = "./tests/_cache_dir"
-        if DEV_MODE:
-            Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
-        else:
-            shutil.rmtree(self.cache_dir, ignore_errors=True)
-            Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
-
-    def tearDown(self):
-        if not DEV_MODE:
-            shutil.rmtree(self.cache_dir, ignore_errors=True)
+        self.cache_dir = artifact_dir(self, "plot/binned_plots")
 
     def test_basic_functionality_plotnine(self):
         try:
@@ -309,16 +285,7 @@ class TestPlotBinnedPlotsPlotnine(unittest.TestCase):
 
 class TestPlotBinnedPlotsOverlayPlotnine(unittest.TestCase):
     def setUp(self):
-        self.cache_dir = "./tests/_cache_dir"
-        if DEV_MODE:
-            Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
-        else:
-            shutil.rmtree(self.cache_dir, ignore_errors=True)
-            Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
-
-    def tearDown(self):
-        if not DEV_MODE:
-            shutil.rmtree(self.cache_dir, ignore_errors=True)
+        self.cache_dir = artifact_dir(self, "plot/binned_plots")
 
     def test_basic_functionality_overlay_plotnine(self):
         try:

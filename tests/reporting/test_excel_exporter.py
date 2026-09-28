@@ -1,17 +1,15 @@
 import unittest
 import pandas as pd
-import shutil
 from pathlib import Path
 from quantbullet.reporting.excel_exporter import ExcelExporter
 from quantbullet.reporting.columns import ColumnFormat, ColumnMeta, ColumnSchema
 from quantbullet.reporting.converters import convert_pdf_schema_to_excel_schema
 from quantbullet.reporting.pdf_text_report import PdfTextReport, PdfColumnFormat, PdfColumnMeta
+from tests.artifacts import artifact_dir
 
 class TestExcelExporter(unittest.TestCase):
     def setUp(self):
-        self.cache_dir = "./tests/_cache_dir"
-        # shutil.rmtree(self.cache_dir, ignore_errors=True)
-        # Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
+        self.cache_dir = artifact_dir(self, "reporting/excel_exporter")
         
         df = pd.DataFrame({
             "A": [1, 2, 3],
@@ -25,11 +23,6 @@ class TestExcelExporter(unittest.TestCase):
         self.df = df
         return df
     
-    def tearDown(self):
-        # shutil.rmtree(self.cache_dir, ignore_errors=True)
-        # Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
-        pass
-
     def test_excel_exporter_basic(self):
         df = self.df
         exporter = ExcelExporter( filename=str( Path(self.cache_dir) / "test_exporter.xlsx" ) )

@@ -1,6 +1,4 @@
 import os
-import tempfile
-from pathlib import Path
 import unittest
 import numpy as np
 import pandas as pd
@@ -13,6 +11,7 @@ from quantbullet.model import WrapperGAM
 from quantbullet.model.gam_replay import GAMReplayModel
 from quantbullet.model.feature import FeatureSpec, FeatureRole, Feature
 from quantbullet.core.enums import DataType
+from tests.artifacts import CACHE_ROOT, keep_test_artifacts, temporary_artifact_dir
 from quantbullet.model.gam import (
     SplineTermData,
     SplineByGroupTermData,
@@ -21,11 +20,8 @@ from quantbullet.model.gam import (
     center_partial_dependence,
 )
 
-# When enabled, tests keep inspectable artifacts (JSON payloads, comparison
-# PDF) in CACHE_DIR instead of using throwaway temp files. Off by default so
-# normal unit test runs leave nothing behind.
-DEV_MODE = os.environ.get("QB_TEST_DEV_ARTIFACTS", "") == "1"
-CACHE_DIR = "./tests/_cache_dir"
+# Keep JSON payloads and comparison PDFs only when test artifacts are enabled.
+KEEP_TEST_ARTIFACTS = keep_test_artifacts()
 
 
 # ============================================================================
@@ -71,8 +67,8 @@ def _make_feature_spec():
 
 
 def _cache_path(filename):
-    Path(CACHE_DIR).mkdir(parents=True, exist_ok=True)
-    return os.path.join(CACHE_DIR, filename)
+    CACHE_ROOT.mkdir(parents=True, exist_ok=True)
+    return str(CACHE_ROOT / filename)
 
 
 # ============================================================================
@@ -161,8 +157,8 @@ class TestReplayModel(unittest.TestCase):
         self.assertFalse(np.any(np.isinf(preds)))
 
     def test_json_roundtrip(self):
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            path = _cache_path("test_gam_pdep.json") if DEV_MODE else \
+        with temporary_artifact_dir(prefix="gam-json-") as tmp_dir:
+            path = _cache_path("test_gam_pdep.json") if KEEP_TEST_ARTIFACTS else \
                 os.path.join(tmp_dir, "pdep.json")
 
             self.wgam.export_partial_dependence_json(path)
@@ -219,8 +215,8 @@ class TestCentering(unittest.TestCase):
 
     def test_centered_json_roundtrip(self):
         """Centered JSON export -> load -> replay reproduces predictions."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            path = _cache_path("test_gam_pdep_centered.json") if DEV_MODE else \
+        with temporary_artifact_dir(prefix="gam-json-") as tmp_dir:
+            path = _cache_path("test_gam_pdep_centered.json") if KEEP_TEST_ARTIFACTS else \
                 os.path.join(tmp_dir, "pdep_centered.json")
 
             self.wgam.export_partial_dependence_json(path, center=True)
@@ -278,8 +274,8 @@ class TestCentering(unittest.TestCase):
     # -- visual comparison ------------------------------------------------------
 
     def test_centering_comparison_plots(self):
-        """Render raw vs centered partial dependence; save a PDF only in DEV_MODE."""
-        pdf = PdfPages(_cache_path("centering_comparison.pdf")) if DEV_MODE else None
+        """Render raw vs centered partial dependence; optionally retain a PDF."""
+        pdf = PdfPages(_cache_path("centering_comparison.pdf")) if KEEP_TEST_ARTIFACTS else None
         try:
             for center, title in [
                 (False, "Raw Partial Dependence"),

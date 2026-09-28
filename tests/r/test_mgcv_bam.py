@@ -1,15 +1,12 @@
 import unittest
-import shutil
 import time
-from pathlib import Path
 
 import pytest
 
 pytest.importorskip("rpy2")
 
 from quantbullet.r.mgcv_bam import MgcvBamWrapper
-
-DEV_MODE = True
+from tests.artifacts import CACHE_ROOT, keep_test_artifacts
 
 def print_environment_paths():
     import os
@@ -31,21 +28,6 @@ def print_environment_paths():
     print( "=====" * 10 )
 
 class TestMgcvBam(unittest.TestCase):
-    def setUp(self):
-        # print_environment_paths()
-        self.cache_dir = "./tests/_cache_dir"
-        # just remove all files in the cache dir, but not the dir itself
-        if not DEV_MODE:
-            shutil.rmtree(self.cache_dir, ignore_errors=True)
-            Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
-    
-    def tearDown(self):
-        # only clear cache dir in non-dev mode
-        # we want to keep files for inspection in dev mode
-        if not DEV_MODE:
-            shutil.rmtree(self.cache_dir, ignore_errors=True)
-            Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
-
     def test_fit_and_predict(self):
         import pandas as pd
         import numpy as np
@@ -137,8 +119,8 @@ class TestMgcvBam(unittest.TestCase):
         This test writes a parquet file to the cache directory that can be
         consumed by tests/r/run_mgcv_benchmark.R in RStudio.
         """
-        if not DEV_MODE:
-            self.skipTest("R benchmark prep is for DEV_MODE only.")
+        if not keep_test_artifacts():
+            self.skipTest("Set QB_TEST_KEEP_ARTIFACTS=1 to prepare the R benchmark file.")
 
         import pandas as pd
         import numpy as np
@@ -150,7 +132,8 @@ class TestMgcvBam(unittest.TestCase):
             'y': np.random.rand(n)
         })
 
-        cache_dir = Path(self.cache_dir)
+        # The R benchmark script reads this specific path.
+        cache_dir = CACHE_ROOT
         cache_dir.mkdir(parents=True, exist_ok=True)
         parquet_path = cache_dir / "mgcv_benchmark.parquet"
 

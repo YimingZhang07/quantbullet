@@ -137,7 +137,10 @@ synthetic records. Seven visual cases cover basic comparison, overlapping
 groups, stacked counts, wrapped facets, a two-dimensional matrix, binned facets
 with groups, and a single metric on categorical x.
 
-Open `tests/_cache_dir/grouped_means/gallery.html` after running the tests.
+Set `QB_TEST_KEEP_ARTIFACTS=1` in your `.env` (see `.env.example`) or process
+environment before running the tests to retain the gallery. Then open
+`tests/_cache_dir/grouped_means/gallery.html`. With the setting off, the gallery
+is generated in a temporary directory and cleaned up after the unittest class.
 Each image shows the exact `plot_grouped_means(...)` call used to generate it.
 Replace `self.df` in those unittest calls with your own DataFrame.
 Individual PNGs are saved beside it. Generated artifacts are ignored by Git.

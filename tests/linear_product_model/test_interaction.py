@@ -1,5 +1,4 @@
 import unittest
-import shutil
 from pathlib import Path
 
 import numpy as np
@@ -16,8 +15,7 @@ from quantbullet.preprocessing import FlatRampTransformer
 from quantbullet.linear_product_model.datacontainer import ProductModelDataContainer
 from quantbullet.linear_product_model.base import InteractionCoef
 from quantbullet.model.feature import DataType, Feature, FeatureRole, FeatureSpec
-
-DEV_MODE = False
+from tests.artifacts import artifact_dir
 
 
 def _generate_interaction_data(n_samples=50_000, seed=42):
@@ -51,16 +49,7 @@ def _generate_interaction_data(n_samples=50_000, seed=42):
 
 class TestInteraction(unittest.TestCase):
     def setUp(self):
-        self.cache_dir = "./tests/_cache_dir"
-        if DEV_MODE:
-            Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
-        else:
-            shutil.rmtree(self.cache_dir, ignore_errors=True)
-            Path(self.cache_dir).mkdir(parents=True, exist_ok=True)
-
-    def tearDown(self):
-        if not DEV_MODE:
-            shutil.rmtree(self.cache_dir, ignore_errors=True)
+        self.cache_dir = artifact_dir(self, "linear_product_model/interaction")
 
     def test_interaction_x1_by_x2(self):
         df, weights = _generate_interaction_data()
