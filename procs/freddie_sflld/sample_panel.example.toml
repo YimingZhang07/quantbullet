@@ -1,0 +1,11 @@
+[data]
+freddie_root = "${FREDDIE_DATA_ROOT}"
+output_root = "${FREDDIE_DATA_ROOT}/samples/prepayment_500k"
+
+[sample]
+start_vintage = "2015Q1"
+end_vintage = "2026Q1"
+n_loans = 500000
+seed = 42
+amortization_type = "FRM"
+original_loan_term = 360
