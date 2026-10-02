@@ -7,6 +7,7 @@ import polars as pl
 import pytest
 
 from procs.housing_macro import build_parquet as module
+from procs.housing_macro import coverage
 from quantbullet.data.fred import fred_csv_source, scan_cpi_csv
 from quantbullet.data.zillow import scan_zhvi_csv, zhvi_sources
 
@@ -54,27 +55,29 @@ def test_readers_preserve_nulls_codes_and_months(tmp_path):
     assert cpi["month"].to_list() == [date(2020, n, 1) for n in (1, 2, 3)]
 
 
-def test_build_coverage_cache_and_corrupt_output(tmp_path):
+def test_build_fixed_outputs_and_rebuild(tmp_path, monkeypatch):
     _sources(tmp_path)
+    legacy_manifest = tmp_path / "manifests/normalization.json"
+    legacy_manifest.write_text('{"legacy": true}')
     result = module.build_parquet(tmp_path)
-    assert result["status"] == "built"
-    assert result["outputs"]["hpi"]["rows"] == 8
-    assert result["outputs"]["cpi"]["rows"] == 3
-    report = json.loads((tmp_path / result["reports"]["coverage.json"]["path"]).read_text())
-    national = next(row for row in report["hpi"]["full_history"]["regions"] if row["geography_level"] == "national")
-    assert national["missing_date_months"] == 1
-    assert national["missing_date_months_between_valid_bounds"] == 1
-    assert national["null_months_between_valid_bounds"] == 0
-    cpi = report["cpi"]["full_history"]["regions"][0]
-    assert cpi["missing_date_months"] == 0
-    assert cpi["null_months_between_valid_bounds"] == 1
-    assert cpi["missing_values_between_valid_bounds"] == 1
-    monthly = report["hpi"]["full_history"]["monthly"]
-    assert all(row["missing_date_regions"] == 1 for row in monthly if row["month"] == "2020-02-01")
-    assert module.build_parquet(tmp_path)["status"] == "cached"
-    (tmp_path / result["outputs"]["hpi"]["path"]).write_bytes(b"corrupt")
-    rebuilt = module.build_parquet(tmp_path)
-    assert rebuilt["status"] == "built" and rebuilt["build_id"] != result["build_id"]
+    assert result["hpi"]["rows"] == 8
+    assert result["cpi"]["rows"] == 3
+    assert result["hpi"]["first_month"] == date(2020, 1, 1)
+    assert sorted(path.name for path in (tmp_path / "parquet").iterdir()) == ["cpi.parquet", "hpi.parquet"]
+    assert not (tmp_path / "reports").exists()
+    assert legacy_manifest.read_text() == '{"legacy": true}'
+    original_sink = pl.LazyFrame.sink_parquet
+    calls = []
+
+    def sink(frame, *args, **kwargs):
+        calls.append(1)
+        return original_sink(frame, *args, **kwargs)
+
+    monkeypatch.setattr(pl.LazyFrame, "sink_parquet", sink)
+    (tmp_path / "parquet/hpi.parquet").write_bytes(b"corrupt")
+    module.build_parquet(tmp_path)
+    assert len(calls) == 2  # Every run reconstructs both outputs.
+    assert pl.read_parquet(tmp_path / "parquet/hpi.parquet").height == 8
 
 
 @pytest.mark.parametrize("body", [
@@ -87,15 +90,14 @@ def test_build_coverage_cache_and_corrupt_output(tmp_path):
 ])
 def test_invalid_cpi_preserves_previous_build(tmp_path, body):
     _sources(tmp_path)
-    old = module.build_parquet(tmp_path)
-    manifest_path = tmp_path / "manifests/normalization.json"
-    before = manifest_path.read_bytes()
+    module.build_parquet(tmp_path)
+    before = {name: (tmp_path / f"parquet/{name}.parquet").read_bytes() for name in ("hpi", "cpi")}
     _sources(tmp_path, cpi=body)
     with pytest.raises((ValueError, pl.exceptions.PolarsError)):
         module.build_parquet(tmp_path)
-    assert manifest_path.read_bytes() == before
-    assert pl.read_parquet(tmp_path / old["outputs"]["cpi"]["path"]).height == 3
-    assert list((tmp_path / "scratch").iterdir()) == []
+    for name, content in before.items():
+        assert (tmp_path / f"parquet/{name}.parquet").read_bytes() == content
+    assert not list((tmp_path / "parquet").glob("normalize-*"))
 
 
 @pytest.mark.parametrize("body", [
@@ -112,8 +114,9 @@ def test_invalid_hpi_fails(tmp_path, body):
     _sources(tmp_path, metro=body)
     with pytest.raises((ValueError, pl.exceptions.PolarsError)):
         module.build_parquet(tmp_path)
-    assert not (tmp_path / "manifests/normalization.json").exists()
-    assert list((tmp_path / "scratch").iterdir()) == []
+    assert not (tmp_path / "parquet/hpi.parquet").exists()
+    assert not (tmp_path / "parquet/cpi.parquet").exists()
+    assert not list((tmp_path / "parquet").glob("normalize-*"))
 
 
 def test_staging_cleanup_retries_directory_not_empty(tmp_path, monkeypatch):
@@ -135,33 +138,46 @@ def test_staging_cleanup_retries_directory_not_empty(tmp_path, monkeypatch):
     assert temporary.attempts == 3
 
 
-def test_changed_source_and_report_failure_keep_previous(tmp_path, monkeypatch):
+def test_conversion_failure_keeps_both_outputs(tmp_path, monkeypatch):
     _sources(tmp_path)
-    old = module.build_parquet(tmp_path)
-    before = (tmp_path / "manifests/normalization.json").read_bytes()
-    _sources(tmp_path, cpi="observation_date,CPIAUCNS\n2020-01-01,222.123456789\n2020-03-01,0\n")
-    original = module._markdown
-    monkeypatch.setattr(module, "_markdown", lambda report: (_ for _ in ()).throw(RuntimeError("report failure")))
-    with pytest.raises(RuntimeError, match="report failure"):
-        module.build_parquet(tmp_path)
-    assert (tmp_path / "manifests/normalization.json").read_bytes() == before
-    monkeypatch.setattr(module, "_markdown", original)
-    updated = module.build_parquet(tmp_path)
-    assert updated["build_id"] != old["build_id"]
-    frame = pl.read_parquet(tmp_path / updated["outputs"]["cpi"]["path"])
-    assert frame["value"].to_list() == [222.123456789, 0.0]
-    report = json.loads((tmp_path / updated["reports"]["coverage.json"]["path"]).read_text())
-    assert report["cpi"]["full_history"]["summary"][0]["nonpositive_values"] == 1
-    assert report["cpi"]["full_history"]["summary"][0]["missing_date_months"] == 1
-    assert (tmp_path / old["outputs"]["cpi"]["path"]).is_file()
-
-
-def test_source_hash_checked_even_when_cached(tmp_path):
-    sources = _sources(tmp_path)
     module.build_parquet(tmp_path)
-    path = tmp_path / sources["datasets"]["cpi"]["current"]["path"]
-    path.write_text("modified")
-    with pytest.raises(ValueError, match="hash/size"):
+    before = {name: (tmp_path / f"parquet/{name}.parquet").read_bytes() for name in ("hpi", "cpi")}
+    original_sink = pl.LazyFrame.sink_parquet
+
+    def fail_cpi(frame, path, **kwargs):
+        if path.name == "cpi.parquet":
+            raise OSError("example write failure")
+        return original_sink(frame, path, **kwargs)
+
+    monkeypatch.setattr(pl.LazyFrame, "sink_parquet", fail_cpi)
+    with pytest.raises(OSError, match="example write failure"):
+        module.build_parquet(tmp_path)
+    for name, content in before.items():
+        assert (tmp_path / f"parquet/{name}.parquet").read_bytes() == content
+    assert not list((tmp_path / "parquet").glob("normalize-*"))
+
+
+def test_changed_source_and_separate_coverage(tmp_path):
+    _sources(tmp_path)
+    module.build_parquet(tmp_path)
+    _sources(tmp_path, cpi="observation_date,CPIAUCNS\n2020-01-01,222.123456789\n2020-03-01,0\n")
+    module.build_parquet(tmp_path)
+    frame = pl.read_parquet(tmp_path / "parquet/cpi.parquet")
+    assert frame["value"].to_list() == [222.123456789, 0.0]
+    report = coverage.write_coverage(tmp_path)
+    summary = report["cpi"]["full_history"]["summary"][0]
+    assert summary["nonpositive_values"] == 1
+    assert summary["missing_date_months"] == 1
+    assert (tmp_path / "reports/coverage.md").is_file()
+    assert "schema_version" not in report
+
+
+@pytest.mark.parametrize("relative", ["../outside.csv", None])
+def test_manifest_cannot_select_file_outside_root(tmp_path, relative):
+    sources = _sources(tmp_path)
+    sources["datasets"]["cpi"]["current"]["path"] = relative or str(tmp_path.parent / "outside.csv")
+    (tmp_path / "manifests/downloads.json").write_text(json.dumps(sources))
+    with pytest.raises(ValueError, match="inside the data root"):
         module.build_parquet(tmp_path)
 
 
@@ -172,8 +188,8 @@ def test_coverage_distinguishes_internal_nulls_from_absent_months(tmp_path):
         state="RegionID,RegionName,RegionType,2015-01-31,2015-03-31\n3,Test State,state,100,110\n",
         zipcode="RegionID,RegionName,RegionType,2014-12-31,2015-03-31\n4,00123,zip,50,60\n",
     )
-    result = module.build_parquet(tmp_path)
-    report = json.loads((tmp_path / result["reports"]["coverage.json"]["path"]).read_text())
+    module.build_parquet(tmp_path)
+    report = coverage.write_coverage(tmp_path)
     rows = {row["geography_level"]: row for row in report["hpi"]["full_history"]["regions"]}
     assert rows["national"]["missing_date_months_between_valid_bounds"] == 1
     assert rows["national"]["null_months_between_valid_bounds"] == 1
@@ -185,7 +201,9 @@ def test_coverage_distinguishes_internal_nulls_from_absent_months(tmp_path):
     recent = {row["geography_level"]: row for row in report["hpi"]["from_2015"]["regions"]}
     assert recent["zip"]["rows"] == 1
     assert recent["zip"]["missing_date_months"] == 2
-    assert report["hpi"]["from_2015"]["start_month"] == "2015-01-01"
+    assert report["hpi"]["from_2015"]["start_month"] == date(2015, 1, 1)
+    saved = json.loads((tmp_path / "reports/coverage.json").read_text())
+    assert saved["hpi"]["from_2015"]["start_month"] == "2015-01-01"
 
 
 def test_cli_rejects_repository_data_root():

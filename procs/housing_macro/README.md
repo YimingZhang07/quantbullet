@@ -61,9 +61,10 @@ credentialed observations API.
 # Alternatively: --data-root '<external-data-root>\housing_macro'
 ```
 
-The command verifies hashes and sizes of all four current download snapshots
-before reading them. It writes two independent long tables with complete
-history, including every source null. No interpolation or rebasing is applied.
+The command finds the four current CSVs in `manifests/downloads.json`,
+standardizes them, checks basic data validity, and writes two independent
+long tables. Every run rebuilds both tables at fixed paths. Complete history
+and every source null are preserved, with no interpolation or rebasing.
 
 | Table | Columns | Unique key |
 |---|---|---|
@@ -86,25 +87,42 @@ Normalized dates describe observation months, not publication dates.
 
 ```text
 <external-data-root>/housing_macro/
-  parquet/<build_id>/hpi.parquet
-  parquet/<build_id>/cpi.parquet
-  reports/<build_id>/coverage.json
-  reports/<build_id>/coverage.md
-  manifests/normalization.json
+  parquet/hpi.parquet
+  parquet/cpi.parquet
+  reports/coverage.json    # Generated only by the separate coverage command
+  reports/coverage.md
 ```
 
-The normalization manifest selects `current` and retains successful
-`versions`. Each build records schema version, source hashes and metadata,
-relative output/report paths, hashes, sizes, and Parquet row counts. If
-inputs, schema version, and all four artifact hashes match, a repeat run
-returns `cached`. Changed or damaged artifacts trigger a new build directory.
-Schema or transformation changes must increment `SCHEMA_VERSION`.
+Missing identifiers, duplicate normalized keys, invalid dates, unparseable
+values, nonfinite values, and invalid ZIP5 strings fail the build. Normal
+nulls and nonpositive finite values are retained. The command prints row
+counts and month ranges. Both temporary Parquet files must finish before
+existing outputs are replaced, so validation or conversion failures preserve
+both existing files. Each file replacement is atomic; replacement of the
+pair is not a transaction. Run one writer against a data root at a time.
 
-Both Parquet files and both reports must finish before the manifest is
-atomically replaced. A failed build leaves the previous selected version
-available. Temporary files are cleaned on ordinary failures; forced process
-termination may leave unselected files in scratch or a version directory.
-Run only one writer against a data root at a time.
+There is no build cache, schema version, output hashing, or normalization
+manifest. The build reads selected CSVs directly; source hash verification
+remains part of the download command. Existing version directories and an
+older `normalization.json` are ignored and can remain for comparison.
+
+Library readers are `quantbullet.data.zillow.scan_zhvi_csv(path,
+geography="metro" | "state" | "zip")` and
+`quantbullet.data.fred.scan_cpi_csv(path, series_id="CPIAUCNS")`. They return
+Polars LazyFrames and define the actual column types. The build script
+selects inputs, merges the ZHVI tables, validates, and saves the outputs.
+
+## Optional coverage inspection
+
+```powershell
+.\.venv\Scripts\python.exe -m procs.housing_macro.coverage
+# Alternatively: --data-root '<external-data-root>\housing_macro'
+```
+
+This separate command reads the fixed Parquet files and overwrites
+`reports/coverage.json` and `reports/coverage.md`. A build does not update
+reports: run coverage again after rebuilding whenever you need current
+statistics. A coverage failure does not affect the Parquet files.
 
 `coverage.md` summarizes full history and 2015 onward. `coverage.json` also
 contains monthly valid-region counts and each region's first/last valid
@@ -119,14 +137,6 @@ values in a reporting window. For a region:
   between the first and last nonnull month; the two components are also
   reported separately. These fields are null when no valid bounds exist.
 
-Missing identifiers, duplicate normalized keys, invalid dates, unparseable
-values, and nonfinite values fail the build. Nonpositive finite values are
-retained and counted separately. Synthetic tests use local CSVs and mocked
-downloads; they do not contact providers.
-
-Library readers are `quantbullet.data.zillow.scan_zhvi_csv(path,
-geography="metro" | "state" | "zip")` and
-`quantbullet.data.fred.scan_cpi_csv(path, series_id="CPIAUCNS")`. They return
-Polars LazyFrames. Project snapshot selection, table validation, reporting,
-and publication belong to this workflow. Geographic mapping, returns, lag,
-current LTV, and loan joins remain a subsequent modeling step.
+Nonpositive values are counted separately in the report. Synthetic tests use
+local CSVs and mocked downloads; they do not contact providers. Geographic
+mapping, returns, lag, current LTV, and loan joins remain a subsequent step.
