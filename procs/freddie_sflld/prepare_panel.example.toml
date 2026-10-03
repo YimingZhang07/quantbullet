@@ -1,0 +1,4 @@
+[data]
+sample_root = "${FREDDIE_DATA_ROOT}/samples/prepayment_500k"
+macro_root = "${MACRO_DATA_ROOT}"
+output_root = "${FREDDIE_DATA_ROOT}/prepared/prepayment_500k"

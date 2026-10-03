@@ -11,3 +11,9 @@
 - Do not add personal information, user-specific absolute paths, credentials, or local dataset contents to tracked code, tests, documentation, or examples.
 - Use environment variables or generic placeholders for local paths. Keep raw data, generated Parquet files, and manifests outside the repository.
 - Before committing, inspect the staged file list and diff for personal paths, secrets, and generated data.
+
+## Process documentation
+
+- Use the repository skill [`process-readme`](.agents/skills/process-readme/SKILL.md) when writing or restructuring workflow READMEs; it can be invoked as `$process-readme`.
+- Keep READMEs under `procs/` as concise operating manuals: execution order, purpose, commands, configuration, and outputs.
+- Put data definitions, calculation rules, and design reasoning in separate Markdown documents linked from the manual.
