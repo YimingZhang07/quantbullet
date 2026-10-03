@@ -53,10 +53,10 @@ Source `period` 和 missing codes 都保留。Summary 区分 filter 前的 `raw_
 当前 [prepare_panel.py](../prepare_panel.py) 的执行顺序是：
 
 1. `prepare_macro_tables()` 选择所需 series 和 HPI geography，检查 macro keys 与数值。
-2. `derive_loan_features()` 对 sampled static 清洗并计算 loan-level fields，关联 origination PMMS 和 HPI candidates。
+2. `derive_loan_features()` 对 sampled static 清洗并计算 loan-level fields（含原合同参考月供），关联 origination PMMS 和 HPI candidates。
    这一步只做一次；小型 macro tables 和贷款级 features 可以放在内存。
 3. 逐 vintage 读取 panel，检查 sample membership、行数和 unique loan-month keys。
-4. `prepare_loan_months()` 按 `loan_identifier, month` 排序，计算连续上月字段、status 和 quality flags，
+4. `prepare_loan_months()` 按 `loan_identifier, month` 排序，计算连续上月字段、还款构成、累计 modification、status 和 quality flags，
    再关联 monthly macro、选择 HPI geography 并计算 derived features。
 5. 每季度通过 LazyFrame / `sink_parquet()` 写临时结果，按 `d_reporting_month` 排序后 streaming merge 成一个 Parquet。
    最终只发布 `panel.parquet` 和 `preparation_summary.json`，临时季度文件清理掉。
@@ -69,7 +69,7 @@ Loan history 的 window calculation 在各 vintage 内完成，因此不需要�
 Missing/duplicate keys、非法日期、不可解析或非有限数值会使构建失败；正常 null 允许保留。
 Macro joins 使用 many-to-one validation，输出行数必须与输入一致。
 整次构建先写 staging directory，成功后替换专用 output；转换或校验失败时保留上一版成功产物。
-Summary 记录行数、贷款数、feature null fractions、status/exit counts、HPI fallback 和 quality counts。
+Summary 记录行数、贷款数、feature null fractions、status/exit counts、HPI fallback、quality counts 和 `ever_modified_rows`。
 
 ## 2. 日期与 naming
 
@@ -78,7 +78,7 @@ Summary 记录行数、贷款数、feature null fractions、status/exit counts�
 | `d_` | Date，统一为月初 |
 | `c_` | Numeric；`c_age` 为 Int32，其余为 Float64 |
 | `f_` | Categorical String，包括 units / borrowers 等计数类别 |
-| `is_` | Boolean，描述 continuity 或 data quality |
+| `is_` | Boolean，描述 continuity、observed modification 或 data quality |
 
 `orig`、`prev`、`current`、`updated` 放在变量主体前；`lag1` 放在末尾。
 新增列不覆盖原始字段，例如 `classic_fico` 保持 String，另存清洗后的 `c_orig_fico`。
@@ -145,6 +145,7 @@ Numeric cast 为 Float64，非空非法数值报错。Source columns 不改；de
 
 | Feature | Source / calculation | 时点、类型 / 单位与 missing rule |
 | --- | --- | --- |
+| `c_balance` | `current_actual_upb` 清洗并 cast 后的 alias | t，Float64 / USD；blank/null → null，原始 String 列保留 |
 | `c_prev_balance` | 上月 `current_actual_upb` | t−1，USD；无连续上月记录或 source 缺失 → null |
 | `c_prev_rate` | 上月 `current_interest_rate` | t−1，Percent；同上 |
 | `f_prev_modified` | 上月 `modification_flag` 的归一值 | t−1，String；`Y`/`P` → `Y`，blank/null → `N`，其他 → `UNKNOWN`；无连续上月记录 → null |
@@ -152,6 +153,38 @@ Numeric cast 为 Float64，非空非法数值报错。Source columns 不改；de
 | `f_month` | `d_reporting_month` 的月份 | t，String `01`–`12` |
 
 Previous balance / rate 反映 modification 后的实际字段。这里不要求 previous balance 必须为正，也不因为 previous status 未知而删行。
+
+### Reference payment 与还款构成
+
+当前 sample 为 fully amortizing FRM。根据原合同参数计算固定 monthly P&I reference payment：
+
+```text
+P = c_orig_balance
+n = c_orig_term
+r = c_orig_rate / 1200
+
+c_monthly_payment = P × r / (1 − (1 + r)^(-n))
+r = 0 时：c_monthly_payment = P / n
+```
+
+Rates 使用 percent units，所以 `4.0 / 1200` 才是 monthly decimal rate。
+P 或 n 缺失或非正、original rate 缺失或为负时，payment 为 null。月供只含 principal / interest，不含 escrow、税费和保险。
+该值在 loan-level 计算一次，modification 后仍保持原合同参考值。
+
+| Feature | Formula | 时点、单位与 missing rule |
+| --- | --- | --- |
+| `c_monthly_payment` | 上述 original-contract annuity formula | Original reference，Float64 / USD；无效参数 → null |
+| `c_interest` | `c_prev_balance × c_prev_rate / 1200` | t 的 interest estimate，Float64 / USD；previous inputs 缺失 → null |
+| `c_scheduled_principal` | `c_monthly_payment − c_interest` | t 的 scheduled principal estimate，Float64 / USD；任一输入缺失 → null |
+| `c_scheduled_balance` | `c_prev_balance − c_scheduled_principal` | t 的 expected ending balance，Float64 / USD；任一输入缺失 → null |
+
+Scheduled balance 是从 **上月 actual balance** 出发，只支付 reference payment 后的一步预测，不是从 origination 开始的原始摊还曲线。
+首行或月份断档时，三个 monthly split fields 都为 null，reference payment 仍保留。不使用 current balance / rate 代替 previous inputs。
+金额不取整、不截断正负值；退出后等记录也保留公式结果，解释与筛选由 downstream 决定。本阶段不计算 curtailment 差额。
+
+这些是 **estimates**，不是披露的 payment / scheduled UPB：Freddie original UPB 取整到最近 $1,000；
+未修改贷款的 source `loan_age <= 6` 且 actual UPB > $500 时，actual UPB 也按 $1,000 取整（见第 1 节官方 guide）。
+Modification 后参考月供可能不再对应实际合同；interest 仍用 previous actual rate，不能把该拆分视为实际收到的现金流。
 
 ### Macro lookups 与 HPI matching
 
@@ -198,6 +231,14 @@ SATO 衡量原贷款 rate 相对 origination PMMS 的 spread；incentive 使用 
 也不重建 individual-property appraisal、junior liens 或 exact contract amortization。
 
 ## 4. Status 与 quality
+
+### 截至当前月的 modification 标记
+
+`is_ever_modified` 为非空 Boolean：同一贷款按 reporting month 排序，首次观察到 `modification_flag=Y/P` 的当月及之后为 True；
+之前为 False。后续 blank/null/其他编码不重置，月份断档也不重置；没有观察到 `Y/P` 时为 False。
+它描述的是 **截至当前 row 已观察到 modification**，不使用未来信息给此前 rows 打标，也不保证披露前没有修改。
+与只看连续上月的 `f_prev_modified` 不同，它跨断档保留累计状态，方便 downstream 排除修改后的 rows。
+Summary 在每个 vintage 和总体记录 `ever_modified_rows`，不将这个标记视为 data-quality error。
 
 ### 合并 delinquency 与 exit information
 
@@ -260,8 +301,8 @@ Summary 的 `quality_counts` 另外计数：previous balance 缺失/≤0、previ
 ### 完整 loan-month 的计算
 
 假设 `first_payment_date=201502`，reporting month 为 2015-05，且存在 2015-04 的贷款记录。
-清洗后 original balance 为 100,000 USD、original LTV 为 80、original rate 为 4.0；
-April actual balance 为 98,000 USD、actual rate 为 4.0。
+清洗后 original balance 为 100,000 USD、original LTV 为 80、original rate 为 4.0、original term 为 360 months；
+April actual balance 为 98,000 USD、actual rate 为 4.0，May actual balance 为 97,000 USD。
 Origination PMMS 为 3.8，April PMMS 为 3.5；选中 geography 的 origination ZHVI 为 100,000 USD，April ZHVI 为 110,000 USD。
 
 | 派生字段 | 结果 |
@@ -269,6 +310,11 @@ Origination PMMS 为 3.8，April PMMS 为 3.5；选中 geography 的 origination
 | `d_origination_month` | 2015-01-01 |
 | `c_age` | 4 months |
 | `c_prev_balance` / `c_prev_rate` | 98,000 USD / 4.0% |
+| `c_balance` | 97,000 USD |
+| `c_monthly_payment` | 约 477.4153 USD |
+| `c_interest` | `98,000 × 4.0 / 1200 ≈ 326.6667` USD |
+| `c_scheduled_principal` | `477.4153 − 326.6667 ≈ 150.7486` USD |
+| `c_scheduled_balance` | `98,000 − 150.7486 ≈ 97,849.2514` USD |
 | `c_sato` | `4.0 - 3.8 = 0.2` percentage points |
 | `c_incentive` | `4.0 - 3.5 = 0.5` percentage points |
 | `c_factor` | `98,000 / 100,000 = 0.98` |
@@ -285,6 +331,8 @@ Origination PMMS 为 3.8，April PMMS 为 3.5；选中 geography 的 origination
 - May 的 `is_consecutive_month=False`；`c_prev_balance`、`c_prev_rate`、`f_prev_modified`、`f_pre_status` 为 null。
 - April macro 若存在，May 的 `c_pmms_lag1`、`c_hpi_lag1`、`c_cpi_lag1` 仍可以有值。
 - `c_incentive`、`c_factor`、`c_updated_ltv` 因缺少贷款 previous inputs 为 null；`c_hpi_growth` 仍可计算。
+- `c_interest`、`c_scheduled_principal`、`c_scheduled_balance` 为 null；`c_monthly_payment` 不受断档影响。
+- 若 February 已出现 `modification_flag=Y/P`，May 的 `is_ever_modified` 仍为 True，February 前的 rows 不被回标。
 - 不补造 April row，也不使用 March balance 代替 April balance。
 
 ### 后续 model 自己决定什么
@@ -297,5 +345,5 @@ Reporting-month status、ending balance、current macro，以及使用完整历�
 Macro `lag1` 仅表示 observation month 滞后一期；ZHVI/CPI revisions、PMMS monthly availability 等仍需在 model 阶段评估，
 它不等于严格的 historical publication-time backtest。
 
-日期、lag、fallback、sentinel、status、quality 和输出保留行为的合成验证，见
+日期、lag、reference payment、monthly split、累计 modification、fallback、sentinel、status、quality 和输出保留行为的合成验证，见
 [test_freddie_features.py](../../../tests/data/test_freddie_features.py)。

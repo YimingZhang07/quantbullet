@@ -67,6 +67,7 @@ ORIG_FACTORS = {
 # downstream models must choose their inputs and timing explicitly.
 NUMERIC_FEATURES = (
     "c_age", *(name for name, _ in ORIG_NUMBERS.values()),
+    "c_balance", "c_monthly_payment", "c_interest", "c_scheduled_principal", "c_scheduled_balance",
     "c_prev_balance", "c_prev_rate", "c_orig_pmms", "c_pmms_lag1",
     "c_sato", "c_incentive", "c_orig_hpi", "c_hpi_lag1", "c_cpi_lag1",
     "c_factor", "c_hpi_growth", "c_updated_ltv", "c_current_hpi", "c_current_pmms",
@@ -86,7 +87,7 @@ QUALITY_FLAGS = (
 )
 DERIVED_COLUMNS = (
     "d_first_payment_month", "d_origination_month", "d_maturity_month",
-    "d_reporting_month", "d_exit_month", *FEATURE_COLUMNS, *QUALITY_FLAGS,
+    "d_reporting_month", "d_exit_month", *FEATURE_COLUMNS, "is_ever_modified", *QUALITY_FLAGS,
 )
 # current_loan_delinquency_status -> descriptive state for a non-exit row.
 # Numeric codes count delinquent months; group 03-99 into DQ90_PLUS.
@@ -138,6 +139,20 @@ def _month(name: str) -> pl.Expr:
 
 def _positive(value: pl.Expr) -> pl.Expr:
     return pl.when(value > 0).then(value).otherwise(None)
+
+
+def _monthly_payment() -> pl.Expr:
+    """Original-contract fixed P&I estimate; reported rates use percent units.
+
+    Original UPB is rounded, so this is not a disclosed payment amount.
+    Keep the original reference payment even after a modification.
+    """
+    balance, term = pl.col("c_orig_balance"), pl.col("c_orig_term")
+    rate = pl.col("c_orig_rate") / 1200
+    payment = pl.when(rate == 0).then(balance / term).otherwise(
+        balance * rate / (1 - (1 + rate).pow(-term))
+    )
+    return pl.when((balance > 0) & (term > 0) & (rate >= 0)).then(payment).otherwise(None)
 
 
 def _require(frame: pl.LazyFrame, columns: list[str]) -> None:
@@ -218,6 +233,7 @@ def derive_loan_features(loans: pl.LazyFrame, *, macro: MacroTables) -> pl.LazyF
         *(_text(raw, missing).alias(name) for raw, (name, missing) in ORIG_FACTORS.items()),
     ).with_columns(
         pl.col("d_first_payment_month").dt.offset_by("-1mo").alias("d_origination_month"),
+        _monthly_payment().alias("c_monthly_payment"),
     )
     return features.join(macro.pmms.lazy().rename({
         "month": "d_origination_month", "value": "c_orig_pmms",
@@ -277,7 +293,8 @@ def prepare_loan_months(
         "loan_identifier", "month",
     ).with_columns(
         pl.col("month").alias("d_reporting_month"),
-        _number("current_actual_upb").alias("_balance"),
+        # Numeric alias alongside the untouched raw String balance.
+        _number("current_actual_upb").alias("c_balance"),
         _number("current_interest_rate").alias("_rate"),
         _month("zero_balance_effective_date").alias("d_exit_month"),
         _text("zero_balance_code").alias("_exit_code"),
@@ -287,6 +304,9 @@ def prepare_loan_months(
         ).then(pl.lit("Y")).otherwise(pl.lit("UNKNOWN")).alias("_modified"),
         pl.col("month").dt.offset_by("-1mo").alias("_macro_month"),
     ).with_columns(
+        # Cumulative through this row only, not a whole-loan/future-history flag.
+        # Y/P both mark modification; gaps and later blanks never reset it.
+        (pl.col("_modified") == "Y").cum_max().over("loan_identifier").alias("is_ever_modified"),
         (pl.col("month").shift(1).over("loan_identifier").dt.offset_by("1mo") == pl.col("month"))
         .fill_null(False).alias("is_consecutive_month"),
         pl.col("_exit_code").is_in(list(EXIT_REASONS)).fill_null(False).alias("is_known_exit"),
@@ -300,13 +320,13 @@ def prepare_loan_months(
         .alias("is_missing_exit_month"),
         (pl.col("_exit_code").is_not_null() & pl.col("d_exit_month").is_not_null()
          & (pl.col("d_exit_month") != pl.col("month"))).fill_null(False).alias("is_event_month_mismatch"),
-        (pl.col("_exit_code").is_null() & (pl.col("_balance") <= 0)).fill_null(False)
+        (pl.col("_exit_code").is_null() & (pl.col("c_balance") <= 0)).fill_null(False)
         .alias("is_zero_balance_without_exit"),
         # Compare later rows to the earliest reported/effective known exit month.
         # This is descriptive only: keep rows and never quarantine earlier states.
         pl.when(pl.col("is_known_exit")).then(pl.min_horizontal("month", "d_exit_month"))
         .alias("_row_exit"),
-        pl.when(pl.col("is_consecutive_month")).then(pl.col("_balance").shift(1).over("loan_identifier"))
+        pl.when(pl.col("is_consecutive_month")).then(pl.col("c_balance").shift(1).over("loan_identifier"))
         .alias("c_prev_balance"),
         pl.when(pl.col("is_consecutive_month")).then(pl.col("_rate").shift(1).over("loan_identifier"))
         .alias("c_prev_rate"),
@@ -325,6 +345,13 @@ def prepare_loan_months(
     ).with_columns(
         pl.when(pl.col("is_consecutive_month")).then(pl.col("f_status").shift(1).over("loan_identifier"))
         .alias("f_pre_status"),
+        # One month's reference cash-flow split uses the actual prior balance/rate.
+        # Missing calendar-adjacent inputs propagate null; do not clip amounts.
+        (pl.col("c_prev_balance") * pl.col("c_prev_rate") / 1200).alias("c_interest"),
+    ).with_columns(
+        (pl.col("c_monthly_payment") - pl.col("c_interest")).alias("c_scheduled_principal"),
+    ).with_columns(
+        (pl.col("c_prev_balance") - pl.col("c_scheduled_principal")).alias("c_scheduled_balance"),
     )
     for table, keys, rename in (
         (macro.state_hpi, ["f_state", "_macro_month"], {"month": "_macro_month", "value": "_state_lag1_hpi"}),

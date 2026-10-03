@@ -114,6 +114,117 @@ def test_calendar_gap_and_loan_isolation(macro_frames):
     assert result.filter((pl.col("loan_identifier") == "A") & (pl.col("period") == "201504"))["f_pre_status"].item() is None
 
 
+def test_reference_payment_and_monthly_split(macro_frames):
+    loans = [_loan()]
+    panel = _panel(loans, [
+        {"loan_identifier": "A", "period": "201504", "current_actual_upb": " 98000 "},
+        {"loan_identifier": "A", "period": "201505", "current_actual_upb": "97000"},
+    ])
+    result = _prepare(loans, panel.reverse(), macro_frames).sort("month")
+    payment = 100000 * (4 / 1200) / (1 - (1 + 4 / 1200) ** -360)
+    first, second = result.to_dicts()
+    assert result.schema["c_balance"] == pl.Float64
+    assert result["c_balance"].to_list() == [98000., 97000.]
+    assert result["current_actual_upb"].to_list() == [" 98000 ", "97000"]
+    assert result["c_monthly_payment"].to_list() == pytest.approx([payment, payment])
+    for name in ("c_interest", "c_scheduled_principal", "c_scheduled_balance"):
+        assert result.schema[name] == pl.Float64 and first[name] is None
+    assert second["c_interest"] == pytest.approx(98000 * 4 / 1200)
+    assert second["c_scheduled_principal"] == pytest.approx(payment - second["c_interest"])
+    assert second["c_scheduled_balance"] == pytest.approx(98000 - second["c_scheduled_principal"])
+    assert "c_curtailment_est" not in result.columns
+    assert result.select(panel.columns).equals(panel.sort("month"))
+
+
+@pytest.mark.parametrize("updates, expected", [
+    ({"original_interest_rate": "0"}, 100000 / 360),
+    ({"original_interest_rate": None}, None),
+    ({"original_interest_rate": "-1"}, None),
+    ({"original_upb": None}, None),
+    ({"original_upb": "0"}, None),
+    ({"original_upb": "-100"}, None),
+    ({"original_loan_term": None}, None),
+    ({"original_loan_term": "0"}, None),
+    ({"original_loan_term": "-1"}, None),
+])
+def test_reference_payment_zero_rate_and_invalid_inputs(macro_frames, updates, expected):
+    loans = [_loan(**updates)]
+    result = _prepare(loans, _panel(loans, [
+        {"loan_identifier": "A", "period": "201502", "current_actual_upb": "100000"},
+        {"loan_identifier": "A", "period": "201503", "current_actual_upb": "99000"},
+    ]), macro_frames)
+    if expected is None:
+        assert result["c_monthly_payment"].null_count() == 2
+        assert result["c_scheduled_principal"].null_count() == 2
+        assert result["c_scheduled_balance"].null_count() == 2
+    else:
+        assert result["c_monthly_payment"].to_list() == pytest.approx([expected, expected])
+
+
+@pytest.mark.parametrize("previous_updates", [
+    {"current_actual_upb": None}, {"current_interest_rate": None},
+])
+def test_payment_split_missing_previous_input(macro_frames, previous_updates):
+    loans = [_loan()]
+    result = _prepare(loans, _panel(loans, [
+        {"loan_identifier": "A", "period": "201502", "current_actual_upb": "100000", **previous_updates},
+        {"loan_identifier": "A", "period": "201503", "current_actual_upb": "99000"},
+    ]), macro_frames)
+    assert result["c_monthly_payment"].null_count() == 0
+    for name in ("c_interest", "c_scheduled_principal", "c_scheduled_balance"):
+        assert result[name].null_count() == 2
+
+
+@pytest.mark.parametrize("flag", ["Y", "P"])
+def test_modification_flag_is_cumulative_not_retrospective(macro_frames, flag):
+    loans = [_loan("A"), _loan("B", original_upb="80000")]
+    panel = _panel(loans, [
+        {"loan_identifier": "A", "period": "201501", "current_actual_upb": "100000"},
+        {"loan_identifier": "A", "period": "201502", "current_actual_upb": "99000",
+         "modification_flag": flag, "current_interest_rate": "5"},
+        {"loan_identifier": "A", "period": "201503", "current_actual_upb": "98000",
+         "modification_flag": " ", "current_interest_rate": "6"},
+        {"loan_identifier": "A", "period": "201505", "current_actual_upb": "97000"},
+        {"loan_identifier": "B", "period": "201502", "current_actual_upb": "80000"},
+        {"loan_identifier": "B", "period": "201503", "current_actual_upb": "79000",
+         "modification_flag": "unknown"},
+    ])
+    result = _prepare(loans, panel.reverse(), macro_frames)
+    a = result.filter(pl.col("loan_identifier") == "A").sort("month")
+    b = result.filter(pl.col("loan_identifier") == "B").sort("month")
+    assert result.schema["is_ever_modified"] == pl.Boolean
+    assert a["is_ever_modified"].to_list() == [False, True, True, True]
+    assert b["is_ever_modified"].to_list() == [False, False]
+    assert a["c_monthly_payment"].n_unique() == 1
+    assert b["c_monthly_payment"][0] == pytest.approx(a["c_monthly_payment"][0] * .8)
+    # Current rate changed to 6%, but March's estimate uses February's 5%.
+    assert a["c_interest"][2] == pytest.approx(99000 * 5 / 1200)
+    for name in ("c_interest", "c_scheduled_principal", "c_scheduled_balance"):
+        assert a[name][3] is None  # April is absent, despite the persistent flag.
+    assert a["c_monthly_payment"][3] is not None
+    assert result.select(panel.columns).sort("loan_identifier", "month").equals(
+        panel.sort("loan_identifier", "month")
+    )
+
+
+def test_reference_cash_flow_amounts_are_not_clipped(macro_frames):
+    loans = [_loan()]
+    result = _prepare(loans, _panel(loans, [
+        {"loan_identifier": "A", "period": "201501", "current_actual_upb": "100000",
+         "current_interest_rate": "12"},
+        {"loan_identifier": "A", "period": "201502", "current_actual_upb": "100",
+         "current_interest_rate": "0"},
+        {"loan_identifier": "A", "period": "201503", "current_actual_upb": "0",
+         "zero_balance_code": "01", "zero_balance_effective_date": "201503"},
+        {"loan_identifier": "A", "period": "201504", "current_actual_upb": "0"},
+    ]), macro_frames).sort("month")
+    assert result.height == 4
+    assert result["c_scheduled_principal"][1] < 0
+    assert result["c_scheduled_balance"][2] < 0
+    assert result["c_scheduled_balance"][3] < 0
+    assert result["is_post_exit"][3]
+
+
 def test_hpi_pair_fallback_and_updated_ltv(macro_frames):
     loans = [_loan()]
     result = _prepare(loans, _panel(loans, [
@@ -316,6 +427,8 @@ def test_pipeline_and_complete_replacement(config):
     assert summary["quality_counts"]["is_known_exit"] == 2
     assert not {"model_rows", "model_prepays", "prepays", "model_features", "exclusions"} & set(summary)
     assert summary["feature_columns"] == list(FEATURE_COLUMNS)
+    assert summary["ever_modified_rows"] == 0
+    assert summary["vintages"][0]["feature_missing"]["c_interest"]["rows"] == 1
     text = (config.output_root / "preparation_summary.json").read_text()
     assert str(config.sample_root) not in text and str(config.output_root) not in text
     before = pl.read_parquet(config.output_root / "panel.parquet")
@@ -330,6 +443,18 @@ def test_pipeline_and_complete_replacement(config):
     process.build_prepared_panel(config, vintages=["2015Q2"])
     assert not (config.output_root / "panel").exists()
     assert pl.read_parquet(config.output_root / "panel.parquet")["vintage"].unique().to_list() == ["2015Q2"]
+
+
+def test_pipeline_counts_modified_rows(config):
+    path = config.sample_root / "panel/vintage=2015Q1/panel.parquet"
+    pl.read_parquet(path).with_columns(
+        pl.when(pl.col("period") == "201503").then(pl.lit("P")).otherwise(None)
+        .alias("modification_flag")
+    ).write_parquet(path)
+    summary = process.build_prepared_panel(config)
+    assert summary["ever_modified_rows"] == 1
+    assert [row["ever_modified_rows"] for row in summary["vintages"]] == [1, 0]
+    assert pl.read_parquet(config.output_root / "panel.parquet")["is_ever_modified"].sum() == 1
 
 
 def test_failure_preserves_successful_output(config):

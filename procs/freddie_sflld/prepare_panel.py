@@ -117,6 +117,7 @@ def _partition_summary(path: Path, expected_rows: int, sampled_loans: int) -> di
         unknown.sum().alias("unknown_previous_status"),
         invalid_age.sum().alias("invalid_age"),
         *[pl.col(name).sum().alias(name) for name in QUALITY_FLAGS],
+        pl.col("is_ever_modified").sum().alias("ever_modified_rows"),
         (pl.col("f_hpi_level") == "national").sum().alias("national_hpi_rows"),
         pl.col("d_reporting_month").min().alias("first_month"),
         pl.col("d_reporting_month").max().alias("last_month"),
@@ -255,6 +256,7 @@ def build_prepared_panel(config: PreparationConfig, *, vintages: list[str] | Non
             "sampled_loans": sum(entries[v]["sampled_loans"] for v in selected),
             "panel_loans": sum(r["loans"] for r in results),
             "national_hpi_rows": sum(r["national_hpi_rows"] for r in results),
+            "ever_modified_rows": sum(r["ever_modified_rows"] for r in results),
             "quality_counts": {
                 key: sum(r["quality_counts"][key] for r in results)
                 for key in results[0]["quality_counts"]
@@ -269,6 +271,8 @@ def build_prepared_panel(config: PreparationConfig, *, vintages: list[str] | Non
                 "quality_flags": "descriptive only; no row filtering or target assignment",
                 "post_exit": "after earliest reported/effective known exit month; retrospective flag",
                 "rates": "percent; spreads in percentage points",
+                "payments": "original-contract P&I estimate; prior actual balance/rate for monthly split; USD",
+                "ever_modified": "observed Y/P through the current row; true from first modification onward",
                 "modeling": "select predictors, define targets and risk sets downstream",
             },
         }
