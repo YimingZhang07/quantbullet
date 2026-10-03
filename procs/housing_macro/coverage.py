@@ -1,4 +1,4 @@
-"""Inspect the fixed HPI/CPI tables and write optional coverage reports."""
+"""Inspect HPI/CPI tables and, when present, monthly PMMS coverage."""
 
 from __future__ import annotations
 
@@ -116,12 +116,12 @@ def _coverage(frame: pl.LazyFrame, *, hpi: bool) -> dict:
 def _markdown(report: dict) -> str:
     lines = [
         "# Housing macro coverage", "",
-        "Values retain original units (ZHVI dollars; CPI index).", "",
+        "Values retain original units (ZHVI dollars; CPI index; PMMS percent).", "",
         "Nulls are retained. Missing dates are absent source columns/records; null values "
         "are present cells without a value. Region counts include regions with no valid "
         "values. Full per-month and per-region details are in coverage.json.", "",
     ]
-    for table in ("hpi", "cpi"):
+    for table in report:
         for period in ("full_history", "from_2015"):
             window = report[table][period]
             lines += [
@@ -151,9 +151,12 @@ def _markdown(report: dict) -> str:
 def write_coverage(data_root: str | Path) -> dict:
     """Read existing Parquet tables; write full-history and 2015-onward coverage reports."""
     root = Path(data_root).expanduser().resolve()
+    tables = ["hpi", "cpi"]
+    if (root / "parquet/pmms.parquet").is_file():
+        tables.append("pmms")
     report = {
         name: _coverage(pl.scan_parquet(root / "parquet" / f"{name}.parquet"), hpi=name == "hpi")
-        for name in ("hpi", "cpi")
+        for name in tables
     }
     output = root / "reports"
     output.mkdir(parents=True, exist_ok=True)

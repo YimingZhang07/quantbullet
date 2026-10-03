@@ -1,22 +1,24 @@
 # Housing macro data pipeline
 
 Download complete-history CSV snapshots for monthly Zillow ZHVI (metro,
-state, and ZIP5) and national CPI-U (`CPIAUCNS`, BLS via FRED). The metro
+state, and ZIP5), national CPI-U (`CPIAUCNS`, BLS via FRED), and weekly
+30-year PMMS mortgage rates (`MORTGAGE30US`, Freddie Mac via FRED). The metro
 ZHVI CSV includes the national row. Zillow files use All Homes, mid-tier,
-smoothed, seasonally adjusted ZHVI; CPI is not seasonally adjusted.
+smoothed, seasonally adjusted ZHVI; CPI and PMMS are not seasonally adjusted.
 
 Set an external data directory, then run from the repository root:
 
 ```powershell
 $env:MACRO_DATA_ROOT = '<external-data-root>\housing_macro'
 .\.venv\Scripts\python.exe -m procs.housing_macro.download --dataset cpi
+.\.venv\Scripts\python.exe -m procs.housing_macro.download --dataset pmms_30y
 .\.venv\Scripts\python.exe -m procs.housing_macro.download
 .\.venv\Scripts\python.exe -m procs.housing_macro.download --refresh
 ```
 
 `--data-root` overrides the environment variable. `--dataset` accepts one
-or more of `zhvi_metro`, `zhvi_state`, `zhvi_zip`, and `cpi`; the default is
-all four, processed sequentially. The CLI rejects data roots inside this
+or more of `zhvi_metro`, `zhvi_state`, `zhvi_zip`, `cpi`, and `pmms_30y`; the
+default is all five, processed sequentially. The CLI rejects data roots inside this
 repository. No API key or additional dependency is required.
 
 Files are stored as `raw/<provider>/<dataset_id>/<sha256>.csv` under the data
@@ -49,7 +51,8 @@ data and does not assess missing values, geographic coverage, or mapping
 quality. ZIP5 values cannot be directly joined to Freddie's disclosed ZIP3.
 
 Sources: [Zillow housing data](https://www.zillow.com/research/data/) and
-[CPIAUCNS on FRED](https://fred.stlouisfed.org/series/CPIAUCNS). Zillow download
+[CPIAUCNS on FRED](https://fred.stlouisfed.org/series/CPIAUCNS), and
+[MORTGAGE30US on FRED](https://fred.stlouisfed.org/series/MORTGAGE30US). Zillow download
 paths can change; update the definitions in `quantbullet.data.zillow` when
 necessary. The FRED CSV download endpoint is used here rather than its
 credentialed observations API.
@@ -58,18 +61,25 @@ credentialed observations API.
 
 ```powershell
 .\.venv\Scripts\python.exe -m procs.housing_macro.build_parquet
+.\.venv\Scripts\python.exe -m procs.housing_macro.build_parquet --dataset pmms
+# For an older data root before PMMS has been downloaded:
+.\.venv\Scripts\python.exe -m procs.housing_macro.build_parquet --dataset hpi cpi
 # Alternatively: --data-root '<external-data-root>\housing_macro'
 ```
 
-The command finds the four current CSVs in `manifests/downloads.json`,
-standardizes them, checks basic data validity, and writes two independent
-long tables. Every run rebuilds both tables at fixed paths. Complete history
-and every source null are preserved, with no interpolation or rebasing.
+The command finds the selected current CSVs in `manifests/downloads.json`,
+standardizes them, checks basic data validity, and writes independent long
+tables. `--dataset` selects one or more of `hpi`, `cpi`, and `pmms`; the
+default is all three. Only selected tables are rebuilt, at fixed paths.
+Missing selected inputs fail before any outputs are replaced. Complete
+HPI/CPI history and source nulls are preserved, with no interpolation or
+rebasing. PMMS is aggregated from weekly observations as described below.
 
 | Table | Columns | Unique key |
 |---|---|---|
 | HPI | provider, metric, geography_level, region_id, region_name, month, value; source geography metadata | provider + metric + geography_level + region_id + month |
 | CPI | provider, series_id, month, value | series_id + month |
+| PMMS | provider, series_id, month, value | series_id + month |
 
 HPI uses `provider="zillow"`, `metric="ZHVI"`, and original dollar values.
 The name HPI describes the table's role; ZHVI has not been converted to an
@@ -81,14 +91,41 @@ metadata columns become null. Zillow RegionID is not a Freddie MSA code.
 
 CPI uses `provider="bls"` and `series_id="CPIAUCNS"`; FRED remains the
 distributor in source metadata. `month` is Date at the first of the month,
-and `value` is Float64 in both tables. Empty source values and FRED `.` are
+and `value` is Float64 in all three tables. Empty source values and FRED `.` are
 null, including the current snapshot's missing CPI observation for 2025-10.
 Normalized dates describe observation months, not publication dates.
+
+PMMS uses `provider="freddie_mac"` and `series_id="MORTGAGE30US"`. Values
+remain in percent: `6.5` means `6.5%`, not `0.065`. The original weekly CSV
+and its dates are retained in `raw/fred/pmms_30y/`; no weekly Parquet is needed.
+Each monthly value is the simple mean of nonnull weekly observations whose
+original dates fall in that calendar month. It is not weighted by days.
+All-null months remain null; absent weeks or months are not filled.
+
+PMMS excludes the calendar month containing the earlier of the UTC build
+date and the current snapshot's `downloaded_at_utc`, and all later months.
+The snapshot acquisition cutoff prevents a cached partial month from aging
+into a complete month when the build is rerun. `last_checked_at_utc` is not
+used for this cutoff because a cached download updates that timestamp
+without fetching remote data. Refresh the source before rebuilding to
+obtain newly completed months:
+
+```powershell
+.\.venv\Scripts\python.exe -m procs.housing_macro.download --dataset pmms_30y --refresh
+.\.venv\Scripts\python.exe -m procs.housing_macro.build_parquet --dataset pmms
+```
+
+This is a calendar cutoff, not a guarantee of provider completeness or an
+official historical release date. Monthly means describe their observation
+month and must not be treated as known at that month's beginning. The PMMS
+methodology changed on 2022-11-17; preserve the continuous FRED series without
+adjusting history. See the [official change notice](https://news.research.stlouisfed.org/2022/11/changes-to-freddie-mac-dataset-in-fred/).
 
 ```text
 <external-data-root>/housing_macro/
   parquet/hpi.parquet
   parquet/cpi.parquet
+  parquet/pmms.parquet
   reports/coverage.json    # Generated only by the separate coverage command
   reports/coverage.md
 ```
@@ -96,10 +133,12 @@ Normalized dates describe observation months, not publication dates.
 Missing identifiers, duplicate normalized keys, invalid dates, unparseable
 values, nonfinite values, and invalid ZIP5 strings fail the build. Normal
 nulls and nonpositive finite values are retained. The command prints row
-counts and month ranges. Both temporary Parquet files must finish before
+counts and month ranges. PMMS also validates weekly dates, duplicate weekly
+keys, and finite values before aggregation, including records in excluded
+months. All selected temporary Parquet files must finish before
 existing outputs are replaced, so validation or conversion failures preserve
-both existing files. Each file replacement is atomic; replacement of the
-pair is not a transaction. Run one writer against a data root at a time.
+existing files. Each file replacement is atomic; replacement of multiple
+files is not a transaction. Run one writer against a data root at a time.
 
 There is no build cache, schema version, output hashing, or normalization
 manifest. The build reads selected CSVs directly; source hash verification
@@ -108,7 +147,11 @@ older `normalization.json` are ignored and can remain for comparison.
 
 Library readers are `quantbullet.data.zillow.scan_zhvi_csv(path,
 geography="metro" | "state" | "zip")` and
-`quantbullet.data.fred.scan_cpi_csv(path, series_id="CPIAUCNS")`. They return
+`quantbullet.data.fred.scan_cpi_csv(path, series_id="CPIAUCNS")`, plus
+`scan_pmms_csv(path, series_id="MORTGAGE30US")` and
+`aggregate_pmms_monthly(weekly, as_of=...)`. The PMMS reader keeps Date-type
+`observation_date`; the aggregation validates weekly records and returns
+monthly values, excluding the `as_of` month. The functions return
 Polars LazyFrames and define the actual column types. The build script
 selects inputs, merges the ZHVI tables, validates, and saves the outputs.
 
@@ -119,7 +162,8 @@ selects inputs, merges the ZHVI tables, validates, and saves the outputs.
 # Alternatively: --data-root '<external-data-root>\housing_macro'
 ```
 
-This separate command reads the fixed Parquet files and overwrites
+This separate command reads the fixed HPI/CPI Parquet files and includes
+PMMS when `parquet/pmms.parquet` exists, then overwrites
 `reports/coverage.json` and `reports/coverage.md`. A build does not update
 reports: run coverage again after rebuilding whenever you need current
 statistics. A coverage failure does not affect the Parquet files.

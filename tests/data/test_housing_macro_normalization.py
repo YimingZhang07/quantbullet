@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timezone
 import errno
 import hashlib
 import json
@@ -12,15 +12,16 @@ from quantbullet.data.fred import fred_csv_source, scan_cpi_csv
 from quantbullet.data.zillow import scan_zhvi_csv, zhvi_sources
 
 
-def _sources(root, *, metro=None, state=None, zipcode=None, cpi=None):
+def _sources(root, *, metro=None, state=None, zipcode=None, cpi=None, pmms=None):
     bodies = {
         "zhvi_metro": metro or "RegionID,RegionName,RegionType,SizeRank,2020-01-31,2020-03-31\n1,United States,country,0,100,120\n2,Test Metro,msa,1,,130\n",
         "zhvi_state": state or "RegionID,RegionName,RegionType,2020-01-31,2020-03-31\n3,Test State,state,100,110\n",
         "zhvi_zip": zipcode or "RegionID,RegionName,RegionType,State,City,Metro,CountyName,2020-01-31,2020-03-31\n4,00123,zip,TS,Test City,Test Metro,Test County,50,\n",
         "cpi": cpi or "observation_date,CPIAUCNS\n2020-01-15,200\n2020-02-29,.\n2020-03-01,210\n",
+        "pmms_30y": pmms or "observation_date,MORTGAGE30US\n2020-01-02,4\n2020-01-31,6\n2020-02-06,.\n2020-02-27,\n2020-03-05,7\n",
     }
     manifest = {"manifest_version": 1, "datasets": {}}
-    for spec in (*zhvi_sources(), fred_csv_source("CPIAUCNS")):
+    for spec in (*zhvi_sources(), fred_csv_source("CPIAUCNS"), fred_csv_source("MORTGAGE30US")):
         content = bodies[spec.dataset_id].encode()
         digest = hashlib.sha256(content).hexdigest()
         relative = f"raw/{spec.provider}/{spec.dataset_id}/{digest}.csv"
@@ -29,7 +30,8 @@ def _sources(root, *, metro=None, state=None, zipcode=None, cpi=None):
         path.write_bytes(content)
         manifest["datasets"][spec.dataset_id] = {
             "provider": spec.provider, "metadata": dict(spec.metadata),
-            "current": {"path": relative, "sha256": digest, "bytes": len(content)},
+            "current": {"path": relative, "sha256": digest, "bytes": len(content),
+                        "downloaded_at_utc": "2020-03-15T12:00:00+00:00"},
         }
     (root / "manifests").mkdir(exist_ok=True)
     (root / "manifests/downloads.json").write_text(json.dumps(manifest))
@@ -62,8 +64,9 @@ def test_build_fixed_outputs_and_rebuild(tmp_path, monkeypatch):
     result = module.build_parquet(tmp_path)
     assert result["hpi"]["rows"] == 8
     assert result["cpi"]["rows"] == 3
+    assert result["pmms"]["rows"] == 2
     assert result["hpi"]["first_month"] == date(2020, 1, 1)
-    assert sorted(path.name for path in (tmp_path / "parquet").iterdir()) == ["cpi.parquet", "hpi.parquet"]
+    assert sorted(path.name for path in (tmp_path / "parquet").iterdir()) == ["cpi.parquet", "hpi.parquet", "pmms.parquet"]
     assert not (tmp_path / "reports").exists()
     assert legacy_manifest.read_text() == '{"legacy": true}'
     original_sink = pl.LazyFrame.sink_parquet
@@ -76,7 +79,7 @@ def test_build_fixed_outputs_and_rebuild(tmp_path, monkeypatch):
     monkeypatch.setattr(pl.LazyFrame, "sink_parquet", sink)
     (tmp_path / "parquet/hpi.parquet").write_bytes(b"corrupt")
     module.build_parquet(tmp_path)
-    assert len(calls) == 2  # Every run reconstructs both outputs.
+    assert len(calls) == 3  # Every run reconstructs all selected outputs.
     assert pl.read_parquet(tmp_path / "parquet/hpi.parquet").height == 8
 
 
@@ -210,3 +213,86 @@ def test_cli_rejects_repository_data_root():
     with pytest.raises(SystemExit) as error:
         module.main(["--data-root", str(module.Path(__file__).resolve().parents[2] / "local-data")])
     assert error.value.code == 2
+
+
+def test_pmms_only_build_reads_only_selected_snapshot(tmp_path):
+    manifest = _sources(tmp_path)
+    module.build_parquet(tmp_path)
+    before = {name: (tmp_path / f"parquet/{name}.parquet").read_bytes() for name in ("hpi", "cpi")}
+    manifest["datasets"] = {"pmms_30y": manifest["datasets"]["pmms_30y"]}
+    (tmp_path / "manifests/downloads.json").write_text(json.dumps(manifest))
+    result = module.build_parquet(tmp_path, datasets=["pmms", "pmms"])
+    assert list(result) == ["pmms"]
+    frame = pl.read_parquet(tmp_path / "parquet/pmms.parquet")
+    assert frame["value"].to_list() == [5.0, None]
+    for name, content in before.items():
+        assert (tmp_path / f"parquet/{name}.parquet").read_bytes() == content
+    assert module.main(["--data-root", str(tmp_path), "--dataset", "pmms"]) == 0
+
+
+def test_pmms_cutoff_uses_snapshot_acquisition_and_build_date(tmp_path, monkeypatch):
+    manifest = _sources(tmp_path)
+    manifest["datasets"]["pmms_30y"]["last_checked_at_utc"] = "2020-04-15T12:00:00+00:00"
+    (tmp_path / "manifests/downloads.json").write_text(json.dumps(manifest))
+
+    class BuildClock(datetime):
+        @classmethod
+        def now(cls, tz):
+            return datetime(2020, 4, 15, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(module, "datetime", BuildClock)
+    module.build_parquet(tmp_path, datasets=["pmms"])
+    assert pl.read_parquet(tmp_path / "parquet/pmms.parquet")["month"].to_list() == [date(2020, 1, 1), date(2020, 2, 1)]
+    monkeypatch.setattr(BuildClock, "now", classmethod(lambda cls, tz: datetime(2020, 2, 15, tzinfo=timezone.utc)))
+    module.build_parquet(tmp_path, datasets=["pmms"])
+    assert pl.read_parquet(tmp_path / "parquet/pmms.parquet")["month"].to_list() == [date(2020, 1, 1)]
+
+
+@pytest.mark.parametrize("body", [
+    "observation_date,MORTGAGE30US\n2020-01-02,4\n2020-01-02,5\n",
+    "observation_date,MORTGAGE30US\n2020-01-02,inf\n",
+])
+def test_invalid_pmms_preserves_all_outputs(tmp_path, body):
+    _sources(tmp_path)
+    module.build_parquet(tmp_path)
+    before = {name: (tmp_path / f"parquet/{name}.parquet").read_bytes() for name in ("hpi", "cpi", "pmms")}
+    _sources(tmp_path, pmms=body)
+    with pytest.raises(ValueError):
+        module.build_parquet(tmp_path)
+    for name, content in before.items():
+        assert (tmp_path / f"parquet/{name}.parquet").read_bytes() == content
+
+
+def test_pmms_write_failure_preserves_all_outputs(tmp_path, monkeypatch):
+    _sources(tmp_path)
+    module.build_parquet(tmp_path)
+    before = {name: (tmp_path / f"parquet/{name}.parquet").read_bytes() for name in ("hpi", "cpi", "pmms")}
+    original_sink = pl.LazyFrame.sink_parquet
+
+    def fail_pmms(frame, path, **kwargs):
+        if path.name == "pmms.parquet":
+            raise OSError("PMMS write failure")
+        return original_sink(frame, path, **kwargs)
+
+    monkeypatch.setattr(pl.LazyFrame, "sink_parquet", fail_pmms)
+    with pytest.raises(OSError, match="PMMS write failure"):
+        module.build_parquet(tmp_path)
+    for name, content in before.items():
+        assert (tmp_path / f"parquet/{name}.parquet").read_bytes() == content
+    assert not list((tmp_path / "parquet").glob("normalize-*"))
+
+
+def test_legacy_build_and_optional_pmms_coverage(tmp_path):
+    manifest = _sources(tmp_path)
+    del manifest["datasets"]["pmms_30y"]
+    (tmp_path / "manifests/downloads.json").write_text(json.dumps(manifest))
+    module.build_parquet(tmp_path, datasets=["hpi", "cpi"])
+    assert set(coverage.write_coverage(tmp_path)) == {"hpi", "cpi"}
+    with pytest.raises(ValueError, match="pmms_30y: missing current snapshot"):
+        module.build_parquet(tmp_path)
+    _sources(tmp_path)
+    module.build_parquet(tmp_path, datasets=["pmms"])
+    report = coverage.write_coverage(tmp_path)
+    assert report["pmms"]["full_history"]["summary"][0]["rows"] == 2
+    assert report["pmms"]["from_2015"]["summary"][0]["null_values"] == 1
+    assert "PMMS — full_history" in (tmp_path / "reports/coverage.md").read_text(encoding="utf-8")

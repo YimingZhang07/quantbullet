@@ -1,4 +1,4 @@
-"""Download monthly Zillow ZHVI and national CPI into an external data root."""
+"""Download Zillow ZHVI, national CPI, and weekly PMMS into an external data root."""
 
 from __future__ import annotations
 
@@ -29,10 +29,12 @@ def _progress(dataset_id: str):
 
 
 def main(argv: list[str] | None = None) -> int:
-    sources = {spec.dataset_id: spec for spec in (*zhvi_sources(), fred_csv_source("CPIAUCNS"))}
+    sources = {spec.dataset_id: spec for spec in (
+        *zhvi_sources(), fred_csv_source("CPIAUCNS"), fred_csv_source("MORTGAGE30US"),
+    )}
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root", type=Path, default=os.environ.get("MACRO_DATA_ROOT"))
-    parser.add_argument("--dataset", nargs="+", choices=list(sources), help="Default: all four datasets")
+    parser.add_argument("--dataset", nargs="+", choices=list(sources), help="Default: all five datasets")
     parser.add_argument("--refresh", action="store_true", help="Fetch remote files even when cached")
     args = parser.parse_args(argv)
     if args.data_root is None:
