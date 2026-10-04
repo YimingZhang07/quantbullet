@@ -62,8 +62,8 @@ def test_caps_raw_values_categories_and_previous_balance_weights():
     model=to_model_data(frame)
     assert model.index.to_list()==[0,1]
     assert model["c_age_fit"].to_list()==pytest.approx([120.,65.])
-    assert model["c_orig_balance_fit"][0]==1500000.
-    assert model["c_incentive_fit"][0]==-6.
+    assert model["c_orig_balance_fit"][0]==800000.
+    assert model["c_incentive_fit"][0]==-5.
     assert model["y_full_prepay"].to_list()==[0.,1.]
 
 
@@ -73,7 +73,7 @@ def test_hpi_ratio_raw_values_and_fit_caps():
     ]).lazy()).collect()
     assert frame["c_hpi_ratio"].to_list() == [.6, 3., 1.]
     assert "c_hpi_growth" not in frame.columns and "c_hpi_ratio_fit" not in frame.columns
-    assert to_model_data(frame)["c_hpi_ratio_fit"].to_list() == pytest.approx([.8, 2.5, 1.])
+    assert to_model_data(frame)["c_hpi_ratio_fit"].to_list() == pytest.approx([.8, 2., 1.])
 
 
 @pytest.fixture
@@ -86,7 +86,7 @@ def synthetic_config(tmp_path):
         records.append(row(str(index),c_age=int(rng.integers(1,135)),c_incentive=-float(rng.uniform(.5,5.8)),
             c_orig_fico=float(rng.uniform(621,839)),c_updated_ltv=float(rng.uniform(6,119)),
             c_orig_balance=float(rng.uniform(26000,1490000)),c_hpi_ratio=float(rng.uniform(.85,2.4)),
-            c_prev_balance=float(rng.uniform(10000,700000)),
+            c_prev_balance=float(rng.uniform(10000,790000)),
             f_purpose=("P","C","N")[index%3],f_month=f"{index%12+1:02d}",
             f_state=("CA","NY")[index%2],f_property_type=("SF","CO")[index%2],
             zero_balance_code="01" if events[index] else None,
@@ -104,8 +104,8 @@ def test_fit_roundtrip_alignment_and_report_independence(synthetic_config,monkey
     assert meta["rows"]==1800 and meta["interactions"]=={"c_age_fit":"f_purpose"}
     assert "c_hpi_ratio_fit" in meta["model_inputs"]
     assert "c_hpi_growth_fit" not in meta["model_inputs"]
-    assert meta["clips"]["c_hpi_ratio"] == [.8, 2.5]
-    assert meta["knots"]["c_hpi_ratio"] == [.95, 1, 1.1, 1.25, 1.5, 1.75, 2]
+    assert meta["clips"]["c_hpi_ratio"] == [.8, 2.]
+    assert meta["knots"]["c_hpi_ratio"] == [.95, 1, 1.1, 1.25, 1.5, 1.75]
     bundle,frame=report_turnover.load_artifacts(config)
     assert meta['timing_seconds']['fit'] == meta['fit_seconds']
     assert set(meta['timing_seconds']) == {'read_frame', 'model_data', 'toolkit', 'container',

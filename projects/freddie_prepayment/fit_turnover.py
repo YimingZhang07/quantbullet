@@ -29,6 +29,7 @@ CLIP = {
     "c_orig_fico": (620, 800),
     "c_updated_ltv": (5, 100),
     "c_orig_balance": (25000, 800_000),
+    "c_prev_balance": (25000, 800_000),
     "c_hpi_ratio": (.8, 2.0),
 }
 KNOTS = {
@@ -37,6 +38,7 @@ KNOTS = {
     "c_orig_fico": (660, 700, 740, 780),
     "c_updated_ltv": (20, 40, 60, 80, 95),
     "c_orig_balance": (100000, 150000, 250000, 350000, 500000, 700000),
+    "c_prev_balance": (100000, 150000, 250000, 350000, 500000, 700000),
     "c_hpi_ratio": (.95, 1, 1.1, 1.25, 1.5, 1.75),
 }
 FIT_NUMERIC = tuple(name + "_fit" for name in KNOTS)

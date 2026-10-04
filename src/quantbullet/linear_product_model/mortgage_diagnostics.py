@@ -24,6 +24,8 @@ _ROLE_LABELS: dict[str, str] = {
     'burnout':        'Burnout',
     'sato':           'SATO',
     'fico':           'FICO',
+    'orig_balance':   'Original balance',
+    'current_balance':'Current balance',
     'orig_dt':        'Origination date',
     'factor_dt':      'Factor date',
 }
@@ -66,6 +68,8 @@ class MortgageColnames:
     burnout        : str | tuple | None = None
     sato           : str | tuple | None = None
     fico           : str | tuple | None = None
+    orig_balance   : str | tuple | None = None
+    current_balance: str | tuple | None = None
     orig_dt        : str | tuple | None = None
     factor_dt      : str | tuple | None = None
     weight         : str | None = None
@@ -298,6 +302,16 @@ class MortgageDiagnostics:
         """Actual vs predicted by borrower FICO, optionally faceted."""
         self._require('fico')
         return self.plot('fico', facet_col=facet_col, **kwargs)
+
+    def orig_balance_plot(self, facet_col: str | None = None, **kwargs):
+        """Actual vs predicted by original balance, optionally faceted."""
+        self._require('orig_balance')
+        return self.plot('orig_balance', facet_col=facet_col, **kwargs)
+
+    def current_balance_plot(self, facet_col: str | None = None, **kwargs):
+        """Actual vs predicted by current balance, optionally faceted."""
+        self._require('current_balance')
+        return self.plot('current_balance', facet_col=facet_col, **kwargs)
 
     def factor_date_plot(self, facet_col: str | None = None, **kwargs):
         """Actual vs predicted across factor date (monthly time series)."""
