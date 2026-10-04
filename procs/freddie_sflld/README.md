@@ -49,6 +49,9 @@ filters are defined in subsequent modeling processes.
 
 Conversion reuses unchanged quarters. Sampling and preparation rebuild their
 fixed outputs. Use dedicated output directories and one writer at a time.
+Changes to derived feature formulas or names require step 3 and rebuilding
+downstream modeling frames, fits and reports. Reuse the existing sampled panels
+and macro Parquet files; conversion and sampling do not need to run again.
 A failed sampling run may leave partial files; require a successful completion
 and its summary before consuming the output. Preparation preserves the previous
 output if conversion or validation fails.

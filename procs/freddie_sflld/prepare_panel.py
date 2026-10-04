@@ -281,6 +281,7 @@ def build_prepared_panel(config: PreparationConfig, *, vintages: list[str] | Non
                 "age": "months since inferred origination; not reset by modification",
                 "macro_lag": "one observation month; not a historical publication-time guarantee",
                 "hpi": "state pair when available, otherwise national pair; raw ZHVI dollars",
+                "hpi_ratio": "lag1 ZHVI divided by origination ZHVI; 1.0 means unchanged",
                 "status": "reported row status; distinct exit reasons; 01 is voluntary payoff",
                 "quality_flags": "descriptive only; no row filtering or target assignment",
                 "post_exit": "after earliest reported/effective known exit month; retrospective flag",

@@ -242,10 +242,44 @@ def test_hpi_pair_fallback_and_updated_ltv(macro_frames):
     assert may["c_orig_hpi"] == 100. and may["c_hpi_lag1"] == 110.
     assert may["c_current_hpi"] == 120.
     assert may["c_factor"] == pytest.approx(.98)
-    assert may["c_hpi_growth"] == pytest.approx(.1)
+    assert april["c_hpi_ratio"] == pytest.approx(215 / 200)
+    assert may["c_hpi_ratio"] == pytest.approx(1.1)
     assert may["c_updated_ltv"] == pytest.approx(80 * .98 * 100 / 110)
     assert may["c_cpi_lag1"] is None
     assert may["is_consecutive_month"] is True
+
+
+@pytest.mark.parametrize("ratio", [1.1, 1.0, .9])
+def test_hpi_ratio_appreciation_unchanged_and_depreciation(macro_frames, ratio):
+    hpi, pmms, cpi = macro_frames
+    hpi = hpi.with_columns(
+        pl.when((pl.col("geography_level") == "state") & (pl.col("month") == date(2015, 2, 1)))
+        .then(pl.lit(200 * ratio)).otherwise(pl.col("value")).alias("value"),
+    )
+    loans = [_loan()]
+    result = _prepare(loans, _panel(loans, [
+        {"loan_identifier": "A", "period": "201502", "current_actual_upb": "100000"},
+        {"loan_identifier": "A", "period": "201503", "current_actual_upb": "99000"},
+    ]), (hpi, pmms, cpi)).sort("month")
+    assert result["c_hpi_ratio"].to_list() == pytest.approx([1., ratio])
+    assert result["c_updated_ltv"][1] == pytest.approx(80 / ratio)
+    assert "c_hpi_growth" not in result.columns
+
+
+@pytest.mark.parametrize("month", [1, 2])
+@pytest.mark.parametrize("invalid", [None, 0., -1.])
+def test_hpi_ratio_invalid_pair_is_null(macro_frames, month, invalid):
+    hpi, pmms, cpi = macro_frames
+    hpi = hpi.with_columns(
+        pl.when(pl.col("month") == date(2015, month, 1))
+        .then(pl.lit(invalid, dtype=pl.Float64)).otherwise(pl.col("value")).alias("value"),
+    )
+    loans = [_loan()]
+    result = _prepare(loans, _panel(loans, [
+        {"loan_identifier": "A", "period": "201503", "current_actual_upb": "99000"},
+    ]), (hpi, pmms, cpi))
+    assert result["f_hpi_level"][0] == "national"
+    assert result["c_hpi_ratio"][0] is None
 
 
 def test_unknown_state_and_official_missing_codes(macro_frames):
@@ -430,6 +464,10 @@ def test_pipeline_and_complete_replacement(config):
     assert summary["quality_counts"]["is_known_exit"] == 2
     assert not {"model_rows", "model_prepays", "prepays", "model_features", "exclusions"} & set(summary)
     assert summary["feature_columns"] == list(FEATURE_COLUMNS)
+    assert "c_hpi_ratio" in summary["feature_columns"]
+    assert "c_hpi_growth" not in summary["feature_columns"]
+    assert "c_hpi_ratio" in summary["vintages"][0]["feature_missing"]
+    assert summary["conventions"]["hpi_ratio"] == "lag1 ZHVI divided by origination ZHVI; 1.0 means unchanged"
     assert summary["burnout_threshold"] == .5
     assert summary["vintages"][0]["feature_missing"]["c_burnout"]["rows"] == 0
     assert summary["ever_modified_rows"] == 0

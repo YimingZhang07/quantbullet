@@ -14,7 +14,7 @@ QUALITY_EXCLUSIONS = (
 )
 REFERENCE = ("loan_identifier", "d_reporting_month", "d_origination_month", "vintage", "c_factor", "c_orig_ltv")
 TARGET = "y_full_prepay"
-NUMERIC = ("c_age", "c_incentive", "c_orig_fico", "c_updated_ltv", "c_orig_balance", "c_hpi_growth")
+NUMERIC = ("c_age", "c_incentive", "c_orig_fico", "c_updated_ltv", "c_orig_balance", "c_hpi_ratio")
 CATEGORICAL = ("f_purpose", "f_occupancy", "f_property_type", "f_first_time_buyer", "f_month", "f_state")
 
 

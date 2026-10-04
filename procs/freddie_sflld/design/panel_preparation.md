@@ -279,11 +279,11 @@ Fallback 每个 loan-month 单独选择，因此同一贷款的 `c_orig_hpi` 可
 | `c_sato` | `c_orig_rate - c_orig_pmms` | Origination spread，percentage points；任一输入缺失 → null |
 | `c_incentive` | `c_prev_rate - c_pmms_lag1` | t−1 refinance incentive，percentage points；任一输入缺失 → null |
 | `c_factor` | `c_prev_balance / c_orig_balance` | Ratio；分子缺失或分母缺失/≤0 → null |
-| `c_hpi_growth` | `c_hpi_lag1 / c_orig_hpi - 1` | Ratio；分子缺失或分母缺失/≤0 → null |
+| `c_hpi_ratio` | `c_hpi_lag1 / c_orig_hpi` | Ratio；任一 HPI 缺失或≤0 → null |
 | `c_updated_ltv` | `c_orig_ltv × c_factor × c_orig_hpi / c_hpi_lag1` | Percent；任一输入缺失或分母≤0 → null |
 
 Rates 和 LTV 使用百分数，例如 `4.0` 表示 4%；SATO / incentive 使用百分点，例如 `4.0 - 3.5 = 0.5`。
-Ratios 使用小数，例如 HPI growth 的 `0.10` 表示 10%。
+HPI ratio 使用倍数：`1.00` 表示持平，`1.10` 表示 origination→t−1 累计上涨 10%，`0.90` 表示累计下跌 10%。不年化。
 
 SATO 衡量原贷款 rate 相对 origination PMMS 的 spread；incentive 使用 previous actual rate，能反映后续 rate modification。
 `c_factor` 描述相对 original balance 的剩余余额比例。Updated LTV 假设房价按匹配 geography 的 ZHVI ratio 变化：
@@ -378,7 +378,7 @@ Origination PMMS 为 3.8，April PMMS 为 3.5；选中 geography 的 origination
 | `c_sato` | `4.0 - 3.8 = 0.2` percentage points |
 | `c_incentive` | `4.0 - 3.5 = 0.5` percentage points |
 | `c_factor` | `98,000 / 100,000 = 0.98` |
-| `c_hpi_growth` | `110,000 / 100,000 - 1 = 0.10` |
+| `c_hpi_ratio` | `110,000 / 100,000 = 1.10` |
 | `c_updated_ltv` | `80 × 0.98 × 100,000 / 110,000 ≈ 71.2727%` |
 
 若 state 的 origination / April ZHVI 任一为空，整对改用 national，再计算 ratio；不会混用两种 geography。
@@ -390,7 +390,7 @@ Origination PMMS 为 3.8，April PMMS 为 3.5；选中 geography 的 origination
 
 - May 的 `is_consecutive_month=False`；`c_prev_balance`、`c_prev_rate`、`f_prev_modified`、`f_pre_status` 为 null。
 - April macro 若存在，May 的 `c_pmms_lag1`、`c_hpi_lag1`、`c_cpi_lag1` 仍可以有值。
-- `c_incentive`、`c_factor`、`c_updated_ltv` 因缺少贷款 previous inputs 为 null；`c_hpi_growth` 仍可计算。
+- `c_incentive`、`c_factor`、`c_updated_ltv` 因缺少贷款 previous inputs 为 null；`c_hpi_ratio` 仍可计算。
 - `c_interest`、`c_scheduled_principal`、`c_scheduled_balance` 为 null；`c_monthly_payment` 不受断档影响。
 - Burnout 仍按完整 calendar 累计至 March；不存在 April perf 不会影响 May 的 burnout。
 - 若 February 已出现 `modification_flag=Y/P`，May 的 `is_ever_modified` 仍为 True，February 前的 rows 不被回标。

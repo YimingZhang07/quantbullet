@@ -29,7 +29,7 @@ CLIP = {
     "c_orig_fico": (620, 840),
     "c_updated_ltv": (5, 120),
     "c_orig_balance": (25000, 1500000),
-    "c_hpi_growth": (-.2, 1.5),
+    "c_hpi_ratio": (.8, 2.5),
 }
 KNOTS = {
     "c_age": (3, 6, 12, 18, 24, 36, 60, 84, 108),
@@ -37,7 +37,7 @@ KNOTS = {
     "c_orig_fico": (660, 700, 740, 780),
     "c_updated_ltv": (20, 40, 60, 80, 95),
     "c_orig_balance": (100000, 150000, 250000, 350000, 500000, 700000, 950000),
-    "c_hpi_growth": (-.05, 0, .1, .25, .5, .75, 1),
+    "c_hpi_ratio": (.95, 1, 1.1, 1.25, 1.5, 1.75, 2),
 }
 FIT_NUMERIC = tuple(name + "_fit" for name in KNOTS)
 MODEL_INPUTS = (*FIT_NUMERIC, *CATEGORICAL)

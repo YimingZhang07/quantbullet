@@ -72,7 +72,7 @@ NUMERIC_FEATURES = (
     "c_prev_balance", "c_prev_rate", "c_orig_pmms", "c_pmms_lag1",
     "c_sato", "c_incentive", "c_orig_hpi", "c_hpi_lag1", "c_cpi_lag1",
     "c_burnout", "c_burnout_months",
-    "c_factor", "c_hpi_growth", "c_updated_ltv", "c_current_hpi", "c_current_pmms",
+    "c_factor", "c_hpi_ratio", "c_updated_ltv", "c_current_hpi", "c_current_pmms",
 )
 CATEGORICAL_FEATURES = (
     *(name for name, _ in ORIG_FACTORS.values()),
@@ -441,7 +441,7 @@ def prepare_loan_months(
         (pl.col("c_prev_rate") - pl.col("c_pmms_lag1")).alias("c_incentive"),
         (pl.col("c_prev_balance") / _positive(pl.col("c_orig_balance"))).alias("c_factor"),
     ).with_columns(
-        (pl.col("c_hpi_lag1") / _positive(pl.col("c_orig_hpi")) - 1).alias("c_hpi_growth"),
+        (pl.col("c_hpi_lag1") / _positive(pl.col("c_orig_hpi"))).alias("c_hpi_ratio"),
         (pl.col("c_orig_ltv") * pl.col("c_factor") * pl.col("c_orig_hpi")
          / _positive(pl.col("c_hpi_lag1"))).alias("c_updated_ltv"),
     )

@@ -30,7 +30,7 @@ IMPLIED_BIN_CONFIG = {
     "c_orig_fico_fit": 20,
     "c_updated_ltv_fit": 5,
     "c_orig_balance_fit": 50000,
-    "c_hpi_growth_fit": .1,
+    "c_hpi_ratio_fit": .1,
 }
 MORTGAGE_COLUMNS = MortgageColnames(
     response=TARGET, model_preds={"Model": "pred_turnover"},
@@ -110,6 +110,7 @@ def report(config: Config) -> dict:
             config_lines.append(f"<b>{name}</b> ({len(columns)} terms): {detail}")
         pdf.add_list(config_lines)
         pdf.add_body("Model-numeric actual-vs-predicted charts and implied actuals use clipped _fit fields. Reporting month, previous factor, and original LTV have no fit column. Burnout and interactions are excluded. Numeric missing values are dropped; categorical missing values become MISSING.", font_size=9)
+        pdf.add_body("HPI ratio is lag1 ZHVI / origination ZHVI: 1.0 means unchanged, 1.1 means a cumulative 10% increase. Ratio axes show multiples, not percentages.", font_size=9)
 
         chart("3. Convergence", lambda: toolkit.plot_convergence_diagnostics(model, figsize=(14,9)))
         chart("4. Numeric implied actuals", lambda: toolkit.plot_implied_actuals(
@@ -153,11 +154,12 @@ def report(config: Config) -> dict:
         # Fields without a mortgage role use the same MortgageDiagnostics interface by source column.
         for title, column, step in (
             ("14. Original balance", "c_orig_balance_fit", 50000),
-            ("15. Cumulative ZHVI growth", "c_hpi_growth_fit", .1),
+            ("15. ZHVI ratio since origination", "c_hpi_ratio_fit", .1),
             ("16. Original LTV", "c_orig_ltv", 5),
         ):
-            chart(title, lambda c=column,s=step: diagnostics.plot(
-                c, bins=s, min_count=MIN_COUNT, figsize=(12,5), x_label=c, y_label="Full-payoff CPR proxy (%)"))
+            label = "ZHVI ratio since origination (1.0 = unchanged)" if column == "c_hpi_ratio_fit" else column
+            chart(title, lambda c=column,s=step,label=label: diagnostics.plot(
+                c, bins=s, min_count=MIN_COUNT, figsize=(12,5), x_label=label, y_label="Full-payoff CPR proxy (%)"))
         pdf.save()
     print("[report] shared-interface report saved; preparation/model/predictions unchanged", flush=True)
     return {"rows":frame.height,"path":"turnover_report.pdf"}

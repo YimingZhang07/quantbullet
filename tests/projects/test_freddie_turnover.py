@@ -17,7 +17,7 @@ def row(identifier="A", **updates):
                  d_origination_month=date(2020,1,1), d_exit_month=None, d_maturity_month=date(2050,1,1),
                  vintage="2020Q1", c_factor=.8, c_orig_ltv=80., c_prev_balance=100000.,
                  c_age=65, c_incentive=-1., c_orig_fico=740., c_updated_ltv=60.,
-                 c_orig_balance=125000., c_hpi_growth=.25, zero_balance_code=None,
+                 c_orig_balance=125000., c_hpi_ratio=1.25, zero_balance_code=None,
                  f_pre_status="CURRENT", f_status="CURRENT", is_consecutive_month=True,
                  is_ever_modified=False, f_purpose="P", f_occupancy="P", f_property_type="SF",
                  f_first_time_buyer="N", f_month="06", f_state="CA")
@@ -43,7 +43,8 @@ def test_target_risk_set_modified_and_incentive_boundary():
     assert result["row_id"].to_list()==list(range(5))
 
 
-@pytest.mark.parametrize("field,value",[("c_orig_fico",None),("c_updated_ltv",float("inf")),("c_orig_balance",float("nan"))])
+@pytest.mark.parametrize("field,value",[("c_orig_fico",None),("c_updated_ltv",float("inf")),("c_orig_balance",float("nan")),
+                                         ("c_hpi_ratio",None),("c_hpi_ratio",float("inf")),("c_hpi_ratio",float("nan"))])
 def test_numeric_missing_and_nonfinite_excluded(field,value):
     result=prepare_frame(pl.DataFrame([row("valid"),row("bad",**{field:value})]).lazy()).collect()
     assert result["loan_identifier"].to_list()==["valid"]
@@ -66,6 +67,15 @@ def test_caps_raw_values_categories_and_previous_balance_weights():
     assert model["y_full_prepay"].to_list()==[0.,1.]
 
 
+def test_hpi_ratio_raw_values_and_fit_caps():
+    frame = prepare_frame(pl.DataFrame([
+        row("low", c_hpi_ratio=.6), row("high", c_hpi_ratio=3.), row("unchanged", c_hpi_ratio=1.),
+    ]).lazy()).collect()
+    assert frame["c_hpi_ratio"].to_list() == [.6, 3., 1.]
+    assert "c_hpi_growth" not in frame.columns and "c_hpi_ratio_fit" not in frame.columns
+    assert to_model_data(frame)["c_hpi_ratio_fit"].to_list() == pytest.approx([.8, 2.5, 1.])
+
+
 @pytest.fixture
 def synthetic_config(tmp_path):
     rng=np.random.default_rng(42)
@@ -75,7 +85,7 @@ def synthetic_config(tmp_path):
     for index in range(n):
         records.append(row(str(index),c_age=int(rng.integers(1,135)),c_incentive=-float(rng.uniform(.5,5.8)),
             c_orig_fico=float(rng.uniform(621,839)),c_updated_ltv=float(rng.uniform(6,119)),
-            c_orig_balance=float(rng.uniform(26000,1490000)),c_hpi_growth=float(rng.uniform(-.15,1.4)),
+            c_orig_balance=float(rng.uniform(26000,1490000)),c_hpi_ratio=float(rng.uniform(.85,2.4)),
             c_prev_balance=float(rng.uniform(10000,700000)),
             f_purpose=("P","C","N")[index%3],f_month=f"{index%12+1:02d}",
             f_state=("CA","NY")[index%2],f_property_type=("SF","CO")[index%2],
@@ -92,6 +102,10 @@ def test_fit_roundtrip_alignment_and_report_independence(synthetic_config,monkey
     assert stats["rows"]==1800
     meta=fit(config)
     assert meta["rows"]==1800 and meta["interactions"]=={}
+    assert "c_hpi_ratio_fit" in meta["model_inputs"]
+    assert "c_hpi_growth_fit" not in meta["model_inputs"]
+    assert meta["clips"]["c_hpi_ratio"] == [.8, 2.5]
+    assert meta["knots"]["c_hpi_ratio"] == [.95, 1, 1.1, 1.25, 1.5, 1.75, 2]
     bundle,frame=report_turnover.load_artifacts(config)
     assert frame.height==1800 and frame["row_id"].n_unique()==1800
     assert not any("burnout" in name for name in meta["model_inputs"])
@@ -113,6 +127,10 @@ def test_fit_roundtrip_alignment_and_report_independence(synthetic_config,monkey
         original=getattr(cls,name)
         def wrapped(*args,**kwargs):
             calls.append(name)
+            if name == "plot" and len(args) > 1 and args[1] == "c_hpi_ratio_fit":
+                calls.append("hpi_ratio_plot")
+                assert kwargs["bins"] == .1
+                assert kwargs["x_label"] == "ZHVI ratio since origination (1.0 = unchanged)"
             result=original(*args,**kwargs)
             if name=="plot_convergence_diagnostics":
                 assert "Poisson" in result[1].flat[0].get_ylabel()
@@ -134,6 +152,7 @@ def test_fit_roundtrip_alignment_and_report_independence(synthetic_config,monkey
     report_turnover.report(config)
     assert all(name in calls for name in ("plot_convergence_diagnostics","plot_implied_actuals","plot_categorical_plots",
                                          "factor_date_plot","incentive_plot","age_plot","cltv_plot","current_factor_plot","fico_plot","plot"))
+    assert "hpi_ratio_plot" in calls
     assert [file_sha256(path) for path in files]==hashes
     assert (config.output_root/"turnover_report.pdf").stat().st_size>10000
     # Changed preparation is detected instead of silently mixing old predictions.
