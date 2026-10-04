@@ -10,6 +10,7 @@ to downstream consumers.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 import polars as pl
 
@@ -70,6 +71,7 @@ NUMERIC_FEATURES = (
     "c_balance", "c_monthly_payment", "c_interest", "c_scheduled_principal", "c_scheduled_balance",
     "c_prev_balance", "c_prev_rate", "c_orig_pmms", "c_pmms_lag1",
     "c_sato", "c_incentive", "c_orig_hpi", "c_hpi_lag1", "c_cpi_lag1",
+    "c_burnout", "c_burnout_months",
     "c_factor", "c_hpi_growth", "c_updated_ltv", "c_current_hpi", "c_current_pmms",
 )
 CATEGORICAL_FEATURES = (
@@ -254,6 +256,65 @@ def _live_status() -> pl.Expr:
     return code.replace_strict(LOAN_STATUS_MAP, default="UNKNOWN")
 
 
+def add_burnout_features(
+    panel: pl.LazyFrame, *, pmms: pl.DataFrame, threshold: float = 0.5,
+) -> pl.LazyFrame:
+    """Accumulate original-rate refinancing exposure on a complete loan calendar.
+
+    For reporting month t, include origination through t-2, inclusive. Earlier
+    exposure is reconstructed even before the first observed perf row and across
+    perf gaps. Missing PMMS makes the cumulative exposure unknown from that month
+    onward. This reference does not infer historical refinancing eligibility.
+    """
+    if (isinstance(threshold, bool) or not isinstance(threshold, (int, float))
+            or not math.isfinite(threshold) or threshold < 0):
+        raise ValueError("Burnout threshold must be a finite nonnegative number")
+    _require(panel, ["loan_identifier", "d_origination_month", "d_reporting_month", "c_orig_rate"])
+    if {"c_burnout", "c_burnout_months"} & set(panel.collect_schema().names()):
+        raise ValueError("Input panel already contains burnout features")
+    valid = (pl.col("d_origination_month").is_not_null()
+             & pl.col("c_orig_rate").is_finite() & (pl.col("c_orig_rate") >= 0))
+
+    # Build only the thin history needed for this vintage, starting at origination
+    # rather than its first perf record. These calendar rows are never published.
+    loans = panel.select(
+        "loan_identifier", "d_origination_month", "c_orig_rate", "d_reporting_month",
+    ).group_by("loan_identifier").agg(
+        pl.col("d_origination_month").first(), pl.col("c_orig_rate").first(),
+        pl.col("d_reporting_month").max().dt.offset_by("-2mo").alias("_end"),
+    )
+    calendar = loans.filter(valid & (pl.col("_end") >= pl.col("d_origination_month"))).with_columns(
+        pl.date_ranges("d_origination_month", "_end", interval="1mo").alias("month"),
+    ).explode("month", empty_as_null=True).select("loan_identifier", "c_orig_rate", "month")
+    calendar = calendar.join(pmms.select("month", "value").lazy(), on="month", how="left", validate="m:1")
+    incentive = pl.col("c_orig_rate") - pl.col("value")
+    calendar = calendar.sort("loan_identifier", "month").with_columns(
+        # Zero is an internal sum placeholder only. The cumulative missing count
+        # below ensures any unknown month produces null, never a zero exposure.
+        (incentive - threshold).clip(lower_bound=0).fill_null(0).cum_sum().over("loan_identifier")
+        .alias("_excess"),
+        (incentive > threshold).fill_null(False).cast(pl.Int32).cum_sum().over("loan_identifier")
+        .alias("_opportunities"),
+        pl.col("value").is_null().cast(pl.Int32).cum_sum().over("loan_identifier").alias("_missing"),
+    ).select(
+        "loan_identifier",
+        pl.col("month").dt.offset_by("2mo").alias("d_reporting_month"),
+        pl.when(pl.col("_missing") == 0).then(pl.col("_excess")).alias("c_burnout"),
+        pl.when(pl.col("_missing") == 0).then(pl.col("_opportunities")).alias("c_burnout_months"),
+    )
+    # Left join retains exactly the observed rows. Origination and its next month
+    # have an empty history, hence zero, but invalid inputs remain null.
+    joined = panel.join(calendar, on=["loan_identifier", "d_reporting_month"], how="left", validate="m:1")
+    empty_history = pl.col("d_reporting_month") < pl.col("d_origination_month").dt.offset_by("2mo")
+    valid_row = valid & (pl.col("d_reporting_month") >= pl.col("d_origination_month"))
+    return joined.with_columns(
+        pl.when(valid_row).then(
+            pl.when(empty_history).then(pl.lit(0, dtype=dtype)).otherwise(pl.col(name))
+        ).otherwise(None).alias(name)
+        for name, dtype in (("c_burnout", pl.Float64), ("c_burnout_months", pl.Int32))
+    )
+
+
 def validate_panel(panel: pl.LazyFrame) -> int:
     """Check the small key/numeric projection before publishing a partition."""
     _require(panel, [
@@ -280,6 +341,7 @@ def validate_panel(panel: pl.LazyFrame) -> int:
 
 def prepare_loan_months(
     panel: pl.LazyFrame, loan_features: pl.LazyFrame, *, macro: MacroTables,
+    burnout_threshold: float = 0.5,
 ) -> pl.LazyFrame:
     """Preserve all raw rows and add features, descriptive states and quality flags.
 
@@ -365,7 +427,7 @@ def prepare_loan_months(
         right = table.drop("region_id", strict=False).rename(rename).lazy()
         frame = frame.join(right, on=keys, how="left", validate="m:1")
     state_pair = pl.col("_state_orig_hpi").is_not_null() & pl.col("_state_lag1_hpi").is_not_null()
-    return frame.with_columns(
+    frame = frame.with_columns(
         pl.when(state_pair).then(pl.lit("state")).otherwise(pl.lit("national")).alias("f_hpi_level"),
         pl.when(state_pair).then(pl.col("_state_region_id")).otherwise(
             pl.lit(macro.national_hpi["region_id"][0])
@@ -382,4 +444,7 @@ def prepare_loan_months(
         (pl.col("c_hpi_lag1") / _positive(pl.col("c_orig_hpi")) - 1).alias("c_hpi_growth"),
         (pl.col("c_orig_ltv") * pl.col("c_factor") * pl.col("c_orig_hpi")
          / _positive(pl.col("c_hpi_lag1"))).alias("c_updated_ltv"),
-    ).select(*raw_columns, *DERIVED_COLUMNS)
+    )
+    return add_burnout_features(frame, pmms=macro.pmms, threshold=burnout_threshold).select(
+        *raw_columns, *DERIVED_COLUMNS,
+    )

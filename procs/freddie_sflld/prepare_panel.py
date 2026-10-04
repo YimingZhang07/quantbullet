@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -32,12 +33,19 @@ class PreparationConfig:
     sample_root: Path
     macro_root: Path
     output_root: Path
+    burnout_threshold: float = 0.5
+
+    def __post_init__(self):
+        value = self.burnout_threshold
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+            raise ValueError("burnout_threshold must be a finite nonnegative number")
 
 
 def read_config(path: str | Path) -> PreparationConfig:
     path = Path(path).expanduser().resolve()
     with path.open("rb") as file:
-        data = tomllib.load(file)["data"]
+        config = tomllib.load(file)
+        data = config["data"]
 
     def local_path(value: str) -> Path:
         if not isinstance(value, str) or not value.strip():
@@ -51,7 +59,10 @@ def read_config(path: str | Path) -> PreparationConfig:
         expanded = Path(re.sub(r"\$\{([A-Za-z_]\w*)\}", variable, value)).expanduser()
         return (expanded if expanded.is_absolute() else path.parent / expanded).resolve()
 
-    return PreparationConfig(*(local_path(data[name]) for name in ("sample_root", "macro_root", "output_root")))
+    return PreparationConfig(
+        *(local_path(data[name]) for name in ("sample_root", "macro_root", "output_root")),
+        burnout_threshold=config.get("features", {}).get("burnout_threshold", 0.5),
+    )
 
 
 def _check_siblings(paths: list[Path], parent: Path) -> None:
@@ -234,7 +245,9 @@ def build_prepared_panel(config: PreparationConfig, *, vintages: list[str] | Non
             ).height:
                 raise ValueError(f"{vintage}: mismatched panel vintage")
             target = quarters / f"{vintage}.parquet"
-            prepare_loan_months(panel, chosen.lazy(), macro=macro).sort("d_reporting_month").sink_parquet(
+            prepare_loan_months(
+                panel, chosen.lazy(), macro=macro, burnout_threshold=config.burnout_threshold,
+            ).sort("d_reporting_month").sink_parquet(
                 target, compression="zstd", row_group_size=250_000,
             )
             prepared_paths.append(target)
@@ -262,6 +275,7 @@ def build_prepared_panel(config: PreparationConfig, *, vintages: list[str] | Non
                 for key in results[0]["quality_counts"]
             },
             "feature_columns": list(FEATURE_COLUMNS),
+            "burnout_threshold": config.burnout_threshold,
             "conventions": {
                 "origination_month": "first payment month minus one month; approximate",
                 "age": "months since inferred origination; not reset by modification",
@@ -273,6 +287,7 @@ def build_prepared_panel(config: PreparationConfig, *, vintages: list[str] | Non
                 "rates": "percent; spreads in percentage points",
                 "payments": "original-contract P&I estimate; prior actual balance/rate for monthly split; USD",
                 "ever_modified": "observed Y/P through the current row; true from first modification onward",
+                "burnout": "original-rate exposure from inferred origination through reporting month minus 2; calendar months; missing PMMS makes exposure null",
                 "modeling": "select predictors, define targets and risk sets downstream",
             },
         }

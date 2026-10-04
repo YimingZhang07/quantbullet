@@ -57,7 +57,7 @@ Source `period` 和 missing codes 都保留。Summary 区分 filter 前的 `raw_
    这一步只做一次；小型 macro tables 和贷款级 features 可以放在内存。
 3. 逐 vintage 读取 panel，检查 sample membership、行数和 unique loan-month keys。
 4. `prepare_loan_months()` 按 `loan_identifier, month` 排序，计算连续上月字段、还款构成、累计 modification、status 和 quality flags，
-   再关联 monthly macro、选择 HPI geography 并计算 derived features。
+   再关联 monthly macro、选择 HPI geography，并通过完整 loan-calendar 计算 burnout。
 5. 每季度通过 LazyFrame / `sink_parquet()` 写临时结果，按 `d_reporting_month` 排序后 streaming merge 成一个 Parquet。
    最终只发布 `panel.parquet` 和 `preparation_summary.json`，临时季度文件清理掉。
 
@@ -69,14 +69,14 @@ Loan history 的 window calculation 在各 vintage 内完成，因此不需要�
 Missing/duplicate keys、非法日期、不可解析或非有限数值会使构建失败；正常 null 允许保留。
 Macro joins 使用 many-to-one validation，输出行数必须与输入一致。
 整次构建先写 staging directory，成功后替换专用 output；转换或校验失败时保留上一版成功产物。
-Summary 记录行数、贷款数、feature null fractions、status/exit counts、HPI fallback、quality counts 和 `ever_modified_rows`。
+Summary 记录行数、贷款数、feature null fractions、status/exit counts、HPI fallback、quality counts、`ever_modified_rows` 和 `burnout_threshold`。
 
 ## 2. 日期与 naming
 
 | Prefix | 类型与用途 |
 | --- | --- |
 | `d_` | Date，统一为月初 |
-| `c_` | Numeric；`c_age` 为 Int32，其余为 Float64 |
+| `c_` | Numeric；`c_age` / `c_burnout_months` 为 Int32，其余为 Float64 |
 | `f_` | Categorical String，包括 units / borrowers 等计数类别 |
 | `is_` | Boolean，描述 continuity、observed modification 或 data quality |
 
@@ -185,6 +185,66 @@ Scheduled balance 是从 **上月 actual balance** 出发，只支付 reference 
 这些是 **estimates**，不是披露的 payment / scheduled UPB：Freddie original UPB 取整到最近 $1,000；
 未修改贷款的 source `loan_age <= 6` 且 actual UPB > $500 时，actual UPB 也按 $1,000 取整（见第 1 节官方 guide）。
 Modification 后参考月供可能不再对应实际合同；interest 仍用 previous actual rate，不能把该拆分视为实际收到的现金流。
+
+### Burnout：累计历史 refinancing exposure
+
+Burnout 使用 original-rate / national-PMMS reference，描述贷款经历过多少 refinancing opportunity；
+它是 exposure proxy，不表示我们已观察到 borrower 的实际 refinancing eligibility。
+
+对历史月份 **s**：
+
+```text
+incentive_s = c_orig_rate − PMMS_s
+excess_s = max(incentive_s − threshold, 0)
+opportunity_s = incentive_s > threshold
+```
+
+对 reporting month **t**，从 `d_origination_month` 累计至 **t−2**，两端包含。
+最近的 t−1 opportunity 由现有 `c_incentive` 表示；burnout 不包含 t−1 或 t 的 PMMS。
+
+| Feature | Formula | 类型 / 单位 |
+| --- | --- | --- |
+| `c_burnout` | 区间内 `excess_s` 的总和 | Float64；percentage-point months |
+| `c_burnout_months` | 区间内 `opportunity_s=True` 的月份数 | Int32；months |
+
+TOML 可选 `[features].burnout_threshold`，默认 `0.5` percentage points（50 bps）；有限、非负数值才有效。
+阈值是 modeling assumption，不是统一的 borrower transaction-cost threshold；可配置为 0、0.5、1.0 等进行比较。
+
+计算顺序对应 [add_burnout_features()](../../../src/quantbullet/data/freddie_sflld/features.py)：
+
+```text
+每笔贷款：origination → 最后 reporting month−2 的连续月历
+  → left join PMMS
+  → monthly excess / opportunity / missing indicator
+  → 按 loan, month 排序并 cum_sum
+  → 历史月份 s 的累计值对应 reporting month s+2
+  → 按 loan_identifier + d_reporting_month left join 原 panel
+```
+
+Calendar 只有计算所需的少量列，每个 vintage 单独处理；不复制全部 static/dynamic 字段，不使用逐行 Python UDF。
+补全的 calendar 用于累计计算，不会产生新的 published loan-month records。
+
+**晚开始 reporting**：若 origination 为 January、第一条 perf 是 June，June burnout 仍累计 January–April。
+不从首条 perf 开始计数，也不推断此前的 balance、实际 rate、modification 或 delinquency。
+
+**Perf 月份断档**：若只有 March 和 June records，June burnout 仍包含截至 April 的机会。
+June previous fields 按原规则保持 null；不补造 April / May observations、不重置累计值。
+
+**Macro 缺失与日期边界**：区间内任何 PMMS 月份缺失或为空，两个 burnout fields 均为 null。
+内部求和用零占位，同时累计 missing count；只在该 count 为零时发布数值，不插值或把未知机会视为零。
+Origination 之前的 PMMS 缺失不影响结果。Origination 当月及次月的历史区间为空，有效贷款输出零。
+Origination / rate 缺失、rate 为负、reporting month 早于 origination 时输出 null。
+Modification 后继续使用 original-rate reference，不重置；downstream 可用 `is_ever_modified` 排除这些 rows。
+
+例如 original rate 为 5.0、threshold 为 0.5，January–April PMMS 分别为 `4.2, 4.5, 3.8, 4.7`：
+
+```text
+June 的历史 incentive = 0.8, 0.5, 1.2, 0.3
+June c_burnout = 0.3 + 0 + 0.7 + 0 = 1.0 percentage-point months
+June c_burnout_months = 2
+```
+
+恰好等于 threshold 的月份不计为 opportunity。缺少 perf rows 时结果不变；缺少区间内任一 PMMS 月份时结果为 null。
 
 ### Macro lookups 与 HPI matching
 
@@ -332,6 +392,7 @@ Origination PMMS 为 3.8，April PMMS 为 3.5；选中 geography 的 origination
 - April macro 若存在，May 的 `c_pmms_lag1`、`c_hpi_lag1`、`c_cpi_lag1` 仍可以有值。
 - `c_incentive`、`c_factor`、`c_updated_ltv` 因缺少贷款 previous inputs 为 null；`c_hpi_growth` 仍可计算。
 - `c_interest`、`c_scheduled_principal`、`c_scheduled_balance` 为 null；`c_monthly_payment` 不受断档影响。
+- Burnout 仍按完整 calendar 累计至 March；不存在 April perf 不会影响 May 的 burnout。
 - 若 February 已出现 `modification_flag=Y/P`，May 的 `is_ever_modified` 仍为 True，February 前的 rows 不被回标。
 - 不补造 April row，也不使用 March balance 代替 April balance。
 
@@ -346,4 +407,5 @@ Macro `lag1` 仅表示 observation month 滞后一期；ZHVI/CPI revisions、PMM
 它不等于严格的 historical publication-time backtest。
 
 日期、lag、reference payment、monthly split、累计 modification、fallback、sentinel、status、quality 和输出保留行为的合成验证，见
-[test_freddie_features.py](../../../tests/data/test_freddie_features.py)。
+[test_freddie_features.py](../../../tests/data/test_freddie_features.py)。Burnout 的 calendar、时间边界和 missing rules，见
+[test_freddie_burnout.py](../../../tests/data/test_freddie_burnout.py)。

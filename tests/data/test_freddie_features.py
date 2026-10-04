@@ -196,6 +196,9 @@ def test_modification_flag_is_cumulative_not_retrospective(macro_frames, flag):
     assert a["is_ever_modified"].to_list() == [False, True, True, True]
     assert b["is_ever_modified"].to_list() == [False, False]
     assert a["c_monthly_payment"].n_unique() == 1
+    # The modification flag/rate changes do not reset original-rate exposure.
+    assert a["c_burnout"].to_list() == pytest.approx([0., 0., 0., .5])
+    assert a["c_burnout_months"].to_list() == [0, 0, 0, 1]
     assert b["c_monthly_payment"][0] == pytest.approx(a["c_monthly_payment"][0] * .8)
     # Current rate changed to 6%, but March's estimate uses February's 5%.
     assert a["c_interest"][2] == pytest.approx(99000 * 5 / 1200)
@@ -427,6 +430,8 @@ def test_pipeline_and_complete_replacement(config):
     assert summary["quality_counts"]["is_known_exit"] == 2
     assert not {"model_rows", "model_prepays", "prepays", "model_features", "exclusions"} & set(summary)
     assert summary["feature_columns"] == list(FEATURE_COLUMNS)
+    assert summary["burnout_threshold"] == .5
+    assert summary["vintages"][0]["feature_missing"]["c_burnout"]["rows"] == 0
     assert summary["ever_modified_rows"] == 0
     assert summary["vintages"][0]["feature_missing"]["c_interest"]["rows"] == 1
     text = (config.output_root / "preparation_summary.json").read_text()
@@ -542,6 +547,37 @@ def test_config_environment_expansion_and_missing_variable(tmp_path, monkeypatch
     assert result.sample_root == tmp_path / "sample"
     assert result.macro_root == tmp_path / "macro"
     assert result.output_root == tmp_path / "prepared"
+    assert result.burnout_threshold == .5
+    with path.open("a") as file:
+        file.write('[features]\nburnout_threshold=1.0\n')
+    assert process.read_config(path).burnout_threshold == 1.
+
+
+@pytest.mark.parametrize("value", ['-1', 'nan', 'inf', '"0.5"', 'true'])
+def test_invalid_burnout_config(tmp_path, value):
+    path = tmp_path / "config.toml"
+    path.write_text('[data]\nsample_root="sample"\nmacro_root="macro"\noutput_root="prepared"\n'
+                    f'[features]\nburnout_threshold={value}\n')
+    with pytest.raises(ValueError, match="finite nonnegative"):
+        process.read_config(path)
+
+
+def test_pipeline_uses_configured_burnout_threshold(config):
+    # March has only January exposure. Make it exceed the default 0.5 threshold.
+    path = config.macro_root / "parquet/pmms.parquet"
+    pmms = pl.read_parquet(path)
+    pmms.with_columns(
+        pl.when(pl.col("month") == date(2015, 1, 1)).then(3.).otherwise(pl.col("value")).alias("value")
+    ).write_parquet(path)
+    process.build_prepared_panel(config)
+    before = pl.read_parquet(config.output_root / "panel.parquet")
+    assert before["c_burnout"].max() == .5
+    summary = process.build_prepared_panel(replace(config, burnout_threshold=1.))
+    assert summary["burnout_threshold"] == 1.
+    after = pl.read_parquet(config.output_root / "panel.parquet")
+    assert after["c_burnout"].max() == 0.
+    assert after["c_burnout_months"].max() == 0
+    assert before.drop("c_burnout", "c_burnout_months").equals(after.drop("c_burnout", "c_burnout_months"))
 
 
 def test_invalid_paths_and_missing_vintage(config):
