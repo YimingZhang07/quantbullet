@@ -24,7 +24,7 @@ Fitting cohort 为 `c_incentive <= -0.5`，数值 features 要求非空且有限
 pred_turnover = global_scalar × product(numeric blocks) × product(categorical blocks)
 ```
 
-使用 `LinearProductRegressorBCD(loss="poisson")`，main effects only。
+使用 `LinearProductRegressorBCD(loss="poisson")`。`c_age_fit` 按 `f_purpose` 各估一条 ramp，其余 block 是 main effects。
 每个 block 在 fit 中归一化，global scalar 表示整体 response level。
 默认 60 sweeps、10-round early stopping、ftol=1e-8，不缓存 QR。
 

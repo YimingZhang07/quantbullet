@@ -41,6 +41,7 @@ KNOTS = {
 }
 FIT_NUMERIC = tuple(name + "_fit" for name in KNOTS)
 MODEL_INPUTS = (*FIT_NUMERIC, *CATEGORICAL)
+INTERACTIONS = {"c_age_fit": "f_purpose"}
 
 
 def to_model_data(frame: pl.DataFrame) -> pd.DataFrame:
@@ -118,7 +119,7 @@ def fit(config: Config, *, smoke_rows: int | None = None) -> dict:
     print(f"[fit] {container.shape[1]} expanded columns; float32 block arrays", flush=True)
     model = LinearProductRegressorBCD()
     started = time.perf_counter()
-    model.fit(container, feature_groups=toolkit.feature_groups, interactions={}, init_params=None,
+    model.fit(container, feature_groups=toolkit.feature_groups, interactions=INTERACTIONS, init_params=None,
               n_iterations=config.n_iterations, early_stopping_rounds=config.early_stopping_rounds,
               ftol=config.ftol, cache_qr_decomp=False, loss="poisson", weights=data["weight"].to_numpy())
     seconds = time.perf_counter() - started
@@ -130,7 +131,7 @@ def fit(config: Config, *, smoke_rows: int | None = None) -> dict:
             "clip_counts": {name: int(((frame[name] < lower) | (frame[name] > upper)).sum())
                             for name, (lower, upper) in CLIP.items()},
             "knots": {name: list(knots) for name, knots in KNOTS.items()},
-            "categorical": list(CATEGORICAL), "model_inputs": list(MODEL_INPUTS), "interactions": {},
+            "categorical": list(CATEGORICAL), "model_inputs": list(MODEL_INPUTS), "interactions": dict(INTERACTIONS),
             "categories": {name: toolkit.preprocess_config[name].categories_[0].tolist() for name in CATEGORICAL},
             "incentive_max": config.incentive_max,
             "n_iterations": config.n_iterations, "early_stopping_rounds": config.early_stopping_rounds,

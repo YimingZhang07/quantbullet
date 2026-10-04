@@ -101,7 +101,7 @@ def test_fit_roundtrip_alignment_and_report_independence(synthetic_config,monkey
     stats=prepare(config)
     assert stats["rows"]==1800
     meta=fit(config)
-    assert meta["rows"]==1800 and meta["interactions"]=={}
+    assert meta["rows"]==1800 and meta["interactions"]=={"c_age_fit":"f_purpose"}
     assert "c_hpi_ratio_fit" in meta["model_inputs"]
     assert "c_hpi_growth_fit" not in meta["model_inputs"]
     assert meta["clips"]["c_hpi_ratio"] == [.8, 2.5]
