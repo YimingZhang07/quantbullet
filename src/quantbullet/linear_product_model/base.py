@@ -28,10 +28,10 @@ class InteractionCoef:
     sharing the same basis/knots) or an object with a ``.predict()`` method
     (a frozen submodel whose predictions are held constant during BCD).
 
-    Each category's coefficients are independently normalized to mean 1 during
-    BCD, so this block carries only the per-category *shape*.  The per-category
-    *level* is absorbed by a separate categorical feature block for the ``by``
-    variable.
+    When the ``by`` block is a trainable full-one-hot block, fitted category
+    curves are normalized to mean 1 and their levels are transferred to that
+    block without changing predictions. Otherwise fitted curves retain their
+    levels. Frozen submodel curves are never normalized.
     """
     by: str
     categories: dict         # {cat_val: ndarray | model_with_predict}

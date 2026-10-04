@@ -153,18 +153,38 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
     # fit — BCD step methods
     # ------------------------------------------------------------------
 
+    def _interaction_level_columns(self, group, data_blocks, interaction_masks, params_blocks):
+        """Map category labels to actual full-one-hot columns, when levels can move."""
+        by = self.interactions_[group]
+        if by not in params_blocks or by in getattr(self, 'submodels_', {}):
+            return None
+        columns = {}
+        for cat_val, mask in interaction_masks[group].items():
+            X_c = data_blocks[by][mask]
+            active = np.flatnonzero(np.any(X_c != 0, axis=0))
+            if len(active) != 1 or not np.all(X_c[:, active[0]] == 1):
+                return None
+            columns[cat_val] = int(active[0])
+        if len(set(columns.values())) != len(columns):
+            return None
+        return columns
+
     def _step_interaction_group(self, group, data_blocks, block_preds,
                                 interaction_params, interaction_masks, y, weights,
-                                interaction_data_cache=None):
+                                interaction_data_cache=None, params_blocks=None,
+                                interaction_level_columns=None):
         """One BCD pass for an interaction group: per-category OLS, normalize, update.
 
-        Each category's coefficients are normalized independently to mean 1.
-        The per-category level differences are left for the categorical block
-        to absorb — ``global_scalar_`` is NOT modified here.
+        Transfer each fitted curve's mean to its categorical coefficient before
+        normalizing the categorical block into ``global_scalar_``. Both operations
+        preserve the full candidate prediction. If the categorical block cannot
+        absorb independent levels, keep the fitted curves at their original scale.
         """
         X_basis = data_blocks[group]
         fixed = vector_product_numexpr_dict_values(block_preds, exclude=group)
         combined = np.ones(X_basis.shape[0], dtype=float)
+        level_columns = (interaction_level_columns or {}).get(group)
+        level_scales = {}
 
         for cat_val, cat_coef in interaction_params[group].items():
             mask = interaction_masks[group][cat_val]
@@ -194,14 +214,30 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
 
             cat_pred = X_c @ new_coef
             cat_mean = np.average(cat_pred, weights=w_c) if w_c is not None else np.mean(cat_pred)
-            if not np.isclose(cat_mean, 0):
+            if level_columns is not None and not np.isclose(cat_mean, 0):
                 new_coef = new_coef / cat_mean
                 combined[mask] = cat_pred / cat_mean
+                level_scales[level_columns[cat_val]] = cat_mean
             else:
                 combined[mask] = cat_pred
             interaction_params[group][cat_val] = new_coef
 
         block_preds[group] = combined
+
+        # Apply all transfers together: every category above used the same fixed
+        # components and global scalar for its candidate update.
+        if level_scales:
+            by = self.interactions_[group]
+            by_coef = params_blocks[by].copy()
+            for column, scale in level_scales.items():
+                by_coef[column] *= scale
+            by_pred = data_blocks[by] @ by_coef
+            mean = self._absorb_block_mean(by_pred, weights)
+            if not np.isclose(mean, 0):
+                by_coef /= mean
+                by_pred = by_pred / mean
+            params_blocks[by] = by_coef
+            block_preds[by] = by_pred
 
     def _solve_block_poisson(self, X_basis, fixed, y, weights, current_block_coef):
         """One IRLS step for Poisson deviance: WLS on implied actual."""
@@ -446,6 +482,11 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
             feature_groups, data_blocks, y, init_params)
         block_preds = self._init_block_preds(
             data_blocks, params_blocks, interaction_params, interaction_masks)
+        interaction_level_columns = {
+            group: self._interaction_level_columns(
+                group, data_blocks, interaction_masks, params_blocks)
+            for group in self.interactions_
+        }
 
         y_arr = np.asarray(y)
         interaction_data_cache = {}
@@ -465,7 +506,8 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
                 if group in self.interactions_:
                     self._step_interaction_group(
                         group, data_blocks, block_preds, interaction_params, interaction_masks, y, weights,
-                        interaction_data_cache=interaction_data_cache)
+                        interaction_data_cache=interaction_data_cache, params_blocks=params_blocks,
+                        interaction_level_columns=interaction_level_columns)
                 elif group not in self.submodels_:
                     self._step_regular_group(
                         group, data_blocks, block_preds, params_blocks, y, weights, cache_qr_decomp, use_svd)

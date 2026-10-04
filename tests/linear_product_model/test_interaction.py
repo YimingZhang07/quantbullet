@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import pytest
 
 from sklearn.preprocessing import OneHotEncoder
 
@@ -16,6 +17,105 @@ from quantbullet.linear_product_model.datacontainer import ProductModelDataConta
 from quantbullet.linear_product_model.base import InteractionCoef
 from quantbullet.model.feature import DataType, Feature, FeatureRole, FeatureSpec
 from tests.artifacts import artifact_dir
+
+
+class _FrozenAgeCurve:
+    def predict(self, basis):
+        return 1. + basis[:, 1]
+
+
+def _scale_transfer_case(loss, weights, *, frozen_curve=False, frozen_by=False, dropped_by=False):
+    """Two independently fitted curves, with category order opposite column order."""
+    model = LinearProductRegressorBCD()
+    model.loss_ = loss
+    model.interactions_ = {'age': 'purpose'}
+    model.global_scalar_ = 1.0
+    model.submodels_ = {'purpose': object()} if frozen_by else {}
+    basis = np.array([[1., 1.], [1., 2.], [1., 1.], [1., 2.]])
+    by = np.array([[0., 1.], [0., 1.], [1., 0.], [1., 0.]])
+    by_coef = np.array([1.2, .8])
+    if dropped_by:
+        by = by[:, :1]
+        by_coef = by_coef[:1]
+    data_blocks = {'age': basis, 'purpose': by}
+    masks = {'age': {'P': np.array([True, True, False, False]),
+                     'R': np.array([False, False, True, True])}}
+    curves = {'P': np.array([1., 0.]), 'R': np.array([1., 0.])}
+    if frozen_curve:
+        curves['R'] = _FrozenAgeCurve()
+    interaction_params = {'age': curves}
+    params_blocks = {'purpose': by_coef}
+    block_preds = {
+        'age': model._build_interaction_block_pred('age', basis, interaction_params, masks),
+        'purpose': by @ by_coef,
+        'other': np.array([.001, .1, .02, .03]),
+    }
+    y = np.array([.05, .051, .014, .037])
+    return model, data_blocks, block_preds, interaction_params, masks, params_blocks, y
+
+
+def _case_prediction(case):
+    model, _, blocks, *_ = case
+    return model.global_scalar_ * blocks['age'] * blocks['purpose'] * blocks['other']
+
+
+@pytest.mark.parametrize('loss', ['mse', 'poisson'])
+@pytest.mark.parametrize('weights', [None, np.array([1., 3., 2., 5.])])
+@pytest.mark.parametrize('frozen_curve', [False, True])
+def test_interaction_normalization_preserves_candidate_predictions(loss, weights, frozen_curve):
+    raw = _scale_transfer_case(loss, weights, frozen_curve=frozen_curve)
+    normalized = _scale_transfer_case(loss, weights, frozen_curve=frozen_curve)
+    initial_prediction = _case_prediction(normalized)
+
+    model, data, blocks, curves, masks, params, y = raw
+    # No level transfer means the fitted curves deliberately remain unnormalized.
+    model._step_interaction_group('age', data, blocks, curves, masks, y, weights)
+    expected = _case_prediction(raw)
+    raw_means = {cat: np.average(blocks['age'][mask],
+                                weights=None if weights is None else weights[mask])
+                 for cat, mask in masks['age'].items() if isinstance(curves['age'][cat], np.ndarray)}
+
+    model, data, blocks, curves, masks, params, y = normalized
+    columns = model._interaction_level_columns('age', data, masks, params)
+    assert columns == {'P': 1, 'R': 0}
+    model._step_interaction_group(
+        'age', data, blocks, curves, masks, y, weights,
+        params_blocks=params, interaction_level_columns={'age': columns})
+    actual = _case_prediction(normalized)
+    np.testing.assert_allclose(actual, expected, rtol=1e-12, atol=1e-14)
+    assert model.loss_function(actual, y, weights) == pytest.approx(
+        raw[0].loss_function(expected, y, weights), abs=1e-14)
+    assert model.loss_function(actual, y, weights) < model.loss_function(initial_prediction, y, weights)
+
+    for cat, mask in masks['age'].items():
+        if isinstance(curves['age'][cat], np.ndarray):
+            assert np.average(blocks['age'][mask],
+                              weights=None if weights is None else weights[mask]) == pytest.approx(1.)
+    assert np.average(blocks['purpose'], weights=weights) == pytest.approx(1.)
+    expected_level_ratio = (1.2 * raw_means.get('R', 1.)) / (.8 * raw_means['P'])
+    assert params['purpose'][0] / params['purpose'][1] == pytest.approx(expected_level_ratio)
+    np.testing.assert_allclose(blocks['purpose'], data['purpose'] @ params['purpose'])
+    np.testing.assert_allclose(blocks['age'], model._build_interaction_block_pred(
+        'age', data['age'], curves, masks))
+    if frozen_curve:
+        np.testing.assert_allclose(blocks['age'][masks['age']['R']], [2., 3.])
+
+
+@pytest.mark.parametrize('frozen_by,dropped_by', [(True, False), (False, True)])
+def test_interaction_keeps_curve_scale_when_by_block_cannot_absorb_it(frozen_by, dropped_by):
+    case = _scale_transfer_case('mse', None, frozen_by=frozen_by, dropped_by=dropped_by)
+    model, data, blocks, curves, masks, params, y = case
+    old_coef = params['purpose'].copy()
+    old_by_pred = blocks['purpose'].copy()
+    columns = model._interaction_level_columns('age', data, masks, params)
+    assert columns is None
+    model._step_interaction_group(
+        'age', data, blocks, curves, masks, y, None,
+        params_blocks=params, interaction_level_columns={'age': columns})
+    np.testing.assert_array_equal(params['purpose'], old_coef)
+    np.testing.assert_array_equal(blocks['purpose'], old_by_pred)
+    assert model.global_scalar_ == 1.
+    assert not np.isclose(blocks['age'][masks['age']['P']].mean(), 1.)
 
 
 def _generate_interaction_data(n_samples=50_000, seed=42):
