@@ -17,7 +17,7 @@ from quantbullet.reporting import PdfTextReport
 from quantbullet.utils.files import file_sha256, temporary_output
 
 from .config import Config, read_config
-from .fit_turnover import make_container, to_model_data
+from .fit_turnover import FIT_NUMERIC, make_container, to_model_data
 
 
 MIN_COUNT = 500
@@ -33,10 +33,10 @@ IMPLIED_BIN_CONFIG = {
     "c_hpi_growth_fit": .1,
 }
 MORTGAGE_COLUMNS = MortgageColnames(
-    response=TARGET, model_preds={"Turnover": "pred_turnover"},
-    incentive=("c_incentive", .25), age=("c_age", "discrete"),
-    cltv=("c_updated_ltv", 5), current_factor=("c_factor", .1),
-    fico=("c_orig_fico", 20), orig_dt="d_origination_month",
+    response=TARGET, model_preds={"Model": "pred_turnover"},
+    incentive=("c_incentive_fit", .25), age=("c_age_fit", "discrete"),
+    cltv=("c_updated_ltv_fit", 5), current_factor=("c_factor", .1),
+    fico=("c_orig_fico_fit", 20), orig_dt="d_origination_month",
     factor_dt=("d_reporting_month", "discrete"), weight="c_prev_balance",
 )
 
@@ -109,7 +109,7 @@ def report(config: Config) -> dict:
             detail = f"FlatRamp knots={transformer.knots.tolist()}" if isinstance(transformer, FlatRampTransformer) else type(transformer).__name__
             config_lines.append(f"<b>{name}</b> ({len(columns)} terms): {detail}")
         pdf.add_list(config_lines)
-        pdf.add_body("Raw fields drive mortgage diagnostics; clipped _fit fields drive implied-actual plots. Burnout and interactions are excluded. Numeric missing values are dropped; categorical missing values become MISSING.", font_size=9)
+        pdf.add_body("Model-numeric actual-vs-predicted charts and implied actuals use clipped _fit fields. Reporting month, previous factor, and original LTV have no fit column. Burnout and interactions are excluded. Numeric missing values are dropped; categorical missing values become MISSING.", font_size=9)
 
         chart("3. Convergence", lambda: toolkit.plot_convergence_diagnostics(model, figsize=(14,9)))
         chart("4. Numeric implied actuals", lambda: toolkit.plot_implied_actuals(
@@ -125,6 +125,7 @@ def report(config: Config) -> dict:
                 ax.tick_params(axis="x", labelsize=8)
             return fig, axes
         chart("5. Categorical implied actuals", categorical_figure, paged_cols=2)
+        frame = frame.with_columns(*(pl.Series(name, model_data[name].to_numpy()) for name in FIT_NUMERIC))
         del container, model_data, weights
         gc.collect()
 
@@ -132,27 +133,31 @@ def report(config: Config) -> dict:
             df=frame, colnames=MORTGAGE_COLUMNS,
             y_transform="smm_to_cpr", y_as_percent=True,
         )
-        chart("6. Reporting month", lambda: diagnostics.factor_date_plot(min_count=MIN_COUNT, figsize=(14,5)))
-        incentive_label = "Previous rate - lag1 PMMS (percentage points)"
-        chart("7. Incentive", lambda: diagnostics.incentive_plot(min_count=MIN_COUNT, figsize=(12,5), x_label=incentive_label))
+        chart("6. Reporting month", lambda: diagnostics.factor_date_plot(
+            min_count=MIN_COUNT, figsize=(14,5), x_label=MORTGAGE_COLUMNS.factor_dt))
+        chart("7. Incentive", lambda: diagnostics.incentive_plot(
+            min_count=MIN_COUNT, figsize=(12,5), x_label=MORTGAGE_COLUMNS.incentive))
         chart("8. Incentive by purpose", lambda: diagnostics.incentive_plot(
-            facet_col="f_purpose", min_count=MIN_COUNT_FACET, n_cols=3, x_label=incentive_label))
-        chart("9. Age", lambda: diagnostics.age_plot(min_count=MIN_COUNT, figsize=(12,5)))
-        chart("10. Age by purpose", lambda: diagnostics.age_plot(facet_col="f_purpose", min_count=MIN_COUNT_FACET, n_cols=3))
+            facet_col="f_purpose", min_count=MIN_COUNT_FACET, n_cols=3, x_label=MORTGAGE_COLUMNS.incentive))
+        chart("9. Age", lambda: diagnostics.age_plot(
+            min_count=MIN_COUNT, figsize=(12,5), x_label=MORTGAGE_COLUMNS.age))
+        chart("10. Age by purpose", lambda: diagnostics.age_plot(
+            facet_col="f_purpose", min_count=MIN_COUNT_FACET, n_cols=3, x_label=MORTGAGE_COLUMNS.age))
         chart("11. Updated first-lien LTV", lambda: diagnostics.cltv_plot(
-            min_count=MIN_COUNT, figsize=(12,5), x_label="Updated first-lien LTV (%)"))
+            min_count=MIN_COUNT, figsize=(12,5), x_label=MORTGAGE_COLUMNS.cltv))
         chart("12. Previous balance factor", lambda: diagnostics.current_factor_plot(
-            min_count=MIN_COUNT, figsize=(12,5), x_label="Previous / original balance"))
-        chart("13. Original FICO", lambda: diagnostics.fico_plot(min_count=MIN_COUNT, figsize=(12,5)))
+            min_count=MIN_COUNT, figsize=(12,5), x_label=MORTGAGE_COLUMNS.current_factor))
+        chart("13. Original FICO", lambda: diagnostics.fico_plot(
+            min_count=MIN_COUNT, figsize=(12,5), x_label=MORTGAGE_COLUMNS.fico))
 
         # Fields without a mortgage role use the same MortgageDiagnostics interface by source column.
-        for title, column, label, step in (
-            ("14. Original balance", "c_orig_balance", "Original balance (nominal USD)", 50000),
-            ("15. Cumulative ZHVI growth", "c_hpi_growth", "ZHVI growth since origination (ratio)", .1),
-            ("16. Original LTV", "c_orig_ltv", "Original LTV (%)", 5),
+        for title, column, step in (
+            ("14. Original balance", "c_orig_balance_fit", 50000),
+            ("15. Cumulative ZHVI growth", "c_hpi_growth_fit", .1),
+            ("16. Original LTV", "c_orig_ltv", 5),
         ):
-            chart(title, lambda c=column,l=label,s=step: diagnostics.plot(
-                c, bins=s, min_count=MIN_COUNT, figsize=(12,5), x_label=l, y_label="Full-payoff CPR proxy (%)"))
+            chart(title, lambda c=column,s=step: diagnostics.plot(
+                c, bins=s, min_count=MIN_COUNT, figsize=(12,5), x_label=c, y_label="Full-payoff CPR proxy (%)"))
         pdf.save()
     print("[report] shared-interface report saved; preparation/model/predictions unchanged", flush=True)
     return {"rows":frame.height,"path":"turnover_report.pdf"}

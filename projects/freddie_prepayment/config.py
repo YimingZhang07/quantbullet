@@ -5,6 +5,8 @@ import math
 from pathlib import Path
 import tomllib
 
+from dotenv import load_dotenv
+
 from quantbullet.utils.files import expand_env_path
 
 
@@ -31,6 +33,8 @@ class Config:
 
 
 def read_config(path: str | Path) -> Config:
+    # Process environment wins over the gitignored repo .env.
+    load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
     path = Path(path).resolve()
     with path.open("rb") as file:
         config = tomllib.load(file)

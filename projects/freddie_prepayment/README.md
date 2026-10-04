@@ -1,7 +1,7 @@
 # Freddie prepayment modeling
 
 从 prepared panel 构建 turnover cohort，fit multiplicative model，再独立生成 diagnostics PDF。
-在 repository root 使用项目 `.venv`；先设置 `FREDDIE_DATA_ROOT` 为仓库外的 Freddie 数据目录。
+在 repository root 使用项目 `.venv`。在仓库根 `.env` 设置 `FREDDIE_DATA_ROOT` 为仓库外的 Freddie 数据目录；命令本身不用再导出变量。
 配置见 [turnover.example.toml](turnover.example.toml)。
 
 ## 执行顺序

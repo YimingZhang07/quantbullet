@@ -51,7 +51,7 @@ Report 参考既有 turnover report，重建 saved toolkit 的 float32 design co
 收敛、numeric/categorical implied actuals 直接调用 `LinearProductModelToolkit` 的标准绘图方法。
 Actual-vs-predicted 直接使用 `MortgageDiagnostics` / `MortgageColnames`，包括 reporting month、incentive / age 及 purpose facets、LTV、factor 和 FICO。
 Original balance、HPI growth、original LTV 没有 mortgage role，按源列名调用同一个 `MortgageDiagnostics.plot()`，不在 project 重写统计或绘图。
-Implied-actual plots 使用 clipped inputs；mortgage diagnostics 使用 raw values。
+Implied actuals 与模型数值的 actual-vs-predicted 都使用 `*_fit`。Reporting month、previous factor 和 original LTV 没有 fit 列。
 沿用 reference 的 CPR 显示：先聚合 bin-level SMM，再转换 `1-(1-SMM)^12`。Summary / context 仍保留月度 SMM。
 两类 numeric/binned 图复用 `draw_grouped_means()`，背景 Count bars 表示 loan-month 行数（不是余额或 unique loans），曲线/markers 使用左轴，不再以点大小表示 Count。
 最低支持为 overall 500 rows、purpose facet 200 rows：低支持/空 bins 的曲线置空，Count bars 保留，曲线不跨空值连接。Purpose panels 共用 Count 右轴尺度。
