@@ -1,0 +1,11 @@
+[data]
+panel_path = "${FREDDIE_DATA_ROOT}/prepared/prepayment_500k/panel.parquet"
+output_root = "${FREDDIE_DATA_ROOT}/models/turnover_v1"
+
+[cohort]
+incentive_max = -0.5
+
+[fit]
+n_iterations = 60
+early_stopping_rounds = 10
+ftol = 1e-8

@@ -3,13 +3,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from itertools import product
-from typing import Literal, Mapping, Sequence
+from typing import Callable, Literal, Mapping, Sequence
 
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from matplotlib.ticker import MaxNLocator
+from matplotlib.dates import AutoDateLocator, ConciseDateFormatter
 import numpy as np
 import pandas as pd
 
@@ -83,6 +84,9 @@ def draw_grouped_means(
     title: str | None = None,
     ylabel: str = "Weighted mean",
     y_format: str | None = None,
+    ax: plt.Axes | None = None,
+    compact_cols: bool = True,
+    legend: Literal["figure", "axes", "none"] | None = None,
 ) -> GroupedMeansPlot:
     """Render reusable statistics; no raw-data aggregation happens here.
 
@@ -97,9 +101,14 @@ def draw_grouped_means(
     ``style.connect_categorical`` is true. ``stacked`` requires group. Axes
     use a common x scale, and primary y scales are shared by default. Count
     axes are independent unless ``share_count_y=True``. Missing means break lines.
+    ``ax`` renders one panel on an existing Axes. ``legend`` defaults to a
+    figure legend, or an Axes legend when ``ax`` is given; ``"none"`` lets a
+    caller sharing one figure across several calls draw a single legend.
     """
     if count_mode not in {"total", "stacked", "none"}:
         raise ValueError("count_mode must be total, stacked, or none")
+    if legend not in {None, "figure", "axes", "none"}:
+        raise ValueError("legend must be figure, axes, or none")
     if count_mode == "stacked" and "group" not in data.dimensions:
         raise ValueError("stacked counts require group")
     if wrap is not None and (isinstance(wrap, bool) or not isinstance(wrap, int) or wrap < 1 or "col" not in data.dimensions or "row" in data.dimensions):
@@ -119,10 +128,16 @@ def draw_grouped_means(
     rows = data.levels.get("row", (None,)) or (None,)
     cols = data.levels.get("col", (None,)) or (None,)
     panels = list(product(rows, cols))
-    ncols = min(wrap, len(cols)) if wrap else len(cols)
+    ncols = (min(wrap, len(cols)) if compact_cols else wrap) if wrap else len(cols)
     nrows = int(np.ceil(len(panels) / ncols)) if wrap else len(rows)
-    fig, axes = plt.subplots(nrows, ncols, squeeze=False, sharex=True, sharey=share_y,
-                             figsize=(panel_size[0] * ncols, panel_size[1] * nrows), layout="constrained")
+    external_ax = ax is not None
+    if external_ax:
+        if len(panels) != 1 or wrap is not None:
+            raise ValueError("An existing Axes accepts only a single panel")
+        fig, axes = ax.figure, np.array([[ax]], dtype=object)
+    else:
+        fig, axes = plt.subplots(nrows, ncols, squeeze=False, sharex=True, sharey=share_y,
+                                 figsize=(panel_size[0] * ncols, panel_size[1] * nrows), layout="constrained")
     count_axes = np.full(axes.shape, None, dtype=object)
     palette = theme.palette
     styles = style.metric_linestyles
@@ -203,6 +218,10 @@ def draw_grouped_means(
         if xlevels and categorical_x:
             ax.set_xticks(xpos, [str(v) for v in xlevels],
                           rotation=style.categorical_tick_rotation, ha="right")
+        if data.bin_info[dim["x"]].get("datetime", False):
+            locator = AutoDateLocator()
+            ax.xaxis.set_major_locator(locator)
+            ax.xaxis.set_major_formatter(ConciseDateFormatter(locator))
         # Wrapped grids can have a hidden last-row slot. Keep every visible
         # panel's x ticks readable even when its shared-axis sibling is hidden.
         ax.tick_params(axis="x", labelbottom=True)
@@ -246,12 +265,18 @@ def draw_grouped_means(
             handles.append(Patch(facecolor=palette[gi % len(palette)],
                                  alpha=style.stacked_count_alpha, edgecolor=style.count_edgecolor,
                                  label=f"Count: {_level_label(value, gi == 0)} (right axis)"))
-    fig.legend(handles=handles, loc="outside lower center", ncol=min(len(handles), 4),
-               frameon=theme.legend_frameon, fontsize=theme.legend_fontsize)
-    if title:
+    placement = legend or ("axes" if external_ax else "figure")
+    if placement == "axes":
+        axes.flat[0].legend(handles=handles, frameon=theme.legend_frameon, fontsize=theme.legend_fontsize)
+    elif placement == "figure":
+        fig.legend(handles=handles, loc="outside lower center", ncol=min(len(handles), 4),
+                   frameon=theme.legend_frameon, fontsize=theme.legend_fontsize)
+    if title and not external_ax:
         title_size = theme.figure_title_fontsize
         fig.suptitle(title, fontsize=theme.title_fontsize + 2 if title_size is None else title_size,
                      fontweight=theme.title_fontweight, color=theme.title_color)
+    elif title:
+        ax.set_title(title)
     return GroupedMeansPlot(fig, axes, count_axes, data)
 
 
@@ -276,8 +301,14 @@ def plot_grouped_means(
     title: str | None = None,
     ylabel: str = "Weighted mean",
     y_format: str | None = None,
+    y_transform: Callable | None = None,
+    min_count: int = 0,
 ) -> GroupedMeansPlot:
     """Aggregate then plot; see summarize_grouped_means/draw_grouped_means.
+
+    ``y_transform`` applies to bin-level means after weighting (e.g. SMM ->
+    CPR); ``min_count`` hides curve values for bins with fewer rows while
+    keeping their count bars.
 
     Example::
 
@@ -289,6 +320,10 @@ def plot_grouped_means(
     """
     data = summarize_grouped_means(df, x=x, y=y, weight=weight, group=group,
                                    row=row, col=col, bins=bins)
+    if y_transform is not None:
+        data = data.map_means(y_transform)
+    if min_count:
+        data = data.mask_support(min_count)
     return draw_grouped_means(data, count_mode=count_mode, wrap=wrap, panel_size=panel_size,
                               share_y=share_y, share_count_y=share_count_y, theme=theme, style=style,
                               labels=labels, title=title, ylabel=ylabel, y_format=y_format)

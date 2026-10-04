@@ -4,6 +4,38 @@
 with optional line groups, facets, and background count bars. It accepts pandas
 and eager Polars DataFrames without requiring PyArrow.
 
+## Architecture
+
+这套接口按职责分成四层：
+
+| Layer | Responsibility |
+| --- | --- |
+| `utils/grouped_stats.py` | 通用 Polars group-by：count、valid count、weighted sum、weight sum、mean |
+| `plot/grouped_data.py` | BinSpec、Polars key 表达式、类别顺序、空 bins、GroupedMeansData 及 bin-level 变换 |
+| `plot/grouped_means.py` | 曲线、Count bars、双轴、legend 与 layout |
+| `MortgageDiagnostics` | Mortgage 字段映射、`plot()` 与各业务方法、bin-level SMM → CPR |
+
+`MortgageDiagnostics.plot → summarize_grouped_means → grouped_weighted_summary →
+draw_grouped_means` 是独立调用链，不调用旧 `binned_plots`。旧模块保持原有的点大小
+样式，`plot_binned_actual_vs_pred` 会发出 `DeprecationWarning`。Numeric implied actual
+的 loss-specific 公式由 toolkit 计算，小型结果通过 `GroupedMeansData.from_summary()`
+交给 renderer；不改算成普通 weighted mean。
+
+统计函数也可独立用于数据检查：
+
+```python
+from quantbullet.utils.grouped_stats import grouped_weighted_summary
+
+stats = grouped_weighted_summary(
+    df, by=["month", "purpose"], metrics=["actual", "prediction"], weight="upb",
+)
+```
+
+这个接口只接受 eager Polars，不负责分箱或丢弃 null group keys，也不加载 plotting
+dependencies。`utils` 与 `plot` 的 exports 使用 lazy imports，独立加载新体系时不会
+顺带加载旧 `binned_plots`。Plot 数据准备则排除无效 dimension keys，
+保留 `excluded_count`。两种 DataFrame 输入最终使用同一个统计实现。
+
 ```python
 from quantbullet.plot import BinSpec, plot_grouped_means
 
@@ -70,6 +102,9 @@ bins = {
   data produces a single bin.
 - `BinSpec.step(width)`: intervals with edges at multiples of width, covering
   the data range. This bins values; it does **not** round them to nearest steps.
+- `BinSpec.round(width)`: round to nearest width multiple, with ties to even.
+  Mortgage numeric bin configuration uses this rule. For width 0.5, 0.25
+  maps to 0 and 0.75 maps to 1; these are centers, not interval boundaries.
 
 Bins are fitted once using each dimension's finite values in the entire input,
 before filtering missing group keys or metrics. Intervals are right-closed,
@@ -78,8 +113,9 @@ are excluded; `result.data.excluded_count` reports their combined row count.
 The actual edges and levels are available through `result.bin_info`.
 
 Binned x uses numeric interval midpoints, raw numeric x uses its values, and
-categorical x uses equal spacing. Ordered pandas categoricals preserve their
-declared order (including empty categories); other raw levels sort by value.
+categorical x uses equal spacing. Pandas categoricals and Polars Enums preserve
+their declared order (including empty categories); other raw levels sort by value.
+Date dimensions use real date positions and a date formatter.
 Categorical values remain unconnected even when their declared order is known;
 set `style.connect_categorical=True` when connecting them has meaning.
 Empty x bins within observed contexts retain missing means, breaking curves.
@@ -97,9 +133,20 @@ denominator produces a missing mean. All-null metric columns are supported.
 - `<metric>__mean`: the weighted mean.
 - `<metric>__valid_count`: records with finite y and weight, including zero weights.
 - `<metric>__weight_sum`: the denominator used for that metric.
+- `<metric>__weighted_sum`: the numerator used for that metric.
 
 No rate or unit transformations occur implicitly. `y_format=".0%"` only formats
 tick labels and expects proportions (0.12 means 12%).
+
+Transformations and support thresholds apply to the aggregated table only:
+
+- `data.map_means(fn)` transforms bin-level means, e.g. SMM → CPR after weighting.
+  Weighted sums keep their original units.
+- `data.mask_support(n)` hides means where `count < n` and keeps the count bars,
+  so curves break at low-support bins.
+- `plot_grouped_means(..., y_transform=fn, min_count=n)` applies both in that order.
+
+Both methods return a new object; `result.summary` holds the values that were drawn.
 
 The left axis shows means; the right axis shows counts:
 
@@ -164,9 +211,34 @@ categorical_result = plot_grouped_means(
 )
 ```
 
-All data processing is separate from rendering. The implementation
-extracts selected columns and uses vectorized NumPy aggregation for identical
-pandas/Polars semantics; it is not a streaming/LazyFrame implementation.
+All data processing is separate from rendering. 全量行只处理一次：
+
+1. 只取用到的列组成 Polars frame。Pandas 列经 NumPy 转换（不需要 PyArrow），
+   categorical 转成 codes 并保留类别顺序。
+2. 每个维度变成一个 Polars key 表达式：离散值直接作 key；`round` 为
+   `(x / w).round() * w`；`edges` / `step` / `quantile` 先用一次小 select 求出
+   edges，再由 `search_sorted` 得到区间编号。无效 key 为 null。
+3. `grouped_weighted_summary` 做唯一一次 group-by。
+4. 只在聚合后的小表上排序 levels、补全空 bins、计算 x 位置；null key 组的行数计入
+   `excluded_count`。
+
+这是 eager、非 streaming 的接口；1000 万行时聚合耗时与旧 `prepare_binned_data_polars`
+同一量级。
+
+Mortgage 的公开业务方法继续返回 `(fig, primary_axes)`，都委托给
+`MortgageDiagnostics.plot(x, bins=...)`。`x` 可以是 `MortgageColnames` 的 role，
+也可以是任意源列名；`bins` 覆盖 `bin_config`，可为 `'discrete'`、rounding 单位或
+`BinSpec`。Count axes 留在 figure 内；facets 共用 Count 尺度。`min_count` 只隐藏
+曲线，保留背景柱；SMM 聚合后才转为 CPR，不对逐行 binary target 转换。`figsize` 为
+每个 panel 的尺寸，`n_cols` 控制分面布局。
+
+```python
+diagnostics.plot("incentive", facet_col="purpose", min_count=200)
+diagnostics.plot("orig_balance", bins=50_000, x_label="Original balance")
+```
+
+`draw_grouped_means(..., ax=existing_axes, legend="none")` 可把单个 panel 画进调用方
+自己的网格，由调用方只保留一个 legend。
 
 ## Reproducible examples
 

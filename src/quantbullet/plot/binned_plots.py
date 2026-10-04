@@ -1,5 +1,7 @@
+"""Legacy binned actual-vs-predicted plots; new code uses ``grouped_means``."""
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING, Any
 
 import matplotlib.pyplot as plt
@@ -225,7 +227,9 @@ def prepare_binned_data_polars(
     agg_exprs.extend(_wmean(p).alias(pred_mean_cols[p]) for p in pred_cols)
 
     agg_pl = tmp.group_by(group_cols).agg(agg_exprs).sort(group_cols)
-    agg = agg_pl.to_pandas()
+    # Only the small aggregated table crosses into pandas. A column-wise NumPy
+    # bridge keeps this plotting interface usable without optional PyArrow.
+    agg = pd.DataFrame({name: agg_pl[name].to_numpy() for name in agg_pl.columns})
 
     if min_count > 0:
         agg = agg[agg['count'] >= min_count].reset_index(drop=True)
@@ -399,7 +403,16 @@ def plot_binned_actual_vs_pred(
         Example: `lambda x: x * 12` to annualize monthly values.
     theme : PlotTheme, optional
         Visual theme for the axes. Defaults to ECONOMIST_THEME.
+
+    .. deprecated::
+        Use ``quantbullet.plot.plot_grouped_means`` or ``MortgageDiagnostics.plot``,
+        which show counts as background bars instead of point sizes.
     """
+    warnings.warn(
+        "plot_binned_actual_vs_pred is deprecated; use quantbullet.plot.plot_grouped_means "
+        "or MortgageDiagnostics.plot instead.",
+        DeprecationWarning, stacklevel=2,
+    )
     # 1. Get data and scaling metadata (dispatch pandas/polars by input type)
     pred_cols = [pred_col] if isinstance(pred_col, str) else list(pred_col)
     prepare = prepare_binned_data_polars if _is_polars_df(df) else prepare_binned_data

@@ -1,10 +1,14 @@
-from dataclasses import dataclass, field
+import warnings
+from dataclasses import dataclass, field, fields, replace
 
+import numpy as np
 import pandas as pd
 import polars as pl
 from matplotlib import ticker as mticker
 
-from quantbullet.plot.binned_plots import plot_binned_actual_vs_pred
+from quantbullet.plot.grouped_data import BinSpec, summarize_grouped_means
+from quantbullet.plot.grouped_means import draw_grouped_means
+from quantbullet.plot.theme import MINIMAL_THEME
 
 NAMED_TRANSFORMS = {
     'smm_to_cpr': lambda smm: 1 - (1 - smm) ** 12,
@@ -52,18 +56,18 @@ class MortgageColnames:
     weight         : str | None = None
 
 
+# Roles usable as the x axis; response, predictions and weight are not.
+_X_ROLES = frozenset(f.name for f in fields(MortgageColnames)) - {'response', 'model_preds', 'weight'}
+
+
 class MortgageDiagnostics:
     """Mortgage model diagnostic plots.
 
-    Each plot method validates its own prerequisites and delegates to
-    the generic ``plot_binned_actual_vs_pred`` utility.  The caller's
-    input DataFrame is never mutated.
-
-    Internally the class always stores a polars DataFrame: pandas inputs
-    are converted via ``pl.from_pandas`` at construction (Arrow-backed,
-    near-zero copy for numeric and datetime columns).  This keeps the
-    implementation single-path and lets the vectorized polars aggregation
-    in ``plot_binned_actual_vs_pred`` handle ~10M+ row inputs.
+    ``plot`` maps a role or source column to grouped-data dimensions,
+    aggregates through Polars, then draws curves and Count bars with
+    grouped-means; the role methods (``incentive_plot`` etc.) wrap it.
+    The caller's input DataFrame is never mutated. Pandas categorical order
+    is retained, and neither input path requires PyArrow.
 
     Parameters
     ----------
@@ -73,10 +77,11 @@ class MortgageDiagnostics:
         Column-name mapping for standardised roles.
     bin_config : dict, optional
         Per-column binning strategy.  Keys are column *roles* (e.g.
-        ``'age'``, ``'incentive'``), values are ``'discrete'`` or a
-        numeric rounding unit.  Columns not listed use quantile binning.
+        ``'age'``, ``'incentive'``) or source column names, values are
+        ``'discrete'``, a numeric rounding unit or a ``BinSpec``.  Columns
+        not listed use quantile binning.
     y_transform : callable or str, optional
-        Applied to both actual and predicted y-values before plotting.
+        Applied to aggregated actual and predicted means before plotting.
         Can be a callable or a string key from ``NAMED_TRANSFORMS``
         (e.g. ``'smm_to_cpr'``, ``'annualize'``).
     y_as_percent : bool
@@ -91,14 +96,8 @@ class MortgageDiagnostics:
         y_transform=None,
         y_as_percent: bool = True,
     ):
-        if not isinstance(df, pl.DataFrame):
-            try:
-                df = pl.from_pandas(df)
-            except Exception as e:
-                raise TypeError(
-                    f"MortgageDiagnostics expects a polars or pandas DataFrame; "
-                    f"got {type(df).__name__}. pl.from_pandas failed: {e}"
-                ) from e
+        if not isinstance(df, (pl.DataFrame, pd.DataFrame)):
+            raise TypeError("MortgageDiagnostics expects a polars or pandas DataFrame")
         self.df = df
         self.colnames = colnames
         self.bin_config: dict = bin_config or {}
@@ -138,82 +137,98 @@ class MortgageDiagnostics:
             base = 'Transformed rate'
         return f"{base} (%)" if self.y_as_percent else base
 
-    def _vintage_year(self) -> pl.Series:
+    def _vintage_year(self) -> pl.Series | pd.Series:
         """Derive vintage year from ``orig_dt`` (no mutation)."""
         self._require('orig_dt')
+        if isinstance(self.df, pd.DataFrame):
+            return pd.to_datetime(self.df[self.colnames.orig_dt]).dt.year
         col = self.df.get_column(self.colnames.orig_dt)
         if col.dtype in (pl.Date, pl.Datetime):
             return col.dt.year()
         return col.cast(pl.Utf8).str.to_date().dt.year()
 
-    def _build_plot_df(self, x_role: str) -> tuple[pl.DataFrame, str | None]:
-        """Assemble a slim plot-frame for one x-axis, applying bin_config rounding.
+    def _source_column(self, x: str) -> str:
+        """Resolve a ``MortgageColnames`` role or a source column name."""
+        if x in _X_ROLES:
+            self._require(x)
+            return getattr(self.colnames, x)
+        if x not in self.df.columns:
+            raise ValueError(f"{x!r} is neither a MortgageColnames role nor a column of the frame")
+        return x
 
-        Returns ``(plot_df, bins)`` where *bins* is the value to pass to
-        ``plot_binned_actual_vs_pred``'s ``bins`` parameter.
+    def _bin_spec(self, x: str, column: str, bins, n_bins: int) -> BinSpec | None:
+        """``bins`` overrides ``bin_config`` (keyed by role or column)."""
+        strategy = bins if bins is not None else self.bin_config.get(x, self.bin_config.get(column))
+        if isinstance(strategy, BinSpec):
+            return strategy
+        if strategy is None:
+            return BinSpec.quantile(n_bins)
+        if isinstance(strategy, str) and strategy == 'discrete':
+            return None
+        if isinstance(strategy, (int, float)) and not isinstance(strategy, bool):
+            return BinSpec.round(strategy)
+        raise ValueError(f"Unknown bin configuration for {x}: {strategy!r}")
+
+    def _with_column(self, name: str, values):
+        """Attach a derived facet column without copying the other columns."""
+        values = values.to_numpy() if hasattr(values, 'to_numpy') else np.asarray(values)
+        if isinstance(self.df, pd.DataFrame):
+            return self.df.assign(**{name: values})
+        return self.df.with_columns(pl.Series(name, values))
+
+    def plot(self, x: str, *, bins=None, facet_col: str | None = None,
+             facet_series=None, **kwargs):
+        """Actual vs predicted by a mortgage role or any source column.
+
+        ``x`` is a ``MortgageColnames`` role (e.g. ``'incentive'``) or a column
+        of the frame. ``bins`` overrides ``bin_config``: ``'discrete'``, a
+        rounding unit, or a ``BinSpec``; otherwise quantile bins
+        (``n_bins``, default 10) are used. Weighted means are aggregated first;
+        ``y_transform`` (e.g. SMM -> CPR) and ``min_count`` then apply to the
+        bin-level values. Count bars show rows and share one scale across facets.
+        ``figsize`` is per panel. Returns ``(fig, primary_axes)``.
         """
-        self._require(x_role)
-        x_col_name = getattr(self.colnames, x_role)
+        column = self._source_column(x)
+        transform = kwargs.pop('y_transform', self.y_transform)
+        xlabel = kwargs.pop('x_label', self._default_x_label(x))
+        ylabel = kwargs.pop('y_label', self._default_y_label())
+        min_count = kwargs.pop('min_count', 0)
+        n_bins = kwargs.pop('n_bins', 10)
+        n_cols = kwargs.pop('n_cols', 3)
+        figsize = kwargs.pop('figsize', (6, 4))
+        align_ylim = kwargs.pop('align_ylim', False)
+        theme = kwargs.pop('theme', None) or MINIMAL_THEME
+        pred_colors = kwargs.pop('pred_colors', None)
+        close_unused = kwargs.pop('close_unused', True)
+        for legacy in ('min_size', 'max_size'):
+            if kwargs.pop(legacy, None) is not None:
+                warnings.warn(f"{legacy} is ignored; counts are drawn as bars", DeprecationWarning, stacklevel=2)
+        if pred_colors is not None:
+            theme = replace(theme, palette=(theme.palette[0], *pred_colors))
 
-        strategy = self.bin_config.get(x_role)
-        round_step = strategy if isinstance(strategy, (int, float)) else None
-        bins = 'discrete' if (round_step is not None or strategy == 'discrete') else None
-
-        x_expr = pl.col(x_col_name)
-        if round_step is not None:
-            x_expr = (x_expr / round_step).round() * round_step
-
-        select_exprs: list[pl.Expr] = [
-            x_expr.alias(x_role),
-            pl.col(self.colnames.response).alias('actual'),
-        ]
-        for name, orig_col in self.colnames.model_preds.items():
-            select_exprs.append(pl.col(orig_col).alias(name))
-        if self.colnames.weight is not None:
-            select_exprs.append(pl.col(self.colnames.weight))
-
-        return self.df.select(select_exprs), bins
-
-    def _attach_facet(
-        self,
-        plot_df: pl.DataFrame,
-        facet_col: str,
-        facet_series=None,
-    ) -> pl.DataFrame:
-        """Attach a facet column to ``plot_df``.
-
-        If ``facet_series`` is supplied it is used verbatim; otherwise the
-        column of the same name is pulled from ``self.df``.
-        """
-        if facet_series is None:
-            return plot_df.with_columns(
-                self.df.get_column(facet_col).alias(facet_col)
-            )
-        if not isinstance(facet_series, pl.Series):
-            facet_series = pl.Series(facet_col, facet_series)
-        return plot_df.with_columns(facet_series.alias(facet_col))
-
-    def _plot(self, x_role: str, facet_col: str | None = None,
-              facet_series=None, **kwargs):
-        """Shared plotting logic: build data, apply instance-level defaults, delegate."""
-        plot_df, bins = self._build_plot_df(x_role)
-        if facet_col is not None:
-            plot_df = self._attach_facet(plot_df, facet_col, facet_series)
-
-        kwargs.setdefault('y_transform', self.y_transform)
-        kwargs.setdefault('x_label', self._default_x_label(x_role))
-        kwargs.setdefault('y_label', self._default_y_label())
-
-        fig, axes = plot_binned_actual_vs_pred(
-            plot_df,
-            x_col=x_role,
-            act_col='actual',
-            pred_col=list(self.colnames.model_preds.keys()),
-            facet_col=facet_col,
-            weight_col=self.colnames.weight,
-            bins=bins,
+        frame = self.df if facet_series is None else self._with_column(facet_col, facet_series)
+        spec = self._bin_spec(x, column, bins, n_bins)
+        response, preds = self.colnames.response, self.colnames.model_preds
+        data = summarize_grouped_means(
+            frame, x=column, y=[response, *preds.values()], weight=self.colnames.weight,
+            col=facet_col, bins={column: spec} if spec is not None else None,
+        )
+        if transform is not None:
+            data = data.map_means(transform)
+        data = data.mask_support(min_count)
+        labels = {column: xlabel, response: 'Actual', **{source: name for name, source in preds.items()}}
+        title = f"Actual vs {', '.join(preds)}" if preds else "Actual"
+        result = draw_grouped_means(
+            data, wrap=n_cols if facet_col is not None else None,
+            panel_size=figsize, share_y=align_ylim, share_count_y=True,
+            labels=labels, ylabel=ylabel, theme=theme,
+            title=None if facet_col is not None else title,
             **kwargs,
         )
+        fig, axes = result.fig, list(result.axes.flat)
+        if not close_unused:
+            for ax in axes:
+                ax.set_visible(True)
 
         if self.y_as_percent:
             for ax in axes:
@@ -226,42 +241,42 @@ class MortgageDiagnostics:
     def incentive_plot(self, facet_col: str | None = None, **kwargs):
         """Actual vs predicted by incentive, optionally faceted."""
         self._require('incentive')
-        return self._plot('incentive', facet_col=facet_col, **kwargs)
+        return self.plot('incentive', facet_col=facet_col, **kwargs)
 
     def age_plot(self, facet_col: str | None = None, **kwargs):
         """Actual vs predicted by loan age, optionally faceted."""
         self._require('age')
-        return self._plot('age', facet_col=facet_col, **kwargs)
+        return self.plot('age', facet_col=facet_col, **kwargs)
 
     def cltv_plot(self, facet_col: str | None = None, **kwargs):
         """Actual vs predicted by updated CLTV, optionally faceted."""
         self._require('cltv')
-        return self._plot('cltv', facet_col=facet_col, **kwargs)
+        return self.plot('cltv', facet_col=facet_col, **kwargs)
 
     def current_factor_plot(self, facet_col: str | None = None, **kwargs):
         """Actual vs predicted by current factor (remaining UPB ratio), optionally faceted."""
         self._require('current_factor')
-        return self._plot('current_factor', facet_col=facet_col, **kwargs)
+        return self.plot('current_factor', facet_col=facet_col, **kwargs)
 
     def burnout_plot(self, facet_col: str | None = None, **kwargs):
         """Actual vs predicted by burnout, optionally faceted."""
         self._require('burnout')
-        return self._plot('burnout', facet_col=facet_col, **kwargs)
+        return self.plot('burnout', facet_col=facet_col, **kwargs)
 
     def sato_plot(self, facet_col: str | None = None, **kwargs):
         """Actual vs predicted by spread-at-origination, optionally faceted."""
         self._require('sato')
-        return self._plot('sato', facet_col=facet_col, **kwargs)
+        return self.plot('sato', facet_col=facet_col, **kwargs)
 
     def fico_plot(self, facet_col: str | None = None, **kwargs):
         """Actual vs predicted by borrower FICO, optionally faceted."""
         self._require('fico')
-        return self._plot('fico', facet_col=facet_col, **kwargs)
+        return self.plot('fico', facet_col=facet_col, **kwargs)
 
     def factor_date_plot(self, facet_col: str | None = None, **kwargs):
         """Actual vs predicted across factor date (monthly time series)."""
         self._require('factor_dt')
-        return self._plot('factor_dt', facet_col=facet_col, **kwargs)
+        return self.plot('factor_dt', facet_col=facet_col, **kwargs)
 
     # ---- vintage-year helper (used by multiple features) ----------------
     def by_vintage_year(self, x_role: str, **kwargs):
@@ -270,9 +285,9 @@ class MortgageDiagnostics:
         Vintage year is derived on-the-fly from ``orig_dt`` and is *not*
         required to exist as a column on the input frame.
         """
-        self._require(x_role, 'orig_dt')
-        return self._plot(x_role, facet_col='vintage_year',
-                          facet_series=self._vintage_year(), **kwargs)
+        self._require('orig_dt')
+        return self.plot(x_role, facet_col='vintage_year',
+                         facet_series=self._vintage_year(), **kwargs)
 
     def incentive_by_vintage_year_plots(self, **kwargs):
         """Back-compat alias for ``by_vintage_year('incentive', **kwargs)``."""

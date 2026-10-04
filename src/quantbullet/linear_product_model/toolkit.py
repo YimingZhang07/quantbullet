@@ -17,7 +17,9 @@ from quantbullet.linear_product_model.base import LinearProductModelBase
 from quantbullet.linear_product_model.datacontainer import ProductModelDataContainer
 from quantbullet.linear_product_model._acceleration import vector_product_numexpr_dict_values
 from quantbullet.model.core import FeatureSpec
-from quantbullet.plot.utils import get_grid_fig_axes, close_unused_axes, scale_scatter_sizes
+from quantbullet.plot.utils import get_grid_fig_axes, close_unused_axes
+from quantbullet.plot.grouped_data import GroupedMeansData
+from quantbullet.plot.grouped_means import draw_grouped_means
 from quantbullet.plot.colors import EconomistBrandColor
 from quantbullet.preprocessing.transformers import FlatRampTransformer
 from quantbullet.reporting import AdobeSourceFontStyles, PdfChartReport
@@ -420,7 +422,9 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         n_quantile_groups : int
             Number of quantile bins for features using default binning.
         min_count : int
-            Hide bins with fewer than this many observations.
+            Mask curve values below this support; retain the Count bars.
+        min_size, max_size : int
+            Deprecated compatibility arguments; markers now have a fixed size.
         ylim : tuple or dict, optional
             Y-axis display range.  A tuple ``(ymin, ymax)`` applies to all
             features; a dict ``{'feature': (ymin, ymax)}`` sets per-feature
@@ -450,30 +454,18 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         fig, axes = get_grid_fig_axes(n_charts=len(features), n_cols=n_cols,
                                       width=figsize[0], height=figsize[1])
 
-        global_min_count = min(df['count'].min() for df in per_feature.values())
-        global_max_count = max(df['count'].max() for df in per_feature.values())
-
         for i, feature in enumerate(features):
             ax = axes[i]
             agg = per_feature[feature]
 
             show = agg if min_count <= 0 else agg[agg['count'] >= min_count]
 
-            sizes = scale_scatter_sizes(
-                show['count'],
-                min_size=min_size, max_size=max_size,
-                global_min=global_min_count, global_max=global_max_count,
-            )
-            ax.scatter(
-                show['bin_val'], show['implied_actual'],
-                s=sizes, alpha=0.7, color=EconomistBrandColor.LONDON_70,
-                label='Implied Actual',
-            )
-            ax.plot(
-                show['bin_val'], show['model_pred'],
-                color=EconomistBrandColor.ECONOMIST_RED, linewidth=2,
-                label='Model Prediction',
-            )
+            drawing_data = GroupedMeansData.from_summary(
+                agg, x='bin_val', count='count',
+                mean_columns={'Implied Actual': 'implied_actual', 'Model Prediction': 'model_pred'},
+            ).mask_support(min_count)
+            draw_grouped_means(drawing_data, ax=ax, labels={'bin_val': feature}, ylabel='Implied Actual',
+                               legend='axes' if i == 0 else 'none')
 
             if show_lowess and len(show) >= 3:
                 from statsmodels.nonparametric.smoothers_lowess import lowess
@@ -499,6 +491,8 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
 
         close_unused_axes(axes)
         self.implied_actual_plot_axes = axes
+        self.implied_actual_count_axes = [other for other in fig.axes if other not in axes]
+        fig.tight_layout()
         return fig, axes
 
     def plot_categorical_plots( self, model: LinearProductModelBase, dcontainer: ProductModelDataContainer,
@@ -618,7 +612,8 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         # — loss curve —
         axes[0, 0].plot(iters, loss_hist, marker='o', markersize=4, linewidth=1.5)
         axes[0, 0].set_xlabel('Iteration')
-        axes[0, 0].set_ylabel('MSE Loss')
+        loss_label = 'Poisson deviance' if getattr(model, 'loss_', 'mse') == 'poisson' else 'MSE Loss'
+        axes[0, 0].set_ylabel(loss_label)
         axes[0, 0].set_title('Loss History')
         axes[0, 0].ticklabel_format(axis='y', style='sci', scilimits=(-2, 2))
 
