@@ -25,19 +25,19 @@ KEYS = ("row_id", "loan_identifier", "d_reporting_month")
 # Model inputs only. The prepared frame keeps the raw columns.
 CLIP = {
     "c_age": (1, 120),
-    "c_incentive": (-6, -.5),
-    "c_orig_fico": (620, 840),
-    "c_updated_ltv": (5, 120),
-    "c_orig_balance": (25000, 1500000),
-    "c_hpi_ratio": (.8, 2.5),
+    "c_incentive": (-5, -.5),
+    "c_orig_fico": (620, 800),
+    "c_updated_ltv": (5, 100),
+    "c_orig_balance": (25000, 800_000),
+    "c_hpi_ratio": (.8, 2.0),
 }
 KNOTS = {
     "c_age": (3, 6, 12, 18, 24, 36, 60, 84, 108),
     "c_incentive": (-4, -3, -2, -1.5, -1, -.75),
     "c_orig_fico": (660, 700, 740, 780),
     "c_updated_ltv": (20, 40, 60, 80, 95),
-    "c_orig_balance": (100000, 150000, 250000, 350000, 500000, 700000, 950000),
-    "c_hpi_ratio": (.95, 1, 1.1, 1.25, 1.5, 1.75, 2),
+    "c_orig_balance": (100000, 150000, 250000, 350000, 500000, 700000),
+    "c_hpi_ratio": (.95, 1, 1.1, 1.25, 1.5, 1.75),
 }
 FIT_NUMERIC = tuple(name + "_fit" for name in KNOTS)
 MODEL_INPUTS = (*FIT_NUMERIC, *CATEGORICAL)

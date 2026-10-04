@@ -36,7 +36,7 @@ Metadata 的 `timing_seconds` 分别记录 read_frame、model_data、toolkit、c
 Prepared frame 保留 raw values。Fit 按 [fit](../fit_turnover.py) 的 `CLIP` 生成 `_fit` inputs：age、incentive、original FICO、updated LTV、original balance 和 HPI ratio。改 clip 或 knots 不重写 frame。
 同一文件的 `KNOTS` 给出对应 FlatRamp knots。Implied-actual bin widths 在 [report](../report_turnover.py) 的 `IMPLIED_BIN_CONFIG`。
 Updated LTV 是 first-lien estimate；`c_hpi_ratio = c_hpi_lag1 / c_orig_hpi`，表示 origination→lag1 的 ZHVI 倍数，不年化，也不是 trailing 24-month HPA。
-`1.00` 表示持平，`1.10` 表示累计上涨 10%；fit clip 为 `[0.8, 2.5]`，knots 为 `0.95, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0`，report bin width 为 `0.1`。
+`1.00` 表示持平，`1.10` 表示累计上涨 10%；fit clip 为 `[0.8, 2.0]`，knots 为 `0.95, 1.0, 1.1, 1.25, 1.5, 1.75`，report bin width 为 `0.1`。
 Original balance 为 nominal USD，本阶段不 inflation-adjust。
 
 Categorical blocks：purpose、occupancy、property type、first-time buyer、month、state，采用 OneHotEncoder(drop=None)。
