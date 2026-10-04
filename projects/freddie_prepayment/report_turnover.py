@@ -4,14 +4,17 @@ import argparse
 import gc
 import pickle
 import time
+from dataclasses import replace
 
 import matplotlib
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 
 import polars as pl
 
 from quantbullet.linear_product_model.mortgage_diagnostics import MortgageColnames, MortgageDiagnostics
+from quantbullet.plot.formatter import compact_number
+from quantbullet.plot.grouped_means import PRINT_GROUPED_MEANS_STYLE
+from quantbullet.plot.theme import PRINT_THEME
 from quantbullet.preprocessing.transformers import FlatRampTransformer
 from quantbullet.reporting import PdfTextReport
 from quantbullet.utils.files import file_sha256, temporary_output
@@ -30,15 +33,27 @@ IMPLIED_BIN_CONFIG = {
     "c_orig_fico_fit": 20,
     "c_updated_ltv_fit": 5,
     "c_orig_balance_fit": 50000,
+    "c_prev_balance_fit": 50000,
     "c_hpi_ratio_fit": .1,
 }
 MORTGAGE_COLUMNS = MortgageColnames(
     response=TARGET, model_preds={"Model": "pred_turnover"},
     incentive=("c_incentive_fit", .25), age=("c_age_fit", "discrete"),
     cltv=("c_updated_ltv_fit", 5), current_factor=("c_factor", .1),
-    fico=("c_orig_fico_fit", 20), orig_dt="d_origination_month",
+    fico=("c_orig_fico_fit", 20), orig_balance=("c_orig_balance_fit", 50000),
+    current_balance=("c_prev_balance_fit", 50000), orig_dt="d_origination_month",
     factor_dt=("d_reporting_month", "discrete"), weight="c_prev_balance",
 )
+CURRENT_BALANCE_BREAKS = (100000, 150000, 250000, 350000, 500000, 700000)
+# Right-closed buckets, as pl.cut makes them: (-inf, 100K], (100K, 150K], ..., (700K, inf).
+CURRENT_BALANCE_LABELS = (
+    f"≤{compact_number(CURRENT_BALANCE_BREAKS[0])}",
+    *(f"{compact_number(low)}–{compact_number(high)}"
+      for low, high in zip(CURRENT_BALANCE_BREAKS, CURRENT_BALANCE_BREAKS[1:])),
+    f">{compact_number(CURRENT_BALANCE_BREAKS[-1])}",
+)
+# Categorical features with too many levels for a grid column get a full-width row.
+WIDE_CATEGORICAL = ("f_state",)
 
 
 def load_artifacts(config: Config):
@@ -68,19 +83,34 @@ def report(config: Config) -> dict:
 
     with temporary_output(config.output_root / "turnover_report.pdf") as path:
         pdf = PdfTextReport(path, report_title="Freddie Turnover | Multiplicative Diagnostics", page_numbering=True)
+        _, frame_h = pdf.content_size_inches()
+        half_page = frame_h / 2 - .4  # two single charts, each under its heading, per page
 
-        def chart(title, draw, *, paged_cols=None):
-            """Report assembly only; the supplied shared interface owns the figure."""
+        def timed(title, draw):
+            """Figures are drawn while the PDF is built, at the size the page gives them."""
+            def run(*args):
+                started = time.perf_counter()
+                fig = draw(*args)
+                print(f"[report] {title}: drawn in {time.perf_counter()-started:.1f}s", flush=True)
+                return fig
+            return run
+
+        def chart(title, draw, *, height=None, level=1, new_page=True):
+            """Report assembly only; ``draw(width, height)`` returns the shared interface's figure."""
+            if new_page:
+                pdf.add_page_break()
+            pdf.add_heading(title, level=level)
+            pdf.add_figure(timed(title, draw), height=height)
+
+        def panels(title, make, *, level=2, new_page=False):
+            """Aggregate once now; the page layout sizes, splits and draws the panels."""
+            if new_page:
+                pdf.add_page_break()
+            pdf.add_heading(title, level=level)
             started = time.perf_counter()
-            pdf.add_page_break()
-            pdf.add_heading(title)
-            fig, _ = draw()
-            if paged_cols is None:
-                pdf.add_matplotlib_figure(fig, dpi=150, reserve_height=55)
-            else:
-                pdf.add_matplotlib_figure_paged(fig, n_cols=paged_cols, title=title, dpi=150)
-            plt.close(fig)
-            print(f"[report] {title}: {time.perf_counter()-started:.1f}s", flush=True)
+            result = make()
+            print(f"[report] {title}: aggregated in {time.perf_counter()-started:.1f}s", flush=True)
+            return replace(result, render=timed(title, result.render))
 
         pdf.add_heading("1. Fit summary")
         pdf.add_body("IN-SAMPLE ONLY. Negative-incentive full-prepayment baseline, not directly observed moving-only turnover. Cohort concentrated in 2022 onward; no train/test split.")
@@ -112,54 +142,70 @@ def report(config: Config) -> dict:
         pdf.add_body("Model-numeric actual-vs-predicted charts and implied actuals use clipped _fit fields. Reporting month, previous factor, and original LTV have no fit column. The age ramp is estimated separately by f_purpose. Burnout is excluded. Numeric missing values are dropped; categorical missing values become MISSING.", font_size=9)
         pdf.add_body("HPI ratio is lag1 ZHVI / origination ZHVI: 1.0 means unchanged, 1.1 means a cumulative 10% increase. Ratio axes show multiples, not percentages.", font_size=9)
 
-        chart("3. Convergence", lambda: toolkit.plot_convergence_diagnostics(model, figsize=(14,9)))
-        chart("4. Numeric implied actuals", lambda: toolkit.plot_implied_actuals(
+        chart("3. Convergence", lambda w, h: toolkit.plot_convergence_diagnostics(model, figsize=(w, h))[0])
+        pdf.add_figure_grid(panels("4. Numeric implied actuals", lambda: toolkit.implied_actual_panels(
             model=model, dcontainer=container, sample_weights=weights, bin_config=IMPLIED_BIN_CONFIG,
-            min_count=MIN_COUNT, n_cols=3))
-        def categorical_figure():
-            fig, axes = toolkit.plot_categorical_plots(
-                model=model, dcontainer=container, sample_weights=weights, hspace=.45, wspace=.35)
-            # Formatting only: use the shared PDF paginator to give dense state
-            # labels more width; the toolkit still computes/draws every bar.
-            fig.set_size_inches(12,12)
-            for ax in axes:
-                ax.tick_params(axis="x", labelsize=8)
-            return fig, axes
-        chart("5. Categorical implied actuals", categorical_figure, paged_cols=2)
-        frame = frame.with_columns(*(pl.Series(name, model_data[name].to_numpy()) for name in FIT_NUMERIC))
+            min_count=MIN_COUNT, n_cols=3, theme=PRINT_THEME, style=PRINT_GROUPED_MEANS_STYLE),
+            level=1, new_page=True))
+        categorical = panels("5. Categorical implied actuals", lambda: toolkit.categorical_panels(
+            model=model, dcontainer=container, sample_weights=weights, theme=PRINT_THEME),
+            level=1, new_page=True)
+        narrow = [name for name in categorical.panels if name not in WIDE_CATEGORICAL]
+        wide = [name for name in categorical.panels if name in WIDE_CATEGORICAL]
+        if narrow:
+            pdf.add_figure_grid(categorical.subset(narrow), max_panel_aspect=.6)
+        if wide:
+            pdf.add_figure_grid(categorical.subset(wide, n_cols=1), max_panel_aspect=.3)
+        frame = frame.with_columns(
+            *(pl.Series(name, model_data[name].to_numpy()) for name in FIT_NUMERIC),
+            pl.col("c_prev_balance").cut(list(CURRENT_BALANCE_BREAKS), labels=list(CURRENT_BALANCE_LABELS))
+            .cast(pl.Enum(CURRENT_BALANCE_LABELS)).alias("current_balance_bucket"),
+        )
         del container, model_data, weights
         gc.collect()
 
         diagnostics = MortgageDiagnostics(
-            df=frame, colnames=MORTGAGE_COLUMNS,
-            y_transform="smm_to_cpr", y_as_percent=True,
+            df=frame, colnames=MORTGAGE_COLUMNS, y_transform="smm_to_cpr", y_as_percent=True,
+            theme=PRINT_THEME, style=PRINT_GROUPED_MEANS_STYLE,
         )
-        chart("6. Reporting month", lambda: diagnostics.factor_date_plot(
-            min_count=MIN_COUNT, figsize=(14,5), x_label=MORTGAGE_COLUMNS.factor_dt))
-        chart("7. Incentive", lambda: diagnostics.incentive_plot(
-            min_count=MIN_COUNT, figsize=(12,5), x_label=MORTGAGE_COLUMNS.incentive))
-        chart("8. Incentive by purpose", lambda: diagnostics.incentive_plot(
-            facet_col="f_purpose", min_count=MIN_COUNT_FACET, n_cols=3, x_label=MORTGAGE_COLUMNS.incentive))
-        chart("9. Age", lambda: diagnostics.age_plot(
-            min_count=MIN_COUNT, figsize=(12,5), x_label=MORTGAGE_COLUMNS.age))
-        chart("10. Age by purpose", lambda: diagnostics.age_plot(
-            facet_col="f_purpose", min_count=MIN_COUNT_FACET, n_cols=3, x_label=MORTGAGE_COLUMNS.age))
-        chart("11. Updated first-lien LTV", lambda: diagnostics.cltv_plot(
-            min_count=MIN_COUNT, figsize=(12,5), x_label=MORTGAGE_COLUMNS.cltv))
-        chart("12. Previous balance factor", lambda: diagnostics.current_factor_plot(
-            min_count=MIN_COUNT, figsize=(12,5), x_label=MORTGAGE_COLUMNS.current_factor))
-        chart("13. Original FICO", lambda: diagnostics.fico_plot(
-            min_count=MIN_COUNT, figsize=(12,5), x_label=MORTGAGE_COLUMNS.fico))
+        chart("6. Reporting month", lambda w, h: diagnostics.factor_date_plot(
+            min_count=MIN_COUNT, figsize=(w, h), x_label=MORTGAGE_COLUMNS.factor_dt, title=None)[0], height=half_page)
+        for number, name, role, role_plot, x_label in (
+            (7, "Incentive", "incentive", diagnostics.incentive_plot, MORTGAGE_COLUMNS.incentive),
+            (8, "Age", "age", diagnostics.age_plot, MORTGAGE_COLUMNS.age),
+        ):
+            pdf.add_page_break()
+            pdf.add_heading(f"{number}. {name}", level=1)
+            chart(f"{number}a. Overall", lambda w, h, role_plot=role_plot, x_label=x_label: role_plot(
+                min_count=MIN_COUNT, figsize=(w, h), x_label=x_label, title=None)[0],
+                height=frame_h / 2, level=2, new_page=False)
+            for title, facet, facet_label in (
+                (f"{number}b. By purpose", "f_purpose", "Purpose"),
+                (f"{number}c. By current balance", "current_balance_bucket", "Balance"),
+            ):
+                pdf.add_figure_grid(panels(title, lambda role=role, facet=facet, facet_label=facet_label, x_label=x_label:
+                    diagnostics.facet_panels(role, facet, facet_label=facet_label, min_count=MIN_COUNT_FACET,
+                                             n_cols=3, x_label=x_label)))
 
-        # Fields without a mortgage role use the same MortgageDiagnostics interface by source column.
+        singles = [
+            ("9. Updated first-lien LTV", diagnostics.cltv_plot, MORTGAGE_COLUMNS.cltv),
+            ("10. Previous balance factor", diagnostics.current_factor_plot, MORTGAGE_COLUMNS.current_factor),
+            ("11. Original FICO", diagnostics.fico_plot, MORTGAGE_COLUMNS.fico),
+            ("12. Original balance", diagnostics.orig_balance_plot, MORTGAGE_COLUMNS.orig_balance),
+            ("13. Current balance", diagnostics.current_balance_plot, MORTGAGE_COLUMNS.current_balance),
+        ]
+        for index, (title, role_plot, x_label) in enumerate(singles):
+            chart(title, lambda w, h, role_plot=role_plot, x_label=x_label: role_plot(
+                min_count=MIN_COUNT, figsize=(w, h), x_label=x_label, title=None)[0],
+                height=half_page, new_page=index == 0)
         for title, column, step in (
-            ("14. Original balance", "c_orig_balance_fit", 50000),
-            ("15. ZHVI ratio since origination", "c_hpi_ratio_fit", .1),
-            ("16. Original LTV", "c_orig_ltv", 5),
+            ("14. ZHVI ratio since origination", "c_hpi_ratio_fit", .1),
+            ("15. Original LTV", "c_orig_ltv", 5),
         ):
             label = "ZHVI ratio since origination (1.0 = unchanged)" if column == "c_hpi_ratio_fit" else column
-            chart(title, lambda c=column,s=step,label=label: diagnostics.plot(
-                c, bins=s, min_count=MIN_COUNT, figsize=(12,5), x_label=label, y_label="Full-payoff CPR proxy (%)"))
+            chart(title, lambda w, h, c=column, s=step, label=label: diagnostics.plot(
+                c, bins=s, min_count=MIN_COUNT, figsize=(w, h), x_label=label,
+                y_label="Full-payoff CPR proxy (%)", title=None)[0], height=half_page, new_page=False)
         pdf.save()
     print("[report] shared-interface report saved; preparation/model/predictions unchanged", flush=True)
     return {"rows":frame.height,"path":"turnover_report.pdf"}

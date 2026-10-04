@@ -9,12 +9,12 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
-from matplotlib.ticker import MaxNLocator
+from matplotlib.ticker import FuncFormatter, MaxNLocator
 from matplotlib.dates import AutoDateLocator, ConciseDateFormatter
 import numpy as np
 import pandas as pd
 
-from .formatter import PlotFormatter
+from .formatter import PlotFormatter, compact_number
 from .grouped_data import BinSpec, GroupedMeansData, summarize_grouped_means
 from .theme import MINIMAL_THEME, PlotTheme
 
@@ -62,12 +62,41 @@ class GroupedMeansStyle:
 
 
 DEFAULT_GROUPED_MEANS_STYLE = GroupedMeansStyle()
+# Thinner marks for the small panels of PRINT_THEME figures.
+PRINT_GROUPED_MEANS_STYLE = GroupedMeansStyle(line_width=1.3, legend_line_width=1.5, marker_size=2.2)
 
 
 def _level_label(value, first=False):
     if isinstance(value, pd.Interval):
         return f"{'[' if first or value.closed == 'both' else '('}{value.left:g}, {value.right:g}]"
     return str(value)
+
+
+def label_outer_panels(axes, count_axes=None, *, shared_x: bool = True, shared_counts: bool = False) -> None:
+    """Keep axis labels on the outer panels of a grid only.
+
+    The y label stays on the first visible panel of each row and the Count
+    label on the last. With ``shared_x`` the x label stays only on the lowest
+    visible panel of each column; with ``shared_counts`` the count tick labels
+    are kept only where the Count label is. Hidden axes are skipped.
+    """
+    grid = np.asarray(axes, dtype=object)
+    grid = grid.reshape(1, -1) if grid.ndim == 1 else grid
+    twins = np.full(grid.shape, None, dtype=object) if count_axes is None else np.asarray(count_axes, dtype=object).reshape(grid.shape)
+    n_rows, n_cols = grid.shape
+    for r in range(n_rows):
+        visible = [c for c in range(n_cols) if grid[r, c] is not None and grid[r, c].get_visible()]
+        for c in visible:
+            ax, twin = grid[r, c], twins[r, c]
+            if c != visible[0]:
+                ax.set_ylabel("")
+            if shared_x and any(grid[below, c] is not None and grid[below, c].get_visible()
+                                for below in range(r + 1, n_rows)):
+                ax.set_xlabel("")
+            if twin is not None and c != visible[-1]:
+                twin.set_ylabel("")
+                if shared_counts:
+                    twin.tick_params(axis="y", labelright=False, length=0)
 
 
 def draw_grouped_means(
@@ -87,13 +116,19 @@ def draw_grouped_means(
     ax: plt.Axes | None = None,
     compact_cols: bool = True,
     legend: Literal["figure", "axes", "none"] | None = None,
+    count_ylim: float | None = None,
+    outer_labels: bool = False,
 ) -> GroupedMeansPlot:
     """Render reusable statistics; no raw-data aggregation happens here.
 
     ``labels`` maps source column names to display labels. ``y_format`` is a
     Python format spec, e.g. '.0%' for proportions. ``panel_size`` is in inches
     per subplot. Numeric/binned x uses numeric positions, categories are
-    equally spaced. Counts are rows, never duplicated across y metrics.
+    equally spaced. Counts are rows, never duplicated across y metrics; count
+    ticks and large numeric x ticks use K/M suffixes. ``count_ylim`` fixes
+    the top of every count axis, so figures drawn from subsets of one
+    aggregation keep one count scale. ``outer_labels`` keeps axis labels on
+    the outer panels only (see ``label_outer_panels``).
 
     With group, colors identify groups and line styles identify metrics;
     otherwise colors identify metrics and lines stay solid. Categorical x
@@ -115,6 +150,8 @@ def draw_grouped_means(
         raise ValueError("wrap must be a positive integer and requires col without row")
     if len(panel_size) != 2 or not all(np.isfinite(v) and v > 0 for v in panel_size):
         raise ValueError("panel_size must contain two positive finite values")
+    if count_ylim is not None and not (np.isfinite(count_ylim) and count_ylim > 0):
+        raise ValueError("count_ylim must be a positive finite value")
     if not theme.palette:
         raise ValueError("theme.palette must contain at least one color")
     if not style.metric_linestyles:
@@ -173,6 +210,7 @@ def draw_grouped_means(
             twin.set_ylabel("Count", fontsize=theme.label_fontsize, color=theme.muted_text_color)
             twin.tick_params(axis="y", labelsize=theme.tick_labelsize, colors=theme.muted_text_color)
             twin.yaxis.set_major_locator(MaxNLocator(nbins=4, integer=True))
+            twin.yaxis.set_major_formatter(FuncFormatter(compact_number))
             for spine in twin.spines.values():
                 spine.set_visible(False)
             twin.spines["right"].set_visible(True)
@@ -207,7 +245,9 @@ def draw_grouped_means(
         caption = []
         for role, value in (("row", rv), ("col", cv)):
             if role in dim:
-                caption.append(f"{labels.get(dim[role], dim[role])}: {_level_label(value, value == data.levels[role][0] if data.levels[role] else False)}")
+                # bin_info keeps every level, so a selected subset labels its first level correctly.
+                all_levels = data.bin_info[dim[role]].get("levels", data.levels[role])
+                caption.append(f"{labels.get(dim[role], dim[role])}: {_level_label(value, bool(all_levels) and value == all_levels[0])}")
         ax.set_title(" | ".join(caption), fontsize=theme.title_fontsize, fontweight=theme.title_fontweight,
                      pad=theme.title_pad, loc=theme.title_loc, color=theme.title_color)
         ax.set_xlabel(labels.get(dim["x"], dim["x"]), fontsize=theme.label_fontsize,
@@ -228,14 +268,23 @@ def draw_grouped_means(
         if len(xpos):
             ax.set_xlim(np.min(xpos - widths / 2) - widths.min() * 0.12,
                         np.max(xpos + widths / 2) + widths.min() * 0.12)
+            if not categorical_x and not data.bin_info[dim["x"]].get("datetime", False) \
+                    and max(abs(v) for v in ax.get_xlim()) >= 1e4:
+                ax.xaxis.set_major_formatter(FuncFormatter(compact_number))
 
-    for ax in list(axes.flat)[len(panels):]:
-        ax.set_visible(False)
-    if share_count_y:
-        twins = [ax for ax in count_axes.flat if ax is not None]
-        maximum = max((ax.get_ylim()[1] for ax in twins), default=1)
-        for ax in twins:
-            ax.set_ylim(0, maximum)
+    # These loops must not rebind ``ax``: an external Axes receives the title below.
+    for unused in list(axes.flat)[len(panels):]:
+        unused.set_visible(False)
+    twins = [twin for twin in count_axes.flat if twin is not None]
+    if count_ylim is not None:
+        for twin in twins:
+            twin.set_ylim(0, count_ylim)
+    elif share_count_y:
+        maximum = max((twin.get_ylim()[1] for twin in twins), default=1)
+        for twin in twins:
+            twin.set_ylim(0, maximum)
+    if outer_labels:
+        label_outer_panels(axes, count_axes, shared_counts=share_count_y or count_ylim is not None)
 
     handles = []
     if "group" in dim:

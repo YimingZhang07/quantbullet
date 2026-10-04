@@ -1,5 +1,6 @@
 # ===== Standard Library Imports =====
 import os
+import warnings
 from collections import namedtuple, defaultdict
 from dataclasses import dataclass, field
 
@@ -17,10 +18,13 @@ from quantbullet.linear_product_model.base import LinearProductModelBase
 from quantbullet.linear_product_model.datacontainer import ProductModelDataContainer
 from quantbullet.linear_product_model._acceleration import vector_product_numexpr_dict_values
 from quantbullet.model.core import FeatureSpec
-from quantbullet.plot.utils import get_grid_fig_axes, close_unused_axes
+from quantbullet.plot.formatter import PlotFormatter
 from quantbullet.plot.grouped_data import GroupedMeansData
-from quantbullet.plot.grouped_means import draw_grouped_means
+from quantbullet.plot.grouped_means import (DEFAULT_GROUPED_MEANS_STYLE, GroupedMeansStyle,
+                                            draw_grouped_means, label_outer_panels)
 from quantbullet.plot.colors import EconomistBrandColor
+from quantbullet.plot.panels import PanelSet, panel_grid
+from quantbullet.plot.theme import MINIMAL_THEME, PlotTheme
 from quantbullet.preprocessing.transformers import FlatRampTransformer
 from quantbullet.reporting import AdobeSourceFontStyles, PdfChartReport
 from quantbullet.reporting.utils import register_fonts_from_package, merge_pdfs
@@ -437,7 +441,48 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
             Fraction of data used for each LOWESS local fit (bandwidth).
             Smaller values follow the data more tightly; larger values
             produce a smoother reference.
+        figsize : tuple
+            Size of one panel in inches.
         """
+        panels = self.implied_actual_panels(
+            model, dcontainer, sample_frac=sample_frac, sample_weights=sample_weights,
+            n_quantile_groups=n_quantile_groups, bin_config=bin_config, min_count=min_count,
+            ylim=ylim, show_lowess=show_lowess, lowess_frac=lowess_frac, n_cols=n_cols, legend='axes',
+        )
+        fig = panels.draw(panel_size=figsize)
+        # panel_grid creates the grid first; draw_grouped_means then adds one count axis per panel.
+        n_slots = panels.n_rows * panels.n_cols
+        axes = np.array(fig.axes[:n_slots], dtype=object)
+        self.implied_actual_plot_axes = axes
+        self.implied_actual_count_axes = fig.axes[n_slots:]
+        return fig, axes
+
+    def implied_actual_panels(
+        self,
+        model,
+        dcontainer: ProductModelDataContainer,
+        sample_frac: float = 1,
+        sample_weights: np.ndarray | None = None,
+        n_quantile_groups: int = 100,
+        bin_config: dict | None = None,
+        min_count: int = 0,
+        ylim: tuple | dict | None = None,
+        show_lowess: bool = False,
+        lowess_frac: float = 0.3,
+        n_cols: int = 3,
+        theme: PlotTheme = MINIMAL_THEME,
+        style: GroupedMeansStyle = DEFAULT_GROUPED_MEANS_STYLE,
+        legend: str = 'figure',
+    ) -> PanelSet:
+        """``plot_implied_actuals`` as a ``PanelSet`` of numerical features.
+
+        The implied actuals are aggregated here, once; drawing a subset of the
+        features at a panel size chosen by a report layout only draws.
+        ``legend`` is ``'figure'`` (one legend below the grid) or ``'axes'``
+        (on the first panel).
+        """
+        if legend not in ('figure', 'axes'):
+            raise ValueError("legend must be 'figure' or 'axes'")
         raw_data = self.compute_implied_actual_data(model, dcontainer, sample_frac, sample_weights)
         effective_config = {**self.implied_actual_bin_config, **(bin_config or {})}
         loss = getattr(model, 'loss_', 'mse')
@@ -450,58 +495,72 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
             data_caches[feature] = ImpliedActualDataCache(feature, agg_df)
         self.implied_actual_data_caches = data_caches
 
-        features = list(per_feature.keys())
-        fig, axes = get_grid_fig_axes(n_charts=len(features), n_cols=n_cols,
-                                      width=figsize[0], height=figsize[1])
+        def render(features, n_cols, panel_size):
+            fig, grid = panel_grid(len(features), n_cols, panel_size)
+            count_axes = np.full(grid.shape, None, dtype=object)
+            for i, feature in enumerate(features):
+                ax = grid.flat[i]
+                agg = per_feature[feature]
+                drawing_data = GroupedMeansData.from_summary(
+                    agg, x='bin_val', count='count',
+                    mean_columns={'Implied Actual': 'implied_actual', 'Model Prediction': 'model_pred'},
+                ).mask_support(min_count)
+                result = draw_grouped_means(drawing_data, ax=ax, labels={'bin_val': feature}, ylabel='Implied Actual',
+                                            theme=theme, style=style, legend=legend if i == 0 else 'none')
+                count_axes.flat[i] = result.count_axes[0, 0]
 
-        for i, feature in enumerate(features):
-            ax = axes[i]
-            agg = per_feature[feature]
+                show = agg if min_count <= 0 else agg[agg['count'] >= min_count]
+                if show_lowess and len(show) >= 3:
+                    from statsmodels.nonparametric.smoothers_lowess import lowess
+                    counts = show['count'].values
+                    reps = np.maximum(1, np.round(counts / counts.max() * 100)).astype(int)
+                    x_rep = np.repeat(show['bin_val'].values, reps)
+                    y_rep = np.repeat(show['implied_actual'].values, reps)
+                    smoothed = lowess(y_rep, x_rep, frac=lowess_frac)
+                    ax.plot(
+                        smoothed[:, 0], smoothed[:, 1],
+                        color=EconomistBrandColor.CHICAGO_45, linewidth=2,
+                        linestyle='--', label='LOWESS',
+                    )
 
-            show = agg if min_count <= 0 else agg[agg['count'] >= min_count]
+                if ylim is not None:
+                    if isinstance(ylim, dict) and feature in ylim:
+                        ax.set_ylim(ylim[feature])
+                    elif isinstance(ylim, tuple):
+                        ax.set_ylim(ylim)
+            # Every panel has its own x variable and count scale.
+            label_outer_panels(grid, count_axes, shared_x=False)
+            return fig
 
-            drawing_data = GroupedMeansData.from_summary(
-                agg, x='bin_val', count='count',
-                mean_columns={'Implied Actual': 'implied_actual', 'Model Prediction': 'model_pred'},
-            ).mask_support(min_count)
-            draw_grouped_means(drawing_data, ax=ax, labels={'bin_val': feature}, ylabel='Implied Actual',
-                               legend='axes' if i == 0 else 'none')
-
-            if show_lowess and len(show) >= 3:
-                from statsmodels.nonparametric.smoothers_lowess import lowess
-                counts = show['count'].values
-                reps = np.maximum(1, np.round(counts / counts.max() * 100)).astype(int)
-                x_rep = np.repeat(show['bin_val'].values, reps)
-                y_rep = np.repeat(show['implied_actual'].values, reps)
-                smoothed = lowess(y_rep, x_rep, frac=lowess_frac)
-                ax.plot(
-                    smoothed[:, 0], smoothed[:, 1],
-                    color=EconomistBrandColor.CHICAGO_45, linewidth=2,
-                    linestyle='--', label='LOWESS',
-                )
-
-            ax.set_xlabel(feature, fontsize=12)
-            ax.set_ylabel('Implied Actual', fontsize=12)
-
-            if ylim is not None:
-                if isinstance(ylim, dict) and feature in ylim:
-                    ax.set_ylim(ylim[feature])
-                elif isinstance(ylim, tuple):
-                    ax.set_ylim(ylim)
-
-        close_unused_axes(axes)
-        self.implied_actual_plot_axes = axes
-        self.implied_actual_count_axes = [other for other in fig.axes if other not in axes]
-        fig.tight_layout()
-        return fig, axes
+        return PanelSet(tuple(per_feature), render, n_cols)
 
     def plot_categorical_plots( self, model: LinearProductModelBase, dcontainer: ProductModelDataContainer,
                                 sample_frac=1, sample_weights: np.ndarray | None = None,
-                                hspace=0.4, wspace=0.3 ):
+                                hspace=None, wspace=None, width=5, height=4 ):
+        """Implied actual vs prediction bars per categorical feature.
 
-        n_features = len( self.categorical_feature_groups )
-        fig, axes = get_grid_fig_axes( n_charts=n_features, n_cols=3 )
-        fig.subplots_adjust(hspace=hspace, wspace=wspace)
+        ``width`` and ``height`` are per panel. ``hspace`` and ``wspace`` are
+        deprecated and ignored: the grid uses constrained layout.
+        """
+        if hspace is not None or wspace is not None:
+            warnings.warn("hspace and wspace are ignored; the grid uses constrained layout",
+                          DeprecationWarning, stacklevel=2)
+        panels = self.categorical_panels(model, dcontainer, sample_frac, sample_weights, legend='axes')
+        fig = panels.draw(panel_size=(width, height))
+        axes = np.array(fig.axes[:panels.n_rows * panels.n_cols], dtype=object)
+        self.categorical_plot_axes = axes
+        return fig, axes
+
+    def categorical_panels( self, model: LinearProductModelBase, dcontainer: ProductModelDataContainer,
+                            sample_frac=1, sample_weights: np.ndarray | None = None, n_cols: int = 3,
+                            theme: PlotTheme = MINIMAL_THEME, legend: str = 'figure' ) -> PanelSet:
+        """``plot_categorical_plots`` as a ``PanelSet`` of categorical features.
+
+        The implied actuals are aggregated here, once. ``legend`` is
+        ``'figure'`` (one legend below the grid) or ``'axes'`` (one per panel).
+        """
+        if legend not in ('figure', 'axes'):
+            raise ValueError("legend must be 'figure' or 'axes'")
         dcontainer_sample = dcontainer.sample(sample_frac) if sample_frac < 1 else dcontainer
         X_sample = dcontainer_sample
         y_sample = np.asarray(dcontainer_sample.response, dtype=float)
@@ -512,8 +571,8 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         loss = getattr(model, 'loss_', 'mse')
 
         block_preds = { feature: model.single_feature_group_predict( feature, X_sample, ignore_global_scale=True ) for feature in self.feature_groups_.keys() }
-        for i, (feature, subfeatures) in enumerate(self.categorical_feature_groups.items()):
-            ax = axes[i]
+        per_feature = {}
+        for feature, subfeatures in self.categorical_feature_groups.items():
             m = model.global_scalar_ * vector_product_numexpr_dict_values( data=block_preds, exclude=feature )
             p = block_preds[ feature ]
 
@@ -549,32 +608,35 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
                 agg_df["_sum_numer"] / agg_df["_sum_denom"],
             )
             agg_df.drop(columns=["_sum_numer", "_sum_denom"], inplace=True)
+            per_feature[feature] = (agg_df, len(subfeatures))
 
-            # plot bar chart for each feature bin
-            x = np.arange(len(agg_df.index))  # numeric positions
-            width = 0.35  # width of each bar
+        def render(features, n_cols, panel_size):
+            fig, grid = panel_grid(len(features), n_cols, panel_size)
+            for ax, feature in zip(grid.flat, features):
+                agg_df, n_levels = per_feature[feature]
+                PlotFormatter.apply_theme(ax, theme)
+                x = np.arange(len(agg_df.index))  # numeric positions
+                width = 0.35  # width of each bar
+                ax.bar(x - width/2, agg_df['implied_actual_mean'], width,
+                    label='Impl Act', alpha=0.7, color = EconomistBrandColor.LONDON_70)
+                ax.bar(x + width/2, agg_df['this_feature_preds_mean'], width,
+                    label='Pred', alpha=0.7, color = EconomistBrandColor.CHICAGO_55)
 
-            ax.bar(x - width/2, agg_df['implied_actual_mean'], width,
-                label='Impl Act', alpha=0.7, color = EconomistBrandColor.LONDON_70)
-            ax.bar(x + width/2, agg_df['this_feature_preds_mean'], width,
-                label='Pred', alpha=0.7, color = EconomistBrandColor.CHICAGO_55)
+                rotation = 0 if n_levels <= 8 else 90 if n_levels >= 16 else 45
+                ax.set_xticks(x, [str(level) for level in agg_df.index], rotation=rotation,
+                              ha='right' if rotation == 45 else 'center', rotation_mode='anchor' if rotation == 45 else 'default')
+                ax.set_xlabel(feature, fontsize=theme.label_fontsize, color=theme.label_color)
+                ax.set_ylabel('Implied Actual', fontsize=theme.label_fontsize, color=theme.label_color)
+                if legend == 'axes':
+                    ax.legend(frameon=theme.legend_frameon, fontsize=theme.legend_fontsize)
+            label_outer_panels(grid, shared_x=False)
+            if legend == 'figure':
+                handles, labels = grid.flat[0].get_legend_handles_labels()
+                fig.legend(handles, labels, loc='outside lower center', ncol=len(handles),
+                           frameon=theme.legend_frameon, fontsize=theme.legend_fontsize)
+            return fig
 
-            # replace categorical x-labels
-            ax.set_xticks(x)
-            if len( subfeatures ) <= 8:
-                ax.set_xticklabels(agg_df.index)
-            elif len( subfeatures ) >= 16:
-                ax.set_xticklabels(agg_df.index, rotation=90)
-            else:
-                ax.set_xticklabels(agg_df.index, rotation=45)
-
-            ax.set_xlabel(f'{feature}', fontdict={'fontsize': 12} )
-            ax.set_ylabel('Implied Actual', fontdict={'fontsize': 12} )
-            ax.legend()
-
-        close_unused_axes( axes )
-        self.categorical_plot_axes = axes
-        return fig, axes
+        return PanelSet(tuple(per_feature), render, n_cols)
 
     @staticmethod
     def plot_convergence_diagnostics(

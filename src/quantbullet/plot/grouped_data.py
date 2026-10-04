@@ -154,6 +154,21 @@ class GroupedMeansData:
             summary.loc[low, f"{metric}__mean"] = np.nan
         return replace(self, summary=summary)
 
+    def select(self, role: str, levels: Sequence) -> GroupedMeansData:
+        """Return a copy limited to ``levels`` of ``role`` (row, col or group), in that order.
+
+        ``bin_info`` still lists every level, so panel labels describe the
+        full aggregation. This object is unchanged.
+        """
+        if role == "x" or role not in self.dimensions:
+            raise ValueError(f"role must be one of {sorted(set(self.dimensions) - {'x'})}")
+        levels = tuple(levels)
+        unknown = [level for level in levels if level not in self.levels[role]]
+        if unknown:
+            raise ValueError(f"unknown {role} levels: {unknown}")
+        summary = self.summary.loc[self.summary[role].isin(levels)]
+        return replace(self, summary=summary, levels={**self.levels, role: levels})
+
 
 def _is_datetime(dtype: pl.DataType) -> bool:
     return dtype == pl.Date or isinstance(dtype, pl.Datetime)

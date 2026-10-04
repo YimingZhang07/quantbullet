@@ -1,6 +1,37 @@
 from __future__ import annotations
 
+import numpy as np
+from matplotlib import ticker as mticker
+
 from quantbullet.plot.theme import PlotTheme
+
+
+def compact_number(value, _pos=None) -> str:
+    """Tick label with a K/M/B suffix: 450000 -> '450K', 1.2e6 -> '1.2M'."""
+    for divisor, suffix in ((1e9, "B"), (1e6, "M"), (1e3, "K")):
+        if abs(value) >= divisor:
+            return mticker.Formatter.fix_minus(f"{value / divisor:g}{suffix}")
+    return mticker.Formatter.fix_minus(f"{value:g}")
+
+
+class StepPercentFormatter(mticker.Formatter):
+    """Percent labels for fractions, with as many decimals as the tick step needs.
+
+    Steps of 1% print '4%', steps of 0.5% print '4.5%', so every label on an
+    axis has the same number of decimals.
+    """
+
+    _decimals = 1
+
+    def set_locs(self, locs):
+        super().set_locs(locs)
+        ticks = np.unique(np.asarray(locs, dtype=float))
+        if len(ticks) > 1:
+            step = float(np.min(np.diff(ticks))) * 100
+            self._decimals = next((d for d in range(3) if abs(round(step, d) - step) <= 1e-6 * max(step, 1)), 3)
+
+    def __call__(self, x, pos=None):
+        return self.fix_minus(f"{x * 100:.{self._decimals}f}%")
 
 
 class PlotFormatter:

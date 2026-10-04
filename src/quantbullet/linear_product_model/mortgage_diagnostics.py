@@ -4,11 +4,12 @@ from dataclasses import dataclass, field, fields, replace
 import numpy as np
 import pandas as pd
 import polars as pl
-from matplotlib import ticker as mticker
 
-from quantbullet.plot.grouped_data import BinSpec, summarize_grouped_means
-from quantbullet.plot.grouped_means import draw_grouped_means
-from quantbullet.plot.theme import MINIMAL_THEME
+from quantbullet.plot.formatter import StepPercentFormatter
+from quantbullet.plot.grouped_data import BinSpec, GroupedMeansData, summarize_grouped_means
+from quantbullet.plot.grouped_means import GroupedMeansStyle, draw_grouped_means
+from quantbullet.plot.panels import PanelSet
+from quantbullet.plot.theme import MINIMAL_THEME, PlotTheme
 
 NAMED_TRANSFORMS = {
     'smm_to_cpr': lambda smm: 1 - (1 - smm) ** 12,
@@ -116,6 +117,10 @@ class MortgageDiagnostics:
         (e.g. ``'smm_to_cpr'``, ``'annualize'``).
     y_as_percent : bool
         If True (default), format the y-axis as percentages.
+    theme, style : optional
+        Defaults for every plot (e.g. ``PRINT_THEME`` and
+        ``PRINT_GROUPED_MEANS_STYLE`` in PDF reports); a ``theme`` or
+        ``style`` passed to a plot method wins.
     """
 
     def __init__(
@@ -125,6 +130,8 @@ class MortgageDiagnostics:
         bin_config: dict | None = None,
         y_transform=None,
         y_as_percent: bool = True,
+        theme: PlotTheme | None = None,
+        style: GroupedMeansStyle | None = None,
     ):
         if not isinstance(df, (pl.DataFrame, pd.DataFrame)):
             raise TypeError("MortgageDiagnostics expects a polars or pandas DataFrame")
@@ -145,6 +152,8 @@ class MortgageDiagnostics:
             y_transform = NAMED_TRANSFORMS[y_transform]
         self.y_transform = y_transform
         self.y_as_percent = y_as_percent
+        self.theme = theme or MINIMAL_THEME
+        self.style = style
 
     def _require(self, *fields):
         """Raise if any of the named column mappings are ``None``."""
@@ -216,25 +225,73 @@ class MortgageDiagnostics:
         (``n_bins``, default 10) are used. Weighted means are aggregated first;
         ``y_transform`` (e.g. SMM -> CPR) and ``min_count`` then apply to the
         bin-level values. Count bars show rows and share one scale across facets.
-        ``figsize`` is per panel. Returns ``(fig, primary_axes)``.
+        ``figsize`` is per panel. ``title=None`` drops the default figure title,
+        e.g. under a report heading. Returns ``(fig, primary_axes)``.
         """
+        n_cols = kwargs.pop('n_cols', 3)
+        figsize = kwargs.pop('figsize', (6, 4))
+        close_unused = kwargs.pop('close_unused', True)
+        preds = self.colnames.model_preds
+        default_title = None if facet_col is not None else (f"Actual vs {', '.join(preds)}" if preds else "Actual")
+        title = kwargs.pop('title', default_title)
+        data, options = self._prepare(x, bins, facet_col, facet_series, kwargs)
+        result = draw_grouped_means(
+            data, wrap=n_cols if facet_col is not None else None,
+            panel_size=figsize, title=title, **options,
+        )
+        fig, axes = result.fig, list(result.axes.flat)
+        if not close_unused:
+            for ax in axes:
+                ax.set_visible(True)
+        self._format_y(axes)
+        return fig, axes
+
+    def facet_panels(self, x: str, facet_col: str, *, bins=None, facet_series=None, **kwargs) -> PanelSet:
+        """Faceted ``plot`` as a ``PanelSet``: a report layout sizes and pages it.
+
+        Aggregates once. Every drawn subset keeps the count scale of the full
+        aggregation and labels its outer panels only. ``facet_label`` names the
+        facet in panel titles (default: the column name). Takes ``plot``'s
+        options except ``figsize`` and ``close_unused``; ``align_ylim`` aligns
+        the panels drawn together.
+        """
+        for name in ('figsize', 'close_unused'):
+            if name in kwargs:
+                raise TypeError(f"facet_panels takes its panel size from the layout; {name!r} is not accepted")
+        n_cols = kwargs.pop('n_cols', 3)
+        data, options = self._prepare(x, bins, facet_col, facet_series, kwargs)
+        totals = data.summary.groupby(['col', 'x'], observed=True)['count'].sum()
+        count_ylim = max(float(totals.max()) if len(totals) else 0., 1.) * 1.05
+
+        def render(panels, n_cols, panel_size):
+            result = draw_grouped_means(
+                data.select('col', panels), wrap=n_cols, compact_cols=False, panel_size=panel_size,
+                count_ylim=count_ylim, outer_labels=True, **options,
+            )
+            self._format_y(result.axes.flat)
+            return result.fig
+
+        return PanelSet(data.levels['col'], render, n_cols)
+
+    def _prepare(self, x, bins, facet_col, facet_series, kwargs) -> tuple[GroupedMeansData, dict]:
+        """Aggregate ``x`` and turn the remaining ``kwargs`` into drawing options."""
         column = self._source_column(x)
         transform = kwargs.pop('y_transform', self.y_transform)
         xlabel = kwargs.pop('x_label', self._default_x_label(x))
         ylabel = kwargs.pop('y_label', self._default_y_label())
         min_count = kwargs.pop('min_count', 0)
         n_bins = kwargs.pop('n_bins', 10)
-        n_cols = kwargs.pop('n_cols', 3)
-        figsize = kwargs.pop('figsize', (6, 4))
         align_ylim = kwargs.pop('align_ylim', False)
-        theme = kwargs.pop('theme', None) or MINIMAL_THEME
+        theme = kwargs.pop('theme', None) or self.theme
         pred_colors = kwargs.pop('pred_colors', None)
-        close_unused = kwargs.pop('close_unused', True)
+        facet_label = kwargs.pop('facet_label', None)
         for legacy in ('min_size', 'max_size'):
             if kwargs.pop(legacy, None) is not None:
-                warnings.warn(f"{legacy} is ignored; counts are drawn as bars", DeprecationWarning, stacklevel=2)
+                warnings.warn(f"{legacy} is ignored; counts are drawn as bars", DeprecationWarning, stacklevel=3)
         if pred_colors is not None:
             theme = replace(theme, palette=(theme.palette[0], *pred_colors))
+        if self.style is not None:
+            kwargs.setdefault('style', self.style)
 
         frame = self.df if facet_series is None else self._with_column(facet_col, facet_series)
         spec = self._bin_spec(x, column, bins, n_bins)
@@ -247,25 +304,16 @@ class MortgageDiagnostics:
             data = data.map_means(transform)
         data = data.mask_support(min_count)
         labels = {column: xlabel, response: 'Actual', **{source: name for name, source in preds.items()}}
-        title = f"Actual vs {', '.join(preds)}" if preds else "Actual"
-        result = draw_grouped_means(
-            data, wrap=n_cols if facet_col is not None else None,
-            panel_size=figsize, share_y=align_ylim, share_count_y=True,
-            labels=labels, ylabel=ylabel, theme=theme,
-            title=None if facet_col is not None else title,
-            **kwargs,
-        )
-        fig, axes = result.fig, list(result.axes.flat)
-        if not close_unused:
-            for ax in axes:
-                ax.set_visible(True)
+        if facet_col is not None and facet_label is not None:
+            labels[facet_col] = facet_label
+        options = dict(share_y=align_ylim, share_count_y=True, labels=labels, ylabel=ylabel, theme=theme, **kwargs)
+        return data, options
 
+    def _format_y(self, axes):
         if self.y_as_percent:
             for ax in axes:
                 if ax.get_visible():
-                    ax.yaxis.set_major_formatter(mticker.PercentFormatter(1.0))
-
-        return fig, axes
+                    ax.yaxis.set_major_formatter(StepPercentFormatter())
 
     # ---- single-feature plot methods -------------------------------------
     def incentive_plot(self, facet_col: str | None = None, **kwargs):

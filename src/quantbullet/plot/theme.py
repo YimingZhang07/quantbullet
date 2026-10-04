@@ -79,3 +79,25 @@ class PlotTheme:
 # ---------------------------------------------------------------------------
 
 MINIMAL_THEME = PlotTheme()
+
+# Print scale for figures placed 1:1 in a PDF whose body text is 9pt.
+PRINT_THEME = PlotTheme(
+    title_fontsize=8.5, title_pad=3, label_fontsize=8, tick_labelsize=7,
+    tick_length=2.5, legend_fontsize=7.5,
+)
+
+# The same scale for plots that read matplotlib rcParams instead of a theme.
+PRINT_RC = {
+    "font.size": PRINT_THEME.label_fontsize,
+    "axes.titlesize": PRINT_THEME.title_fontsize,
+    "axes.titlepad": PRINT_THEME.title_pad,
+    "axes.labelsize": PRINT_THEME.label_fontsize,
+    "xtick.labelsize": PRINT_THEME.tick_labelsize,
+    "ytick.labelsize": PRINT_THEME.tick_labelsize,
+    "xtick.major.size": PRINT_THEME.tick_length,
+    "ytick.major.size": PRINT_THEME.tick_length,
+    "legend.fontsize": PRINT_THEME.legend_fontsize,
+    "figure.titlesize": PRINT_THEME.title_fontsize + 0.5,
+    "lines.linewidth": 1.3,
+    "lines.markersize": 3,
+}

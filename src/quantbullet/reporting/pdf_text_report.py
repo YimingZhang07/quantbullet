@@ -23,7 +23,9 @@ from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import landscape, letter
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import inch
+from reportlab.lib.utils import ImageReader
 from reportlab.platypus import (
+    CondPageBreak,
     Flowable,
     Image,
     ListFlowable,
@@ -36,6 +38,9 @@ from reportlab.platypus import (
     Table,
     TableStyle,
 )
+
+from quantbullet.plot.panels import PanelSet
+from quantbullet.plot.theme import PRINT_RC
 
 from ._reportlab_utils import (
     PdfColumnFormat,
@@ -66,6 +71,117 @@ class _BookmarkFlowable(Flowable):
     def draw(self):
         self.canv.bookmarkPage(self.key)
         self.canv.addOutlineEntry(self.title, self.key, level=self.level, closed=self.closed)
+
+
+_FRAME_PADDING = 6  # SimpleDocTemplate's Frame pads each side by 6pt
+
+
+def _place_figure(canv, fig, width, height, dpi):
+    """Rasterize ``fig`` and draw it 1:1 in a ``width`` x ``height`` (pt) box."""
+    fig_w, fig_h = fig.get_size_inches()
+    if abs(fig_w * 72 - width) > 0.5 or abs(fig_h * 72 - height) > 0.5:
+        plt.close(fig)
+        raise ValueError(
+            f"draw returned a {fig_w:.2f}x{fig_h:.2f} in figure for a {width / 72:.2f}x{height / 72:.2f} in "
+            "slot; draw at the size given so text keeps its point size")
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=dpi)  # the whole figure box: no bbox_inches="tight"
+    plt.close(fig)
+    buf.seek(0)
+    canv.drawImage(ImageReader(PILImage.open(buf).convert("RGB")), 0, 0, width, height)
+
+
+class _FigureFlowable(Flowable):
+    """A figure drawn at the size its frame offers and placed 1:1."""
+
+    def __init__(self, draw, *, height, min_height, dpi, rc):
+        super().__init__()
+        self._draw_figure, self._fixed_height, self._min_height = draw, height, min_height
+        self._dpi, self._rc = dpi, rc
+
+    def wrap(self, availWidth, availHeight):
+        height = self._fixed_height if self._fixed_height is not None else max(availHeight, self._min_height)
+        self.width, self.height = availWidth, height
+        return self.width, self.height
+
+    def split(self, availWidth, availHeight):
+        return []  # a figure moves to the next frame whole
+
+    def draw(self):
+        with plt.rc_context(self._rc):
+            fig = self._draw_figure(self.width / 72, self.height / 72)
+            _place_figure(self.canv, fig, self.width, self.height, self._dpi)
+
+
+class _PanelGridFlowable(Flowable):
+    """A PanelSet whose rows fill the frame; it splits between rows across frames."""
+
+    def __init__(self, panels: PanelSet, *, min_panel_height, max_panel_aspect, dpi, rc,
+                 panel_height=None, continued=None):
+        super().__init__()
+        self.panels = panels
+        self._min_panel_height, self._max_aspect = min_panel_height, max_panel_aspect
+        self._dpi, self._rc = dpi, rc
+        self._panel_height, self._continued = panel_height, continued
+
+    def _panel_size(self, availWidth, availHeight, n_rows):
+        width = availWidth / self.panels.n_cols
+        cap = width * self._max_aspect if self._panel_height is None else self._panel_height
+        return width, max(self._min_panel_height, min(cap, availHeight / n_rows))
+
+    def wrap(self, availWidth, availHeight):
+        self._size = self._panel_size(availWidth, availHeight, self.panels.n_rows)
+        self.width, self.height = availWidth, self._size[1] * self.panels.n_rows
+        return self.width, self.height
+
+    def split(self, availWidth, availHeight):
+        fit = int((availHeight + 1e-6) // self._min_panel_height)
+        if fit < 1 or fit >= self.panels.n_rows:
+            return []
+        cut = fit * self.panels.n_cols
+        _, panel_height = self._panel_size(availWidth, availHeight, fit)
+        options = dict(min_panel_height=self._min_panel_height, max_panel_aspect=self._max_aspect,
+                       dpi=self._dpi, rc=self._rc, continued=self._continued)
+        head = _PanelGridFlowable(self.panels.subset(self.panels.panels[:cut]), **options)
+        # The continuation keeps this page's panel height when it fits.
+        tail = _PanelGridFlowable(self.panels.subset(self.panels.panels[cut:]), panel_height=panel_height, **options)
+        pieces = [head, PageBreak()]
+        if self._continued:
+            style = ParagraphStyle(name="ContinuedStyle", fontName="Helvetica-Oblique", fontSize=9,
+                                   textColor=colors.grey, spaceAfter=4)
+            pieces.append(Paragraph(PdfTextReport._escape_html(f"{self._continued} (continued)"), style))
+        return pieces + [tail]
+
+    def draw(self):
+        with plt.rc_context(self._rc):
+            fig = self.panels.draw(panel_size=(self._size[0] / 72, self._size[1] / 72))
+            _place_figure(self.canv, fig, self.width, self.height, self._dpi)
+
+
+def primary_axes(fig):
+    """Visible subplot axes, excluding twinx count axes."""
+    primaries = []
+    for ax in fig.axes:
+        if not ax.get_visible():
+            continue
+        siblings = list(ax._twinned_axes.get_siblings(ax))
+        if siblings and ax is not siblings[0]:
+            continue
+        primaries.append(ax)
+    return primaries
+
+
+def copy_panel(src_ax, dst_ax):
+    """Copy one panel, keeping a twinx count axis overlaid on the curves."""
+    copy_axis(src_ax, dst_ax)
+    twins = [ax for ax in src_ax._twinned_axes.get_siblings(src_ax) if ax is not src_ax and ax.get_visible()]
+    if not twins:
+        return
+    dst_twin = dst_ax.twinx()
+    copy_axis(twins[0], dst_twin, with_legend=False)
+    dst_ax.set_zorder(dst_twin.get_zorder() + 1)
+    dst_ax.patch.set_visible(False)
+    dst_twin.grid(False)
 
 
 class PdfTextReport:
@@ -436,6 +552,7 @@ class PdfTextReport:
         """
         font_size = self._HEADING_SIZES.get(level, 10)
         safe = self._escape_html(text)
+        start = len(self.story)
 
         if bookmark:
             bookmark_level = max(level - 1, 0)
@@ -446,8 +563,13 @@ class PdfTextReport:
             fontName="Helvetica-Bold",
             fontSize=font_size,
         )
-        self.story.append(Paragraph(safe, style))
+        paragraph = Paragraph(safe, style)
+        paragraph._heading_text = text
+        self.story.append(paragraph)
         self.story.append(Spacer(1, space_after))
+        # add_figure and add_figure_grid keep these on the page with the figure.
+        for flowable in self.story[start:]:
+            flowable._heading_part = True
 
     def add_body(
         self,
@@ -574,43 +696,103 @@ class PdfTextReport:
         self.story.append(lf)
         self.story.append(Spacer(1, space_after))
 
-    def add_matplotlib_figure(self, fig, width_fraction=1, space_after=12, dpi=600, reserve_height=0):
-        """Add a matplotlib figure as an image to the PDF.
-        
-        Parameters
-        ----------
-        reserve_height : float, optional
-            Additional height (in points) to reserve for other content on the same page
-            (e.g., titles, text). This is subtracted from available height before scaling.
-        """
-        available_w, available_h = self.get_page_dimensions()
+    def content_size_inches(self) -> tuple[float, float]:
+        """Width and height in inches that flowables get on an empty page (inside the frame padding)."""
+        width, height = self._frame_size()
+        return width / 72.0, height / 72.0
 
-        # 1) render to PNG
+    def _frame_size(self) -> tuple[float, float]:
+        width, height = self.get_page_dimensions()
+        return width - 2 * _FRAME_PADDING, height - 2 * _FRAME_PADDING
+
+    def add_figure(self, draw, *, height: float | None = None, min_height: float = 2.0,
+                   dpi: int = 200, rc: dict | None = None, space_after: float = 6):
+        """Add a figure drawn at the size of its slot and placed 1:1.
+
+        ``draw(width, height)`` gets the slot size in inches and must return a
+        Figure of exactly that size, e.g. via ``figsize=(width, height)``; text
+        then keeps its point size on the page. The slot spans the frame width.
+        ``height`` (inches) fixes its height; ``None`` takes the rest of the
+        page, at least ``min_height`` inches. ``draw`` runs when the PDF is
+        built, under ``rc`` (default ``PRINT_RC``; ``{}`` for none), so give
+        themed plots the matching ``PRINT_THEME``. Headings added just before
+        stay on the page with the figure. ``space_after`` (points) follows a
+        fixed-height figure.
+        """
+        _, frame_height = self._frame_size()
+        if height is not None and not 0 < height * 72 <= frame_height:
+            raise ValueError(f"height must be in (0, {frame_height / 72:.2f}] inches")
+        if not 0 < min_height * 72 <= frame_height:
+            raise ValueError(f"min_height must be in (0, {frame_height / 72:.2f}] inches")
+        start, heading_height, _ = self._heading_run()
+        below = (height if height is not None else min_height) * 72
+        self.story.insert(start, CondPageBreak(min(heading_height + below, frame_height)))
+        self.story.append(_FigureFlowable(draw, height=None if height is None else height * 72,
+                                          min_height=min_height * 72, dpi=dpi, rc=PRINT_RC if rc is None else rc))
+        if height is not None and space_after:
+            self.story.append(Spacer(1, space_after))
+
+    def add_figure_grid(self, panels: PanelSet, *, min_panel_height: float = 1.75,
+                        max_panel_aspect: float = 0.75, dpi: int = 200, rc: dict | None = None):
+        """Add a ``PanelSet`` sized to the page.
+
+        Panels are ``frame width / panels.n_cols`` wide; their rows share the
+        remaining page height, each between ``min_panel_height`` inches and
+        ``max_panel_aspect`` times the panel width. A grid that fits on a fresh
+        page moves there with its headings; a taller one fills this page and
+        continues by whole rows at the same panel size, under the last heading
+        marked "(continued)". Each page is drawn from the ``PanelSet``, so
+        styles, count axes and shared scales stay intact. Drawing happens when
+        the PDF is built, under ``rc`` as in ``add_figure``.
+        """
+        _, frame_height = self._frame_size()
+        min_panel = min_panel_height * 72
+        if not 0 < min_panel <= frame_height:
+            raise ValueError(f"min_panel_height must be in (0, {frame_height / 72:.2f}] inches")
+        if not max_panel_aspect > 0:
+            raise ValueError("max_panel_aspect must be positive")
+        start, heading_height, heading = self._heading_run()
+        whole = panels.n_rows * min_panel
+        below = whole if heading_height + whole <= frame_height else min_panel
+        self.story.insert(start, CondPageBreak(min(heading_height + below, frame_height)))
+        self.story.append(_PanelGridFlowable(
+            panels, min_panel_height=min_panel, max_panel_aspect=max_panel_aspect, dpi=dpi,
+            rc=PRINT_RC if rc is None else rc, continued=heading,
+        ))
+
+    def _heading_run(self) -> tuple[int, float, str | None]:
+        """Start index, height (pt) and last text of the headings that end the story."""
+        start = len(self.story)
+        while start > 0 and getattr(self.story[start - 1], "_heading_part", False):
+            start -= 1
+        width, height = self._frame_size()
+        run = self.story[start:]
+        texts = [f._heading_text for f in run if hasattr(f, "_heading_text")]
+        return start, sum(f.wrap(width, height)[1] for f in run), texts[-1] if texts else None
+
+    def add_matplotlib_figure(self, fig, width_fraction=1, space_after=12, dpi=600, reserve_height=0):
+        """Add a matplotlib figure at its printed size.
+
+        The PNG is placed at ``pixels / dpi`` inches, so a figure drawn to the
+        content width keeps its matplotlib point sizes. It is reduced only when
+        it is wider or taller than the page. Prefer ``add_figure``, which draws
+        at the size of the slot.
+        """
+        available_w, available_h = self._frame_size()
+
         buf = io.BytesIO()
         fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight")
         buf.seek(0)
-
-        # 2) get actual exported pixel size (after "tight" cropping)
         pil_img = PILImage.open(buf)
         px_w, px_h = pil_img.size
-
-        # reset buffer position for ReportLab
         buf.seek(0)
 
-        # 3) target width, preserve aspect ratio from PNG
-        draw_w = available_w * width_fraction
-        draw_h = draw_w * (px_h / px_w)
-
-        # 4) if too tall, scale down (reserve space for margin + spacer + other content)
-        max_allowed_h = available_h - space_after - reserve_height - 5  # 5pt safety margin
-        if draw_h > max_allowed_h:
-            scale = max_allowed_h / draw_h
-            draw_w *= scale
-            draw_h *= scale
-
-        # 5) double-check width constraint (edge case if aspect ratio is extreme)
-        if draw_w > available_w:
-            scale = available_w / draw_w
+        draw_w = px_w / dpi * 72
+        draw_h = px_h / dpi * 72
+        max_w = available_w * width_fraction
+        max_h = available_h - space_after - reserve_height - 5
+        if draw_w > max_w or draw_h > max_h:
+            scale = min(max_w / draw_w, max_h / draw_h)
             draw_w *= scale
             draw_h *= scale
 
@@ -629,6 +811,9 @@ class PdfTextReport:
     ):
         """Add a multi-panel figure, automatically splitting across pages if needed.
 
+        Split pages are rebuilt by copying axes, which drops theme styling.
+        Prefer ``add_figure_grid`` with a ``PanelSet``, which redraws each page.
+
         Parameters
         ----------
         fig : matplotlib.figure.Figure
@@ -640,7 +825,7 @@ class PdfTextReport:
         """
         import math
 
-        visible_axes = [ax for ax in fig.get_axes() if ax.get_visible()]
+        visible_axes = primary_axes(fig)
         if not visible_axes:
             plt.close(fig)
             return
@@ -652,8 +837,9 @@ class PdfTextReport:
         per_row_h = fig_h / max(n_rows_total, 1)
         per_col_w = fig_w / max(n_cols, 1)
 
-        _, available_h = self.get_page_dimensions()
-        available_h_inches = available_h / 72.0
+        _, available_h = self._frame_size()
+        # Figure inches are the printed size. Compare that height with the page.
+        available_h_inches = (available_h - space_after - 5) / 72.0
         max_rows_per_page = max(1, int(available_h_inches / per_row_h))
 
         if n_rows_total <= max_rows_per_page:
@@ -676,7 +862,7 @@ class PdfTextReport:
             )
             for r, row_axes in enumerate(chunk):
                 for c, src_ax in enumerate(row_axes):
-                    copy_axis(src_ax, new_axes[r][c])
+                    copy_panel(src_ax, new_axes[r][c])
                 for c in range(len(row_axes), n_cols):
                     new_axes[r][c].set_visible(False)
 

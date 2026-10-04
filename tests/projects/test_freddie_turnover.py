@@ -146,9 +146,9 @@ def test_fit_roundtrip_alignment_and_report_independence(synthetic_config,monkey
             monkeypatch.setattr(cls,name,staticmethod(wrapped))
         else:
             monkeypatch.setattr(cls,name,wrapped)
-    for name in ("plot_convergence_diagnostics","plot_implied_actuals","plot_categorical_plots"):
+    for name in ("plot_convergence_diagnostics","implied_actual_panels","categorical_panels"):
         spy(LinearProductModelToolkit,name)
-    for name in ("factor_date_plot","incentive_plot","age_plot","cltv_plot","current_factor_plot","fico_plot","plot"):
+    for name in ("factor_date_plot","incentive_plot","age_plot","cltv_plot","current_factor_plot","fico_plot","plot","facet_panels"):
         spy(MortgageDiagnostics,name)
     import quantbullet.plot.binned_plots as legacy
     def legacy_called(*args,**kwargs):
@@ -157,8 +157,9 @@ def test_fit_roundtrip_alignment_and_report_independence(synthetic_config,monkey
     report_turnover.report(config)
     monkeypatch.setattr(report_turnover,"MIN_COUNT",10)
     report_turnover.report(config)
-    assert all(name in calls for name in ("plot_convergence_diagnostics","plot_implied_actuals","plot_categorical_plots",
-                                         "factor_date_plot","incentive_plot","age_plot","cltv_plot","current_factor_plot","fico_plot","plot"))
+    assert all(name in calls for name in ("plot_convergence_diagnostics","implied_actual_panels","categorical_panels",
+                                         "factor_date_plot","incentive_plot","age_plot","cltv_plot","current_factor_plot","fico_plot","plot",
+                                         "facet_panels"))
     assert "hpi_ratio_plot" in calls
     assert [file_sha256(path) for path in files]==hashes
     assert (config.output_root/"turnover_report.pdf").stat().st_size>10000
