@@ -27,6 +27,11 @@ pred_turnover = global_scalar × product(numeric blocks) × product(categorical 
 使用 `LinearProductRegressorBCD(loss="poisson")`。`c_age_fit` 按 `f_purpose` 各估一条 ramp，其余 block 是 main effects。
 每个 block 在 fit 中归一化，global scalar 表示整体 response level。
 默认 60 sweeps、10-round early stopping、ftol=1e-8，不缓存 QR。
+完整 one-hot 的普通 Poisson blocks 使用 category codes + grouped sums 更新，保留原 IRLS epsilon-floor 和 ridge=1e-8；
+其他 design matrices、numeric / interaction curves 和 MSE 路径仍使用原 solver。Codes 仅在当前 fit 中缓存，不写入 artifacts。
+`model.fit_timing_` 记录 setup、各 block 累计时间、每个 sweep 时间和总 fit 时间。
+Metadata 的 `timing_seconds` 分别记录 read_frame、model_data、toolkit、container、fit、predict、metrics 和 metadata，
+`actual_sweeps` 是实际执行轮数；`fit_seconds` 仍只计 `model.fit()`。Artifact write 和全流程总时间完成后打印，不回写 pickle。
 
 Prepared frame 保留 raw values。Fit 按 [fit](../fit_turnover.py) 的 `CLIP` 生成 `_fit` inputs：age、incentive、original FICO、updated LTV、original balance 和 HPI ratio。改 clip 或 knots 不重写 frame。
 同一文件的 `KNOTS` 给出对应 FlatRamp knots。Implied-actual bin widths 在 [report](../report_turnover.py) 的 `IMPLIED_BIN_CONFIG`。

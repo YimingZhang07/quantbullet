@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import time
 
 from typing import Dict
 from scipy.optimize import least_squares
@@ -7,7 +8,7 @@ from scipy.optimize import least_squares
 from .base import LinearProductModelBCD, LinearProductRegressorBase, InteractionCoef, memorize_fit_args
 from .utils import init_betas_by_response_mean
 from .datacontainer import ProductModelDataContainer
-from ._acceleration import ols_normal_equation, ols_normal_equation_scaled, vector_product_numexpr_dict_values
+from ._acceleration import one_hot_codes, ols_normal_equation, ols_normal_equation_scaled, vector_product_numexpr_dict_values
 
 
 class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelBCD ):
@@ -246,6 +247,28 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
         w = weights if weights is not None else np.ones(len(y))
         return ols_normal_equation(X_basis, y / m, weights=w * m / p)
 
+    def _init_one_hot_codes(self, data_blocks, params_blocks):
+        """Fit-local codes: keep dense/frozen/interaction blocks on their old paths."""
+        if self.loss_ != 'poisson':
+            return {}
+        codes = {}
+        for group in params_blocks:
+            if group not in self.submodels_:
+                group_codes = one_hot_codes(data_blocks[group])
+                if group_codes is not None:
+                    codes[group] = group_codes
+        return codes
+
+    def _solve_one_hot_poisson(self, codes, fixed, y, weights, current_block_coef):
+        """The same identity-link IRLS normal equations, accumulated by category."""
+        m = np.maximum(self.global_scalar_ * fixed, 1e-10)
+        p = np.maximum(current_block_coef[codes], 1e-10)
+        w_over_p = (weights if weights is not None else 1.) / p
+        n_columns = len(current_block_coef)
+        numerator = np.bincount(codes, weights=w_over_p * np.asarray(y), minlength=n_columns)
+        denominator = np.bincount(codes, weights=w_over_p * m, minlength=n_columns)
+        return numerator / (denominator + 1e-8)
+
     def _solve_block_mse(self, group, X_basis, fixed, y, weights, cache_qr_decomp, use_svd):
         """Closed-form OLS for MSE loss, with optional QR cache or SVD backend."""
         if cache_qr_decomp:
@@ -267,7 +290,7 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
             X_basis, y, self.global_scalar_ * fixed, weights=weights)
 
     def _step_regular_group(self, group, data_blocks, block_preds, params_blocks,
-                            y, weights, cache_qr_decomp, use_svd):
+                            y, weights, cache_qr_decomp, use_svd, one_hot_codes=None):
         """One BCD pass for a regular group: OLS, normalize, update.
 
         Mutates *params_blocks*, *block_preds*, and ``self.global_scalar_`` in place.
@@ -276,11 +299,15 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
         fixed = vector_product_numexpr_dict_values(block_preds, exclude=group)
 
         if self.loss_ == 'poisson':
-            new_params = self._solve_block_poisson(X_basis, fixed, y, weights, params_blocks[group])
+            if one_hot_codes is not None:
+                new_params = self._solve_one_hot_poisson(
+                    one_hot_codes, fixed, y, weights, params_blocks[group])
+            else:
+                new_params = self._solve_block_poisson(X_basis, fixed, y, weights, params_blocks[group])
         else:
             new_params = self._solve_block_mse(group, X_basis, fixed, y, weights, cache_qr_decomp, use_svd)
 
-        raw_pred = X_basis @ new_params
+        raw_pred = new_params[one_hot_codes] if one_hot_codes is not None else X_basis @ new_params
         mean = self._absorb_block_mean(raw_pred, weights)
         if not np.isclose(mean, 0):
             new_params /= mean
@@ -434,6 +461,7 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
              init_params=None, early_stopping_rounds=5, n_iterations=20, force_rounds=5, verbose=1, ftol=1e-5,
              cache_qr_decomp=False, offset_y=None, use_svd=False, weights=None, loss: str = 'mse' ):
 
+        fit_started = time.perf_counter()
         # ---- 1) setup model state ----
         if loss not in self._VALID_LOSSES:
             raise ValueError(f"Unknown loss '{loss}'. Must be one of {self._VALID_LOSSES}.")
@@ -442,6 +470,8 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
         self.feature_groups_ = feature_groups
         self.submodels_ = submodels or {}
         self.interactions_ = interactions or {}
+        self.fit_timing_ = {'setup_seconds': 0., 'block_seconds': {group: 0. for group in feature_groups},
+                            'sweep_seconds': [], 'total_seconds': 0.}
 
         for parent, cat_var in self.interactions_.items():
             if cat_var not in feature_groups:
@@ -499,10 +529,15 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
                     'w': weights[mask] if weights is not None else None,
                 }
 
+        categorical_codes = self._init_one_hot_codes(data_blocks, params_blocks)
+        self.fit_timing_['setup_seconds'] = time.perf_counter() - fit_started
+
         # ---- BCD iterations ----
         self.global_scalar_step_history_.append((0, '_init', self.global_scalar_))
         for i in range(n_iterations):
+            sweep_started = time.perf_counter()
             for group in feature_groups:
+                block_started = time.perf_counter()
                 if group in self.interactions_:
                     self._step_interaction_group(
                         group, data_blocks, block_preds, interaction_params, interaction_masks, y, weights,
@@ -510,11 +545,14 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
                         interaction_level_columns=interaction_level_columns)
                 elif group not in self.submodels_:
                     self._step_regular_group(
-                        group, data_blocks, block_preds, params_blocks, y, weights, cache_qr_decomp, use_svd)
+                        group, data_blocks, block_preds, params_blocks, y, weights, cache_qr_decomp, use_svd,
+                        one_hot_codes=categorical_codes.get(group))
+                self.fit_timing_['block_seconds'][group] += time.perf_counter() - block_started
                 self.global_scalar_step_history_.append((i + 1, group, self.global_scalar_))
 
             self._record_iteration(i, n_iterations, block_preds, params_blocks, interaction_params, y, weights, verbose)
             conv_info = self._check_convergence(i, force_rounds, early_stopping_rounds, ftol)
+            self.fit_timing_['sweep_seconds'].append(time.perf_counter() - sweep_started)
             if conv_info is not None:
                 self.convergence_info_ = conv_info
                 if verbose > 0:
@@ -536,6 +574,7 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
         self.global_scalar_ = self.global_scalar_history_[self.best_iteration_]
         self._store_interaction_coefs()
         self._compute_block_means(data_blocks, X, weights)
+        self.fit_timing_['total_seconds'] = time.perf_counter() - fit_started
         return self
 
     # ------------------------------------------------------------------

@@ -107,6 +107,13 @@ def test_fit_roundtrip_alignment_and_report_independence(synthetic_config,monkey
     assert meta["clips"]["c_hpi_ratio"] == [.8, 2.5]
     assert meta["knots"]["c_hpi_ratio"] == [.95, 1, 1.1, 1.25, 1.5, 1.75, 2]
     bundle,frame=report_turnover.load_artifacts(config)
+    assert meta['timing_seconds']['fit'] == meta['fit_seconds']
+    assert set(meta['timing_seconds']) == {'read_frame', 'model_data', 'toolkit', 'container',
+                                         'fit', 'predict', 'metrics', 'metadata'}
+    assert all(value >= 0. for value in meta['timing_seconds'].values())
+    assert meta['actual_sweeps'] == len(bundle['model'].loss_history_)
+    assert len(bundle['model'].fit_timing_['sweep_seconds']) == meta['actual_sweeps']
+    assert bundle['meta']['timing_seconds'] == meta['timing_seconds']
     assert frame.height==1800 and frame["row_id"].n_unique()==1800
     assert not any("burnout" in name for name in meta["model_inputs"])
     files=[config.output_root/name for name in ("turnover_frame.parquet","turnover_model.pkl","turnover_predictions.parquet")]

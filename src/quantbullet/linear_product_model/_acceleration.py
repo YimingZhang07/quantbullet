@@ -2,6 +2,26 @@ import numpy as np
 import numexpr as ne
 from typing import Dict, Optional, Union, List, Sequence
 
+def one_hot_codes(X, chunk_size=65536):
+    """Return column indices for complete one-hot rows, or None for other bases.
+
+    Chunked checks avoid an n-by-p validation temporary. Dropped reference rows,
+    multi-hot rows and non-unit values stay on the dense path. Unused columns
+    are allowed.
+    """
+    if X.ndim != 2 or not X.shape[0] or not X.shape[1]:
+        return None
+    codes = np.empty(X.shape[0], dtype=np.int32)
+    for start in range(0, X.shape[0], chunk_size):
+        block = X[start:start + chunk_size]
+        active = np.argmax(block, axis=1)
+        if not (np.all(np.count_nonzero(block, axis=1) == 1)
+                and np.all(block[np.arange(len(block)), active] == 1)):
+            return None
+        codes[start:start + len(block)] = active
+    return codes
+
+
 def ols_normal_equation(X, y, ridge=1e-8, weights=None):
     """Solve the least squares problem using the normal equations with optional ridge regularization.
     

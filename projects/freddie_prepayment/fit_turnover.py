@@ -104,6 +104,9 @@ def prediction_metrics(y, pred, weights) -> dict:
 
 
 def fit(config: Config, *, smoke_rows: int | None = None) -> dict:
+    total_started = time.perf_counter()
+    timings = {}
+    started = time.perf_counter()
     source = config.output_root / "turnover_frame.parquet"
     frame = pl.read_parquet(source)
     if smoke_rows is not None:
@@ -112,10 +115,17 @@ def fit(config: Config, *, smoke_rows: int | None = None) -> dict:
         frame = frame.sample(n=min(smoke_rows, frame.height), seed=42, shuffle=True)
     if frame.is_empty() or not frame[TARGET].sum():
         raise ValueError("Fit needs a nonempty cohort with prepayment events")
+    timings["read_frame"] = time.perf_counter() - started
+    started = time.perf_counter()
     data = to_model_data(frame)
+    timings["model_data"] = time.perf_counter() - started
     print(f"[fit] {len(data):,} rows; constructing main-effect blocks", flush=True)
+    started = time.perf_counter()
     toolkit = build_toolkit(data)
+    timings["toolkit"] = time.perf_counter() - started
+    started = time.perf_counter()
     container = make_container(data, toolkit)
+    timings["container"] = time.perf_counter() - started
     print(f"[fit] {container.shape[1]} expanded columns; float32 block arrays", flush=True)
     model = LinearProductRegressorBCD()
     started = time.perf_counter()
@@ -123,8 +133,14 @@ def fit(config: Config, *, smoke_rows: int | None = None) -> dict:
               n_iterations=config.n_iterations, early_stopping_rounds=config.early_stopping_rounds,
               ftol=config.ftol, cache_qr_decomp=False, loss="poisson", weights=data["weight"].to_numpy())
     seconds = time.perf_counter() - started
+    timings["fit"] = seconds
+    started = time.perf_counter()
     pred = model.predict(container)
+    timings["predict"] = time.perf_counter() - started
+    started = time.perf_counter()
     metrics = prediction_metrics(data[TARGET], pred, data["weight"])
+    timings["metrics"] = time.perf_counter() - started
+    started = time.perf_counter()
     meta = {"rows": frame.height, "expanded_columns": container.shape[1], "fit_seconds": seconds,
             "loss": "poisson", "weight_source": "c_prev_balance", "target": TARGET,
             "clips": {name: [lower, upper] for name, (lower, upper) in CLIP.items()},
@@ -137,17 +153,26 @@ def fit(config: Config, *, smoke_rows: int | None = None) -> dict:
             "n_iterations": config.n_iterations, "early_stopping_rounds": config.early_stopping_rounds,
             "ftol": config.ftol, "smoke_rows": smoke_rows, "frame_sha256": file_sha256(source),
             "global_scalar": float(model.global_scalar_), "best_loss": float(model.best_loss_),
-            "best_iteration": int(model.best_iteration_) + 1, "metrics": metrics}
+            "best_iteration": int(model.best_iteration_) + 1, "metrics": metrics,
+            "actual_sweeps": len(model.loss_history_)}
     predictions = frame.select(*KEYS).with_columns(pl.Series("pred_turnover", pred))
+    timings["metadata"] = time.perf_counter() - started
+    meta["timing_seconds"] = timings
+    started = time.perf_counter()
     with temporary_output(config.output_root / "turnover_predictions.parquet") as path:
         predictions.write_parquet(path, compression="zstd")
         meta["predictions_sha256"] = file_sha256(path)
     with temporary_output(config.output_root / "turnover_model.pkl") as path:
         with path.open("wb") as file:
             pickle.dump({"model": model, "toolkit": toolkit, "meta": meta}, file)
-    print(f"[fit] completed in {seconds:.1f}s; metrics={metrics}", flush=True)
+    artifact_seconds = time.perf_counter() - started
     del container, data
     gc.collect()
+    total_seconds = time.perf_counter() - total_started
+    print(f"[fit] timings(s)={timings}; artifact_write={artifact_seconds:.3f}; "
+          f"total={total_seconds:.3f}; sweeps={meta['actual_sweeps']}", flush=True)
+    print(f"[fit] block seconds={model.fit_timing_['block_seconds']}", flush=True)
+    print(f"[fit] completed in {seconds:.1f}s; metrics={metrics}", flush=True)
     return meta
 
 
