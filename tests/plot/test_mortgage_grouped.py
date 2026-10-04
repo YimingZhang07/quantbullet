@@ -85,6 +85,22 @@ def test_pandas_ordered_categories_dates_empty_and_vintage():
     assert empty.summary.empty
 
 
+def test_role_bin_travels_with_the_column_and_can_be_overridden():
+    df = pl.DataFrame({'inc': [0., 0., 1., 0., 2.], 'actual': [0., 1., 0., 1., 0.],
+                       'pred': [.1, .3, .2, .4, .5], 'w': [1., 3., 2., 2., 1.]})
+    names = MortgageColnames(response='actual', model_preds={'Model': 'pred'},
+                             incentive=('inc', 1.), weight='w')
+    assert names.incentive == 'inc' and names.bins == {'incentive': 1.}
+    diag = MortgageDiagnostics(df, names, y_as_percent=False)
+    _, axes = diag.incentive_plot(min_count=0)
+    np.testing.assert_allclose(axes[0].lines[0].get_xdata(), [0., 1., 2.])
+    overridden = MortgageDiagnostics(df, names, bin_config={'incentive': 2.}, y_as_percent=False)
+    _, axes = overridden.incentive_plot(min_count=0)
+    np.testing.assert_allclose(axes[0].lines[0].get_xdata(), [0., 2.])
+    _, axes = diag.plot('incentive', bins=2.)
+    np.testing.assert_allclose(axes[0].lines[0].get_xdata(), [0., 2.])
+
+
 def test_generic_plot_accepts_source_columns_and_bin_overrides():
     df = pl.DataFrame({'bal': [1e5, 1.4e5, 2.6e5, 3e5], 'y': [0., 1., 0., 1.], 'p': [.1, .2, .3, .4]})
     diag = MortgageDiagnostics(df, MortgageColnames(response='y', model_preds={'Model': 'p'}),

@@ -1,7 +1,6 @@
 """Stage 2: fit the prepared cohort; persist a reusable model and aligned predictions."""
 
 import argparse
-from dataclasses import asdict
 import gc
 import pickle
 import time
@@ -15,14 +14,43 @@ from quantbullet.linear_product_model import LinearProductModelToolkit, LinearPr
 from quantbullet.linear_product_model.datacontainer import ProductModelDataContainer
 from quantbullet.model.feature import DataType, Feature, FeatureRole, FeatureSpec
 from quantbullet.preprocessing.transformers import FlatRampTransformer
+from quantbullet.utils.files import file_sha256, temporary_output
 
-from .common import CATEGORICAL, KEYS, MODEL_INPUTS, NUMERIC, TARGET, Config, read_config, read_summary, sha256, temporary_output, write_summary
+from .config import Config, read_config
+
+
+TARGET = "y_full_prepay"
+CATEGORICAL = ("f_purpose", "f_occupancy", "f_property_type", "f_first_time_buyer", "f_month", "f_state")
+KEYS = ("row_id", "loan_identifier", "d_reporting_month")
+# Model inputs only. The prepared frame keeps the raw columns.
+CLIP = {
+    "c_age": (1, 120),
+    "c_incentive": (-6, -.5),
+    "c_orig_fico": (620, 840),
+    "c_updated_ltv": (5, 120),
+    "c_orig_balance": (25000, 1500000),
+    "c_hpi_growth": (-.2, 1.5),
+}
+KNOTS = {
+    "c_age": (3, 6, 12, 18, 24, 36, 60, 84, 108),
+    "c_incentive": (-4, -3, -2, -1.5, -1, -.75),
+    "c_orig_fico": (660, 700, 740, 780),
+    "c_updated_ltv": (20, 40, 60, 80, 95),
+    "c_orig_balance": (100000, 150000, 250000, 350000, 500000, 700000, 950000),
+    "c_hpi_growth": (-.05, 0, .1, .25, .5, .75, 1),
+}
+FIT_NUMERIC = tuple(name + "_fit" for name in KNOTS)
+MODEL_INPUTS = (*FIT_NUMERIC, *CATEGORICAL)
 
 
 def to_model_data(frame: pl.DataFrame) -> pd.DataFrame:
-    """Column-wise NumPy conversion avoids PyArrow and Python row/list conversion."""
+    """Clip numeric inputs here so a clip change does not rewrite the prepared frame."""
+    if tuple(CLIP) != tuple(KNOTS):
+        raise ValueError("CLIP and KNOTS must name the same features in the same order")
     data = {}
-    for name in (*MODEL_INPUTS, TARGET, "weight"):
+    for name, (lower, upper) in CLIP.items():
+        data[name + "_fit"] = frame[name].clip(lower, upper).cast(pl.Float32).to_numpy()
+    for name in (*CATEGORICAL, TARGET, "weight"):
         values = frame[name].to_numpy()
         data[name] = pd.Categorical(values) if name in CATEGORICAL else values
     return pd.DataFrame(data).reset_index(drop=True)
@@ -30,9 +58,9 @@ def to_model_data(frame: pl.DataFrame) -> pd.DataFrame:
 
 def build_toolkit(data: pd.DataFrame) -> LinearProductModelToolkit:
     transformers = {name: OneHotEncoder(drop=None, handle_unknown="error", dtype=np.float32) for name in CATEGORICAL}
-    transformers.update({name + "_fit": FlatRampTransformer(knots=spec.knots, include_bias=True) for name, spec in NUMERIC.items()})
+    transformers.update({name + "_fit": FlatRampTransformer(knots=knots, include_bias=True) for name, knots in KNOTS.items()})
     features = [Feature(name, DataType.CATEGORY, FeatureRole.MODEL_INPUT) for name in CATEGORICAL]
-    features += [Feature(name + "_fit", DataType.FLOAT, FeatureRole.MODEL_INPUT) for name in NUMERIC]
+    features += [Feature(name + "_fit", DataType.FLOAT, FeatureRole.MODEL_INPUT) for name in KNOTS]
     features.append(Feature(TARGET, DataType.FLOAT, FeatureRole.TARGET))
     return LinearProductModelToolkit(FeatureSpec(features), preprocess_config=transformers).fit(data)
 
@@ -76,7 +104,6 @@ def prediction_metrics(y, pred, weights) -> dict:
 
 def fit(config: Config, *, smoke_rows: int | None = None) -> dict:
     source = config.output_root / "turnover_frame.parquet"
-    summary = read_summary(config.output_root)  # Missing preparation never triggers it implicitly.
     frame = pl.read_parquet(source)
     if smoke_rows is not None:
         if smoke_rows < 1:
@@ -99,23 +126,24 @@ def fit(config: Config, *, smoke_rows: int | None = None) -> dict:
     metrics = prediction_metrics(data[TARGET], pred, data["weight"])
     meta = {"rows": frame.height, "expanded_columns": container.shape[1], "fit_seconds": seconds,
             "loss": "poisson", "weight_source": "c_prev_balance", "target": TARGET,
-            "numeric": {name: asdict(spec) for name, spec in NUMERIC.items()},
+            "clips": {name: [lower, upper] for name, (lower, upper) in CLIP.items()},
+            "clip_counts": {name: int(((frame[name] < lower) | (frame[name] > upper)).sum())
+                            for name, (lower, upper) in CLIP.items()},
+            "knots": {name: list(knots) for name, knots in KNOTS.items()},
             "categorical": list(CATEGORICAL), "model_inputs": list(MODEL_INPUTS), "interactions": {},
             "categories": {name: toolkit.preprocess_config[name].categories_[0].tolist() for name in CATEGORICAL},
-            "incentive_max": summary["prepare"]["incentive_max"],
+            "incentive_max": config.incentive_max,
             "n_iterations": config.n_iterations, "early_stopping_rounds": config.early_stopping_rounds,
-            "ftol": config.ftol, "smoke_rows": smoke_rows, "frame_sha256": sha256(source),
+            "ftol": config.ftol, "smoke_rows": smoke_rows, "frame_sha256": file_sha256(source),
             "global_scalar": float(model.global_scalar_), "best_loss": float(model.best_loss_),
             "best_iteration": int(model.best_iteration_) + 1, "metrics": metrics}
     predictions = frame.select(*KEYS).with_columns(pl.Series("pred_turnover", pred))
     with temporary_output(config.output_root / "turnover_predictions.parquet") as path:
         predictions.write_parquet(path, compression="zstd")
-        meta["predictions_sha256"] = sha256(path)
+        meta["predictions_sha256"] = file_sha256(path)
     with temporary_output(config.output_root / "turnover_model.pkl") as path:
         with path.open("wb") as file:
             pickle.dump({"model": model, "toolkit": toolkit, "meta": meta}, file)
-    summary["fit"] = meta
-    write_summary(config.output_root, summary)
     print(f"[fit] completed in {seconds:.1f}s; metrics={metrics}", flush=True)
     del container, data
     gc.collect()

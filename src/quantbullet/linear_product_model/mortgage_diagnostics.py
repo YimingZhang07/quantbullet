@@ -35,29 +35,54 @@ _Y_TRANSFORM_LABELS: dict[str, str] = {
 }
 
 
+def _column_and_bin(role: str, value):
+    """A role is a column name, or ``(column, bin)``."""
+    if value is None or isinstance(value, str):
+        return value, None
+    strategy = value[1] if isinstance(value, tuple) and len(value) == 2 and isinstance(value[0], str) else None
+    if strategy is not None and (
+        isinstance(strategy, BinSpec) or strategy == "discrete"
+        or (isinstance(strategy, (int, float)) and not isinstance(strategy, bool))
+    ):
+        return value[0], strategy
+    raise ValueError(f"Column mapping {role!r} must be a column name or (column, bin), got {value!r}")
+
+
 @dataclass
 class MortgageColnames:
     """Maps dataset column names to standardized roles for mortgage diagnostics.
 
     Only ``response`` is required.  All other fields default to ``None``
-    and are checked lazily when a plot method needs them.
+    and are checked lazily when a plot method needs them.  An x-axis role
+    may be ``(column, bin)``; after initialization the attribute is the
+    column name and the bin is stored in ``bins``.
     """
     response       : str
     model_preds    : dict[str, str] = field(default_factory=dict)
-    incentive      : str | None = None
-    cltv           : str | None = None
-    age            : str | None = None
-    current_factor : str | None = None
-    burnout        : str | None = None
-    sato           : str | None = None
-    fico           : str | None = None
-    orig_dt        : str | None = None
-    factor_dt      : str | None = None
+    incentive      : str | tuple | None = None
+    cltv           : str | tuple | None = None
+    age            : str | tuple | None = None
+    current_factor : str | tuple | None = None
+    burnout        : str | tuple | None = None
+    sato           : str | tuple | None = None
+    fico           : str | tuple | None = None
+    orig_dt        : str | tuple | None = None
+    factor_dt      : str | tuple | None = None
     weight         : str | None = None
+    bins           : dict = field(default_factory=dict, init=False)
+
+    def __post_init__(self):
+        collected = {}
+        for role in _X_ROLES:
+            column, strategy = _column_and_bin(role, getattr(self, role))
+            setattr(self, role, column)
+            if strategy is not None:
+                collected[role] = strategy
+        self.bins = collected
 
 
 # Roles usable as the x axis; response, predictions and weight are not.
-_X_ROLES = frozenset(f.name for f in fields(MortgageColnames)) - {'response', 'model_preds', 'weight'}
+_X_ROLES = frozenset(f.name for f in fields(MortgageColnames)) - {'response', 'model_preds', 'weight', 'bins'}
 
 
 class MortgageDiagnostics:
@@ -76,10 +101,11 @@ class MortgageDiagnostics:
     colnames : MortgageColnames
         Column-name mapping for standardised roles.
     bin_config : dict, optional
-        Per-column binning strategy.  Keys are column *roles* (e.g.
+        Extra per-column binning strategy.  Keys are column *roles* (e.g.
         ``'age'``, ``'incentive'``) or source column names, values are
-        ``'discrete'``, a numeric rounding unit or a ``BinSpec``.  Columns
-        not listed use quantile binning.
+        ``'discrete'``, a numeric rounding unit or a ``BinSpec``.  These
+        entries override bins declared on ``colnames``.  Columns not listed
+        use quantile binning.
     y_transform : callable or str, optional
         Applied to aggregated actual and predicted means before plotting.
         Can be a callable or a string key from ``NAMED_TRANSFORMS``
@@ -100,7 +126,7 @@ class MortgageDiagnostics:
             raise TypeError("MortgageDiagnostics expects a polars or pandas DataFrame")
         self.df = df
         self.colnames = colnames
-        self.bin_config: dict = bin_config or {}
+        self.bin_config: dict = {**colnames.bins, **(bin_config or {})}
 
         # Store the named transform separately so we can derive a y-axis label
         # when the plot methods auto-fill defaults.

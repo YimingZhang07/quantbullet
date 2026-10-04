@@ -14,13 +14,31 @@ import polars as pl
 from quantbullet.linear_product_model.mortgage_diagnostics import MortgageColnames, MortgageDiagnostics
 from quantbullet.preprocessing.transformers import FlatRampTransformer
 from quantbullet.reporting import PdfTextReport
+from quantbullet.utils.files import file_sha256, temporary_output
 
-from .common import KEYS, TARGET, Config, read_config, read_summary, sha256, temporary_output
+from .config import Config, read_config
 from .fit_turnover import make_container, to_model_data
 
 
 MIN_COUNT = 500
 MIN_COUNT_FACET = 200
+TARGET = "y_full_prepay"
+KEYS = ("row_id", "loan_identifier", "d_reporting_month")
+IMPLIED_BIN_CONFIG = {
+    "c_age_fit": "discrete",
+    "c_incentive_fit": .25,
+    "c_orig_fico_fit": 20,
+    "c_updated_ltv_fit": 5,
+    "c_orig_balance_fit": 50000,
+    "c_hpi_growth_fit": .1,
+}
+MORTGAGE_COLUMNS = MortgageColnames(
+    response=TARGET, model_preds={"Turnover": "pred_turnover"},
+    incentive=("c_incentive", .25), age=("c_age", "discrete"),
+    cltv=("c_updated_ltv", 5), current_factor=("c_factor", .1),
+    fico=("c_orig_fico", 20), orig_dt="d_origination_month",
+    factor_dt=("d_reporting_month", "discrete"), weight="c_prev_balance",
+)
 
 
 def load_artifacts(config: Config):
@@ -28,20 +46,20 @@ def load_artifacts(config: Config):
     with (root / "turnover_model.pkl").open("rb") as file:
         bundle = pickle.load(file)
     meta = bundle["meta"]
-    if sha256(root / "turnover_frame.parquet") != meta["frame_sha256"]:
+    if file_sha256(root / "turnover_frame.parquet") != meta["frame_sha256"]:
         raise ValueError("Prepared frame changed; explicitly rerun fit before reporting")
-    if sha256(root / "turnover_predictions.parquet") != meta["predictions_sha256"]:
+    if file_sha256(root / "turnover_predictions.parquet") != meta["predictions_sha256"]:
         raise ValueError("Saved predictions do not belong to this model")
     frame = pl.read_parquet(root / "turnover_frame.parquet").join(
         pl.read_parquet(root / "turnover_predictions.parquet"), on=list(KEYS), how="inner", validate="1:1",
     )
     if frame.height != meta["rows"]:
         raise ValueError("Prediction keys do not align with the fitted rows")
-    return bundle, frame, read_summary(root)
+    return bundle, frame
 
 
 def report(config: Config) -> dict:
-    bundle, frame, summary = load_artifacts(config)
+    bundle, frame = load_artifacts(config)
     model, toolkit, meta = bundle["model"], bundle["toolkit"], bundle["meta"]
     model_data = to_model_data(frame)
     container = make_container(model_data, toolkit)
@@ -84,10 +102,7 @@ def report(config: Config) -> dict:
             pdf.add_body("SMOKE RUN: an explicit subset was fitted, not the final cohort.")
 
         pdf.add_page_break()
-        pdf.add_heading("2. Cohort and feature configuration")
-        pdf.add_two_col_table([["Filter", "Remaining / removed"]] +
-                             [[r["stage"], f"{r['rows']:,} / {r['removed']:,}"]
-                              for r in summary["prepare"]["waterfall"]], col_widths=[310,360])
+        pdf.add_heading("2. Feature configuration")
         config_lines = []
         for name, columns in toolkit.feature_groups.items():
             transformer = toolkit.preprocess_config[name]
@@ -97,10 +112,8 @@ def report(config: Config) -> dict:
         pdf.add_body("Raw fields drive mortgage diagnostics; clipped _fit fields drive implied-actual plots. Burnout and interactions are excluded. Numeric missing values are dropped; categorical missing values become MISSING.", font_size=9)
 
         chart("3. Convergence", lambda: toolkit.plot_convergence_diagnostics(model, figsize=(14,9)))
-        bin_config = {name + "_fit": spec["bin_width"] for name,spec in meta["numeric"].items()}
-        bin_config["c_age_fit"] = "discrete"
         chart("4. Numeric implied actuals", lambda: toolkit.plot_implied_actuals(
-            model=model, dcontainer=container, sample_weights=weights, bin_config=bin_config,
+            model=model, dcontainer=container, sample_weights=weights, bin_config=IMPLIED_BIN_CONFIG,
             min_count=MIN_COUNT, n_cols=3))
         def categorical_figure():
             fig, axes = toolkit.plot_categorical_plots(
@@ -116,15 +129,7 @@ def report(config: Config) -> dict:
         gc.collect()
 
         diagnostics = MortgageDiagnostics(
-            df=frame,
-            colnames=MortgageColnames(
-                response=TARGET, model_preds={"Turnover": "pred_turnover"},
-                incentive="c_incentive", age="c_age", cltv="c_updated_ltv",
-                current_factor="c_factor", fico="c_orig_fico", orig_dt="d_origination_month",
-                factor_dt="d_reporting_month", weight="c_prev_balance",
-            ),
-            bin_config={"age":"discrete", "factor_dt":"discrete", "incentive":.25,
-                        "cltv":5, "current_factor":.1, "fico":20},
+            df=frame, colnames=MORTGAGE_COLUMNS,
             y_transform="smm_to_cpr", y_as_percent=True,
         )
         chart("6. Reporting month", lambda: diagnostics.factor_date_plot(min_count=MIN_COUNT, figsize=(14,5)))

@@ -1,9 +1,11 @@
-"""Stage 1: select the cohort and derive model-specific target, weights and caps."""
+"""Stage 1: filter the cohort, label categories, and derive the target."""
 
 import argparse
 import polars as pl
 
-from .common import CATEGORICAL, NUMERIC, TARGET, Config, read_config, temporary_output, write_summary
+from quantbullet.utils.files import temporary_output
+
+from .config import Config, read_config
 
 
 QUALITY_EXCLUSIONS = (
@@ -11,6 +13,9 @@ QUALITY_EXCLUSIONS = (
     "is_event_month_mismatch", "is_zero_balance_without_exit",
 )
 REFERENCE = ("loan_identifier", "d_reporting_month", "d_origination_month", "vintage", "c_factor", "c_orig_ltv")
+TARGET = "y_full_prepay"
+NUMERIC = ("c_age", "c_incentive", "c_orig_fico", "c_updated_ltv", "c_orig_balance", "c_hpi_growth")
+CATEGORICAL = ("f_purpose", "f_occupancy", "f_property_type", "f_first_time_buyer", "f_month", "f_state")
 
 
 def cohort_filters(incentive_max: float):
@@ -41,7 +46,6 @@ def prepare_frame(panel: pl.LazyFrame, *, incentive_max: float = -.5) -> pl.Lazy
     return add_target(panel).select(
         *REFERENCE, "c_prev_balance", TARGET, *NUMERIC, *CATEGORICAL,
     ).with_columns(
-        *(pl.col(name).clip(spec.lower, spec.upper).cast(pl.Float32).alias(name + "_fit") for name, spec in NUMERIC.items()),
         *(pl.col(name).fill_null("MISSING") for name in CATEGORICAL),
         (pl.col("c_prev_balance") / pl.col("c_prev_balance").mean()).alias("weight"),
     ).with_row_index("row_id")
@@ -49,59 +53,24 @@ def prepare_frame(panel: pl.LazyFrame, *, incentive_max: float = -.5) -> pl.Lazy
 
 def prepare(config: Config) -> dict:
     source = pl.scan_parquet(config.panel_path)
-    filters = cohort_filters(config.incentive_max)
     mask = pl.lit(True)
-    expressions = [pl.len().alias("input")]
-    for name, condition in filters:
+    for _, condition in cohort_filters(config.incentive_max):
         mask = mask & condition.fill_null(False)
-        expressions.append(mask.sum().alias(name))
-    counts = source.select(expressions).collect(engine="streaming").row(0, named=True)
-    waterfall, previous = [], counts["input"]
-    for name, remaining in counts.items():
-        waterfall.append({"stage": name, "rows": remaining, "removed": previous - remaining})
-        previous = remaining
-    if previous == 0:
+    expected = source.select(mask.sum().alias("rows")).collect(engine="streaming").item()
+    if expected == 0:
         raise ValueError("No complete observations in the turnover cohort")
-
-    # Background bands use the same risk/quality/target rules, before the incentive cut.
-    background = source
-    for _, condition in filters[:5]:
-        background = background.filter(condition)
-    background = add_target(background).with_columns(
-        pl.when(pl.col("c_incentive").is_null() | ~pl.col("c_incentive").is_finite()).then(pl.lit("missing"))
-        .when(pl.col("c_incentive") <= -1).then(pl.lit("<= -1"))
-        .when(pl.col("c_incentive") <= -.5).then(pl.lit("(-1, -0.5]"))
-        .when(pl.col("c_incentive") <= 0).then(pl.lit("(-0.5, 0]"))
-        .otherwise(pl.lit("> 0")).alias("band"),
-    )
-    bands = background.group_by("band").agg(
-        pl.len().alias("rows"), pl.col(TARGET).sum().alias("events"),
-        pl.col(TARGET).mean().alias("loan_month_rate"),
-        ((pl.col(TARGET) * pl.col("c_prev_balance")).sum() / pl.col("c_prev_balance").sum()).alias("balance_weighted_rate"),
-    ).collect(engine="streaming").sort("band").to_dicts()
 
     target = config.output_root / "turnover_frame.parquet"
     with temporary_output(target) as path:
         prepare_frame(source, incentive_max=config.incentive_max).sink_parquet(path, compression="zstd", row_group_size=250000)
-        frame = pl.scan_parquet(path)
-        stats = frame.select(
+        stats = pl.scan_parquet(path).select(
             pl.len().alias("rows"), pl.col("loan_identifier").n_unique().alias("loans"),
-            pl.col(TARGET).sum().alias("events"), pl.col("weight").mean().alias("mean_weight"),
-            pl.col("d_reporting_month").min().alias("first_month"), pl.col("d_reporting_month").max().alias("last_month"),
+            pl.col(TARGET).sum().alias("events"),
         ).collect(engine="streaming").row(0, named=True)
-        if stats["rows"] != previous:
-            raise ValueError("Prepared row count differs from the filter waterfall")
-        clipping = frame.select(*[
-            ((pl.col(name) < spec.lower) | (pl.col(name) > spec.upper)).sum().alias(name)
-            for name, spec in NUMERIC.items()
-        ]).collect(engine="streaming").row(0, named=True)
-    summary = {"prepare": {**stats, "first_month": stats["first_month"].isoformat(),
-                            "last_month": stats["last_month"].isoformat(),
-                            "source": config.panel_path.name, "incentive_max": config.incentive_max,
-                            "waterfall": waterfall, "clip_counts": clipping, "incentive_bands": bands}}
-    write_summary(config.output_root, summary)
+        if stats["rows"] != expected:
+            raise ValueError("Prepared row count differs from the cohort filters")
     print(f"[prepare] {stats['rows']:,} rows; {stats['loans']:,} loans; {stats['events']:,.0f} events", flush=True)
-    return summary
+    return stats
 
 
 def main():

@@ -5,7 +5,8 @@ import numpy as np
 import polars as pl
 import pytest
 
-from projects.freddie_prepayment.common import Config, read_config, sha256
+from quantbullet.utils.files import file_sha256
+from projects.freddie_prepayment.config import Config, read_config
 from projects.freddie_prepayment.prepare_turnover import QUALITY_EXCLUSIONS, prepare, prepare_frame
 from projects.freddie_prepayment.fit_turnover import fit, prediction_metrics, to_model_data
 from projects.freddie_prepayment import report_turnover
@@ -54,13 +55,14 @@ def test_caps_raw_values_categories_and_previous_balance_weights():
         row("B",zero_balance_code="01",d_exit_month=date(2025,6,1),current_balance=0.),
     ]).lazy()).collect()
     assert frame["c_age"].to_list()==[134,65]
-    assert frame["c_age_fit"].to_list()==[120.,65.]
-    assert frame["c_orig_balance_fit"][0]==1500000.
-    assert frame["c_incentive_fit"][0]==-6.
+    assert "c_age_fit" not in frame.columns
     assert frame["f_first_time_buyer"][0]=="MISSING"
     assert frame["weight"].to_list()==pytest.approx([4/3,2/3])
     model=to_model_data(frame)
     assert model.index.to_list()==[0,1]
+    assert model["c_age_fit"].to_list()==pytest.approx([120.,65.])
+    assert model["c_orig_balance_fit"][0]==1500000.
+    assert model["c_incentive_fit"][0]==-6.
     assert model["y_full_prepay"].to_list()==[0.,1.]
 
 
@@ -86,15 +88,15 @@ def synthetic_config(tmp_path):
 
 def test_fit_roundtrip_alignment_and_report_independence(synthetic_config,monkeypatch):
     config=synthetic_config
-    summary=prepare(config)
-    assert summary["prepare"]["rows"]==1800
+    stats=prepare(config)
+    assert stats["rows"]==1800
     meta=fit(config)
     assert meta["rows"]==1800 and meta["interactions"]=={}
-    bundle,frame,_=report_turnover.load_artifacts(config)
+    bundle,frame=report_turnover.load_artifacts(config)
     assert frame.height==1800 and frame["row_id"].n_unique()==1800
     assert not any("burnout" in name for name in meta["model_inputs"])
-    files=[config.output_root/name for name in ("turnover_frame.parquet","turnover_model.pkl","turnover_predictions.parquet","turnover_summary.json")]
-    hashes=[sha256(path) for path in files]
+    files=[config.output_root/name for name in ("turnover_frame.parquet","turnover_model.pkl","turnover_predictions.parquet")]
+    hashes=[file_sha256(path) for path in files]
     import projects.freddie_prepayment.fit_turnover as fitting
     import projects.freddie_prepayment.prepare_turnover as preparation
     def forbidden(*args,**kwargs):
@@ -132,7 +134,7 @@ def test_fit_roundtrip_alignment_and_report_independence(synthetic_config,monkey
     report_turnover.report(config)
     assert all(name in calls for name in ("plot_convergence_diagnostics","plot_implied_actuals","plot_categorical_plots",
                                          "factor_date_plot","incentive_plot","age_plot","cltv_plot","current_factor_plot","fico_plot","plot"))
-    assert [sha256(path) for path in files]==hashes
+    assert [file_sha256(path) for path in files]==hashes
     assert (config.output_root/"turnover_report.pdf").stat().st_size>10000
     # Changed preparation is detected instead of silently mixing old predictions.
     source=config.output_root/"turnover_frame.parquet"
@@ -144,15 +146,15 @@ def test_fit_roundtrip_alignment_and_report_independence(synthetic_config,monkey
 def test_failed_fit_preserves_artifacts(synthetic_config,monkeypatch):
     config=synthetic_config
     prepare(config); fit(config)
-    files=[config.output_root/name for name in ("turnover_model.pkl","turnover_predictions.parquet","turnover_summary.json")]
-    before=[sha256(path) for path in files]
+    files=[config.output_root/name for name in ("turnover_model.pkl","turnover_predictions.parquet")]
+    before=[file_sha256(path) for path in files]
     from quantbullet.linear_product_model import LinearProductRegressorBCD
     def fail(*args,**kwargs):
         raise RuntimeError("synthetic fit failure")
     monkeypatch.setattr(LinearProductRegressorBCD,"fit",fail)
     with pytest.raises(RuntimeError,match="synthetic fit failure"):
         fit(config)
-    assert [sha256(path) for path in files]==before
+    assert [file_sha256(path) for path in files]==before
 
 
 def test_missing_artifacts_do_not_run_upstream(synthetic_config):

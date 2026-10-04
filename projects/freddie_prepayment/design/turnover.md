@@ -28,8 +28,8 @@ pred_turnover = global_scalar × product(numeric blocks) × product(categorical 
 每个 block 在 fit 中归一化，global scalar 表示整体 response level。
 默认 60 sweeps、10-round early stopping、ftol=1e-8，不缓存 QR。
 
-Numeric features / caps / knots / report bin widths 集中在 [common.py](../common.py) 的 `NUMERIC`。
-保留 raw values，新增 `_fit` clipped inputs：age、incentive、original FICO、updated LTV、original balance 和 HPI growth。
+Prepared frame 保留 raw values。Fit 按 [fit](../fit_turnover.py) 的 `CLIP` 生成 `_fit` inputs：age、incentive、original FICO、updated LTV、original balance 和 HPI growth。改 clip 或 knots 不重写 frame。
+同一文件的 `KNOTS` 给出对应 FlatRamp knots。Implied-actual bin widths 在 [report](../report_turnover.py) 的 `IMPLIED_BIN_CONFIG`。
 Updated LTV 是 first-lien estimate；HPI growth 是 origination→lag1 的 ZHVI ratio，不是 trailing 24-month HPA。
 Original balance 为 nominal USD，本阶段不 inflation-adjust。
 
@@ -37,16 +37,16 @@ Categorical blocks：purpose、occupancy、property type、first-time buyer、mo
 Missing categories 为 MISSING；未知类别报错。Numeric missing rows 排除，不 impute。
 Burnout、current balance/status 和 current macro 不作为 predictors；factor、original LTV、vintage 只作 diagnostics。
 
-Polars 负责 filtering、target、caps 和 artifacts。Model inputs 按列通过 NumPy 转入 pandas，不依赖 PyArrow。
+Polars 负责 filtering、target、categorical labels 和 artifacts。Clip 在 `to_model_data` 中完成，prepared frame 不保存 `_fit` 列。Model inputs 按列通过 NumPy 转入 pandas，不依赖 PyArrow。
 每个 expanded block 先 cast float32 再拼接，避免 full-cohort one-hot matrix 被 numeric ramps 提升为 float64。
 
 ## 3. Report 与迭代
 
 Fit 保存 model/toolkit、feature configuration、categories、cohort/fit 参数和 aligned predictions。
 Frame / prediction hashes 在 report 时确认 artifacts 相互匹配；这是简单的输入一致性检查，不是 build cache。
-Metadata 只记录 source filename，不记录个人绝对路径。Report 只替换 PDF，其他 artifacts 保持不变。
+Fit metadata 记录 fit 参数和 frame、prediction hashes，不记录个人绝对路径。Report 只替换 PDF，其他 artifacts 保持不变。
 
-Report 展示 waterfall、收敛、components / implied actuals、actual vs predicted、reporting month 和 age×purpose；不再输出 origination vintage / incentive context 两节。
+Report 展示收敛、components / implied actuals、actual vs predicted、reporting month 和 age×purpose。
 Report 参考既有 turnover report，重建 saved toolkit 的 float32 design container，不重新 fit。
 收敛、numeric/categorical implied actuals 直接调用 `LinearProductModelToolkit` 的标准绘图方法。
 Actual-vs-predicted 直接使用 `MortgageDiagnostics` / `MortgageColnames`，包括 reporting month、incentive / age 及 purpose facets、LTV、factor 和 FICO。

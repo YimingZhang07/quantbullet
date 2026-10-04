@@ -8,8 +8,8 @@
 
 | 阶段 | Module | 产物 |
 | --- | --- | --- |
-| 1. Prepare | `prepare_turnover` | `turnover_frame.parquet`、prepare summary |
-| 2. Fit | `fit_turnover` | `turnover_model.pkl`、`turnover_predictions.parquet`、fit summary |
+| 1. Prepare | `prepare_turnover` | `turnover_frame.parquet` |
+| 2. Fit | `fit_turnover` | `turnover_model.pkl`、`turnover_predictions.parquet` |
 | 3. Report | `report_turnover` | `turnover_report.pdf` |
 
 ```powershell
@@ -23,8 +23,8 @@
 ## 迭代
 
 - 修改 report 的 plots、bins 或 layout：只运行第 3 步。
-- 修改 fit 参数：从已有 frame 运行第 2、3 步。
-- 修改 cohort、target 或 features：运行全部三步。
+- 修改 clip、knots 或其它 fit 参数：从已有 frame 运行第 2、3 步。
+- 修改 cohort、target、labels 或进入 frame 的 fields：运行全部三步。
 - Report 不调用 prepare / fit；缺少或不匹配的 artifacts 会报错。
 - `fit_turnover --smoke-rows 100000` 显式进行诊断抽样；使用独立 output directory。默认 fit 全量，不抽样。
 
