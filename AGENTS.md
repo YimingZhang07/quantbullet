@@ -6,6 +6,15 @@
 - Run Python scripts and tests with the interpreter in `.venv`, not a global or system Python interpreter.
 - On Windows, use `.\.venv\Scripts\python.exe`; on macOS/Linux, use `./.venv/bin/python`.
 
+## Testing
+
+- After making changes, run only the tests for the modules you touched. Test files under `tests/` mirror the package layout under `src/quantbullet/` and `projects/`.
+- Do not run the full test suite (bare `pytest` or `pytest tests/`) unless the user asks for it.
+
+## Git
+
+- Do not commit changes unless the user explicitly asks you to. Leave finished work uncommitted in the working tree.
+
 ## Public repository hygiene
 
 - Do not add personal information, user-specific absolute paths, credentials, or local dataset contents to tracked code, tests, documentation, or examples.
