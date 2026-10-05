@@ -331,7 +331,7 @@ class TestGroupedMeansGallery(unittest.TestCase):
             group="purpose",
             col="vintage",
             count_mode="stacked",
-            share_count_y=True,
+            count_scale="shared",
             min_count=30,
             y_transform=lambda smm: 1 - (1 - smm) ** 12,
             y_format=".0%",
@@ -339,15 +339,18 @@ class TestGroupedMeansGallery(unittest.TestCase):
             title="CPR by loan purpose within each vintage",
             labels={"incentive": "Refinance incentive (pp)", "purpose": "Purpose",
                     "vintage": "Vintage", "historical_smm": "CPR"},
-            outer_labels=True,
-            outer_ticks=True,
+            y_ticks="outer",
+            count_ticks="outer",
+            y_titles="outer",
+            count_titles="outer",
         )
         self.save_case("06_facets_groups_smm", "facets", ("分组叠线 · 单指标 SMM→CPR", "Groups · one metric, SMM → CPR"),
                        "One metric with group=... overlays loan purposes inside each col=... vintage panel. "
                        "y_transform converts each bin's weighted SMM to CPR (weight first, then convert); "
                        "purpose is an ordered pandas Categorical, so the legend follows its declared order; "
                        "min_count=30 breaks curves at sparse bins but keeps their bars; "
-                       "outer_labels/outer_ticks keep axis titles and shared tick labels on the outer panels.", result)
+                       "both y scales are shared, so y_ticks/count_ticks='outer' keep tick labels on the outer panels, "
+                       "and y_titles/count_titles='outer' do the same for the axis titles.", result)
         self.assertEqual(result.axes.shape, (1, 3))
         self.assertTrue(all(len(ax.lines) == 3 for ax in result.axes.flat))
         self.assertGreater(np.nanmax(result.summary["historical_smm__mean"]), 0.2)  # CPR scale, not SMM
@@ -365,8 +368,8 @@ class TestGroupedMeansGallery(unittest.TestCase):
             row="channel",
             col="occupancy",
             count_mode="total",
-            share_y=True,
-            share_count_y=True,
+            y_scale="shared",
+            count_scale="shared",
             y_format=".0%",
             ylabel="CPR (UPB weighted)",
             title="Channel x occupancy",
@@ -375,7 +378,8 @@ class TestGroupedMeansGallery(unittest.TestCase):
                     "model_cpr": "Model CPR"},
         )
         self.save_case("07_matrix_metrics", "matrix", ("多指标 · 统一刻度", "Multiple metrics · shared scales"),
-                       "row=... and col=... create a matrix; share_y and share_count_y align scales across panels.", result)
+                       "row=... and col=... create a matrix; y_scale='shared' and count_scale='shared' put every panel on one "
+                       "range per axis, while tick labels stay on every panel (the 'all' default).", result)
         self.assertEqual(result.axes.shape, (2, 2))
 
     def test_08_matrix_groups(self):
@@ -395,13 +399,16 @@ class TestGroupedMeansGallery(unittest.TestCase):
             title="CPR by loan purpose · occupancy x vintage",
             labels={"incentive": "Refinance incentive (pp)", "purpose": "Purpose",
                     "occupancy": "Occupancy", "vintage": "Vintage", "historical_cpr": "CPR"},
-            outer_labels=True,
-            outer_ticks=True,
+            y_ticks="outer",
+            y_titles="outer",
+            count_titles="outer",
+            x_titles="outer",
         )
         self.save_case("08_matrix_groups", "matrix", ("分组叠线", "Groups overlaid"),
                        "group=..., row=... and col=... combine: loan purposes overlay inside an occupancy x vintage matrix. "
                        "Each role splits the rows further, so wider x bins (step 0.5) and min_count=30 keep the thin "
-                       "investor cells readable; count axes stay per panel because owner volumes dwarf investor ones.", result)
+                       "investor cells readable. Count axes stay free (the default) because owner volumes dwarf investor "
+                       "ones, so they keep their tick labels while y_ticks='outer' trims the shared y axis.", result)
         self.assertEqual(result.axes.shape, (2, 3))
         self.assertTrue(all(len(ax.lines) == 3 for ax in result.axes.flat))
 

@@ -30,7 +30,7 @@ def test_summary_adapter_preserves_estimates_and_completes_facets():
     assert first["count"].tolist()==[10,0,2]
     assert first["actual__mean"].tolist()[0]==.1
     assert first["actual__mean"].isna().tolist()==[False,True,True]
-    result=draw_grouped_means(data,wrap=2,share_count_y=True)
+    result=draw_grouped_means(data,wrap=2,count_scale="shared")
     assert result.count_axes[0,0].get_ylim()==result.count_axes[0,1].get_ylim()
     assert sum(bar.get_height() for ax in result.count_axes.flat for bar in ax.patches)==33
     assert sum(len(ax.patches) for ax in result.count_axes.flat)==6  # not 12 for two metrics
@@ -104,7 +104,7 @@ def test_existing_axes_legend_placement_and_empty_input():
 
 def test_falsey_facets_keep_separate_counts():
     df=pl.DataFrame({"x":[1,2,1],"facet":[False,False,True],"y":[.1,.2,.8]})
-    result=plot_grouped_means(df,x="x",y="y",col="facet",wrap=3,share_count_y=True)
+    result=plot_grouped_means(df,x="x",y="y",col="facet",wrap=3,count_scale="shared")
     np.testing.assert_allclose(result.axes[0,0].lines[0].get_ydata(),[.1,.2])
     np.testing.assert_allclose(result.axes[0,1].lines[0].get_ydata(),[.8,np.nan],equal_nan=True)
     assert [sum(p.get_height() for p in ax.patches) for ax in result.count_axes.flat]==[2,1]

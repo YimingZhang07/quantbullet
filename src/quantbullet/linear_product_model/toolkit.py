@@ -529,7 +529,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
                     elif isinstance(ylim, tuple):
                         ax.set_ylim(ylim)
             # Every panel has its own x variable and count scale.
-            label_outer_panels(grid, count_axes, shared_x=False)
+            label_outer_panels(grid, count_axes, y_titles=True, count_titles=True)
             return fig
 
         return PanelSet(tuple(per_feature), render, n_cols)
@@ -629,7 +629,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
                 ax.set_ylabel('Implied Actual', fontsize=theme.label_fontsize, color=theme.label_color)
                 if legend == 'axes':
                     ax.legend(frameon=theme.legend_frameon, fontsize=theme.legend_fontsize)
-            label_outer_panels(grid, shared_x=False)
+            label_outer_panels(grid, y_titles=True)
             if legend == 'figure':
                 handles, labels = grid.flat[0].get_legend_handles_labels()
                 fig.legend(handles, labels, loc='outside lower center', ncol=len(handles),

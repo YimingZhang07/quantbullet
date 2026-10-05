@@ -77,8 +77,46 @@ result.summary  # exact statistics used in the figure
   `min_count` keep sparse cells readable.
 - `wrap` applies only to `col` without `row`.
 - `panel_size=(5.2, 3.5)` is the size in inches **per subplot**.
-- `share_y=True` shares the metric scale. Count scales are independent unless
-  `share_count_y=True`. All panels share the x scale.
+- All panels share the x scale and show their x tick labels.
+
+## Y scales, tick labels and axis titles
+
+Each figure has two y axes: the left axis for means (`y_*`) and the right axis
+for counts (`count_*`). Each has one argument for its range, one for its tick
+labels and one for its title; `x_titles` places the x title. `ylabel` and
+`labels` set the title text:
+
+| Argument | Values (default first) | Controls |
+| --- | --- | --- |
+| `y_scale` | `"shared"`, `"free"`, `(low, high)` | Left-axis range: one for all panels, one per panel, or fixed |
+| `count_scale` | `"free"`, `"shared"`, top value | Count-axis range, same meaning |
+| `y_ticks` | `"all"`, `"outer"` | Left tick labels on every panel, or only the first panel of each row |
+| `count_ticks` | `"all"`, `"outer"` | Count tick labels on every panel, or only the last panel of each row |
+| `y_titles` | `"all"`, `"outer"` | Left-axis title on every panel, or only the first panel of each row |
+| `count_titles` | `"all"`, `"outer"` | Count title on every panel, or only the last panel of each row |
+| `x_titles` | `"all"`, `"outer"` | x title on every panel, or only the lowest panel of each column |
+
+A scale only sets ranges. Tick labels appear on every panel until `y_ticks` or
+`count_ticks` says `"outer"`. That setting needs a shared or fixed scale and
+raises an error with `"free"`, because each free panel needs its own numbers.
+The two axes are independent, so any left setting combines with any count
+setting, and titles never depend on the scale:
+
+| Want | Arguments |
+| --- | --- |
+| Left axis shared, tick labels on every panel | `y_scale="shared"` |
+| Left axis shared, tick labels on the outer panels | `y_scale="shared", y_ticks="outer"` |
+| Left axis per panel | `y_scale="free"` |
+| Count axis shared, tick labels on every panel | `count_scale="shared"` |
+| Count axis shared, tick labels on the outer panels | `count_scale="shared", count_ticks="outer"` |
+| Count axis per panel | `count_scale="free"` |
+| Remove repeated titles (any scale) | `y_titles="outer"`, `count_titles="outer"`, `x_titles="outer"`, each on its own |
+
+Fixed values (`y_scale=(0, 0.3)`, `count_scale=50_000`) keep separate figures,
+such as pages drawn from one aggregation, on the same scale.
+`MortgageDiagnostics` takes the same arguments. Its `facet_panels` reads
+`"shared"` as one scale across every page. It defaults every axis title to
+`"outer"`, and tick labels to `"outer"` wherever the scale is not free.
 
 Without `group`, colors identify metrics and numeric/binned curves are solid.
 With `group`, colors identify groups and line styles identify metrics.

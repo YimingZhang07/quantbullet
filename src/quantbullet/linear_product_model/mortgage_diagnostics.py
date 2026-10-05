@@ -234,8 +234,9 @@ class MortgageDiagnostics:
         rounding unit, or a ``BinSpec``; otherwise quantile bins
         (``n_bins``, default 10) are used. Weighted means are aggregated first;
         ``y_transform`` (e.g. SMM -> CPR) and ``min_count`` then apply to the
-        bin-level values. Count bars show rows and share one scale across facets.
-        ``figsize`` is per panel. ``title=None`` drops the default figure title,
+        bin-level values. Count bars show rows. Scale and label arguments are
+        ``draw_grouped_means``'s; here ``y_scale`` defaults to ``'free'`` and
+        ``count_scale`` to ``'shared'``. ``figsize`` is per panel. ``title=None`` drops the default figure title,
         e.g. under a report heading. Returns ``(fig, primary_axes)``.
         """
         n_cols = kwargs.pop('n_cols', 3)
@@ -259,31 +260,32 @@ class MortgageDiagnostics:
     def facet_panels(self, x: str, facet_col: str, *, bins=None, facet_series=None, **kwargs) -> PanelSet:
         """Faceted ``plot`` as a ``PanelSet``: a report layout sizes and pages it.
 
-        Aggregates once. Every drawn subset keeps the count scale of the full
-        aggregation. ``facet_label`` names the facet in panel titles (default:
-        the column name). Takes ``plot``'s options except ``figsize`` and
-        ``close_unused``. Scale and display are separate: ``align_ylim`` puts
-        every panel, on every page, on one y range from the full aggregation;
-        ``outer_labels`` keeps axis titles and ``outer_ticks`` the tick labels
-        of shared scales on the outer panels (both default True).
+        Aggregates once. ``facet_label`` names the facet in panel titles
+        (default: the column name). Takes ``plot``'s options except
+        ``figsize`` and ``close_unused``. A ``'shared'`` scale here means one
+        range on every page, fixed from the full aggregation: counts default
+        to it, ``y_scale`` to ``'free'``. Tick labels default to ``'outer'``
+        on scales that are not free, and every axis title to ``'outer'``.
         """
         for name in ('figsize', 'close_unused'):
             if name in kwargs:
                 raise TypeError(f"facet_panels takes its panel size from the layout; {name!r} is not accepted")
         n_cols = kwargs.pop('n_cols', 3)
-        outer_labels = kwargs.pop('outer_labels', True)
-        outer_ticks = kwargs.pop('outer_ticks', True)
         data, options = self._prepare(x, bins, facet_col, facet_series, kwargs)
-        totals = data.summary.groupby(['col', 'x'], observed=True)['count'].sum()
-        count_ylim = max(float(totals.max()) if len(totals) else 0., 1.) * 1.05
-        means = data.summary[[f"{metric}__mean" for metric in data.metrics]].to_numpy(dtype=float)
-        ylim = _padded_range(means) if options['share_y'] else None
+        if options['count_scale'] == 'shared':
+            totals = data.summary.groupby(['col', 'x'], observed=True)['count'].sum()
+            options['count_scale'] = max(float(totals.max()) if len(totals) else 0., 1.) * 1.05
+        if options['y_scale'] == 'shared':
+            means = data.summary[[f"{metric}__mean" for metric in data.metrics]].to_numpy(dtype=float)
+            options['y_scale'] = _padded_range(means)
+        options.setdefault('y_ticks', 'all' if options['y_scale'] == 'free' else 'outer')
+        options.setdefault('count_ticks', 'all' if options['count_scale'] == 'free' else 'outer')
+        for titles in ('y_titles', 'count_titles', 'x_titles'):
+            options.setdefault(titles, 'outer')
 
         def render(panels, n_cols, panel_size):
             result = draw_grouped_means(
-                data.select('col', panels), wrap=n_cols, compact_cols=False, panel_size=panel_size,
-                count_ylim=count_ylim, ylim=ylim, outer_labels=outer_labels,
-                outer_ticks=outer_ticks, **options,
+                data.select('col', panels), wrap=n_cols, compact_cols=False, panel_size=panel_size, **options,
             )
             self._format_y(result.axes.flat)
             return result.fig
@@ -298,7 +300,6 @@ class MortgageDiagnostics:
         ylabel = kwargs.pop('y_label', self._default_y_label())
         min_count = kwargs.pop('min_count', 0)
         n_bins = kwargs.pop('n_bins', 10)
-        align_ylim = kwargs.pop('align_ylim', False)
         theme = kwargs.pop('theme', None) or self.theme
         pred_colors = kwargs.pop('pred_colors', None)
         facet_label = kwargs.pop('facet_label', None)
@@ -323,7 +324,9 @@ class MortgageDiagnostics:
         labels = {column: xlabel, response: 'Actual', **{source: name for name, source in preds.items()}}
         if facet_col is not None and facet_label is not None:
             labels[facet_col] = facet_label
-        options = dict(share_y=align_ylim, share_count_y=True, labels=labels, ylabel=ylabel, theme=theme, **kwargs)
+        options = dict(labels=labels, ylabel=ylabel, theme=theme, **kwargs)
+        options.setdefault('y_scale', 'free')
+        options.setdefault('count_scale', 'shared')
         return data, options
 
     def _format_y(self, axes):
