@@ -61,7 +61,7 @@ result.summary  # exact statistics used in the figure
 
 ## Dimensions and layout
 
-`x` is mandatory; specify at most two additional roles:
+`x` is mandatory; the other roles are optional and can be combined:
 
 | Role | Meaning |
 | --- | --- |
@@ -72,6 +72,9 @@ result.summary  # exact statistics used in the figure
 - Use `col="vintage", wrap=3` for a wrapped collection of panels.
 - Use `row="channel", col="occupancy"` for a matrix.
 - Use `group="vintage", col="fico"` for grouped curves within FICO panels.
+- Use `group="purpose", row="occupancy", col="vintage"` for grouped curves
+  within a matrix. Every role splits the rows further, so coarser x bins and
+  `min_count` keep sparse cells readable.
 - `wrap` applies only to `col` without `row`.
 - `panel_size=(5.2, 3.5)` is the size in inches **per subplot**.
 - `share_y=True` shares the metric scale. Count scales are independent unless
@@ -249,10 +252,11 @@ python -m unittest discover -s tests/plot -p test_grouped_means.py
 python -m pytest tests/plot/test_grouped_means.py -q
 ```
 
-`make_fake_mortgage_data()` in that test module creates 12,000 deterministic
-synthetic records. Seven visual cases cover basic comparison, overlapping
+`make_fake_mortgage_data()` in that test module creates 40,000 deterministic
+synthetic records. Nine visual cases cover basic comparison, overlapping
 groups, stacked counts, wrapped facets, a two-dimensional matrix, binned facets
-with groups, and a single metric on categorical x.
+with groups, a single metric on categorical x, loan purposes within vintage
+panels, and loan purposes within an occupancy x vintage matrix.
 
 Set `QB_TEST_KEEP_ARTIFACTS=1` in your `.env` (see `.env.example`) or process
 environment before running the tests to retain the gallery. Then open

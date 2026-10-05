@@ -394,8 +394,10 @@ def summarize_grouped_means(
 ) -> GroupedMeansData:
     """Aggregate pandas or eager Polars data without mutating the input.
 
-    ``x`` is required. At most two of group/row/col may be supplied. Binning
-    specs are keyed by source column and fitted globally before group-by.
+    ``x`` is required; group, row and col are optional and may be combined.
+    Each extra role splits the rows further, so sparse cells may need coarser
+    x bins or ``mask_support``. Binning specs are keyed by source column and
+    fitted globally before group-by.
     Negative weights raise; nonfinite weights/y are omitted per metric.
     Missing grouping keys are excluded and counted in ``excluded_count``.
     Ordered categories (pandas categorical, Polars Enum) keep their declared
@@ -407,8 +409,8 @@ def summarize_grouped_means(
     if not metrics or any(not isinstance(m, str) for m in metrics) or len(set(metrics)) != len(metrics):
         raise ValueError("y must contain one or more distinct column names")
     dimensions = {role: name for role, name in (("x", x), ("group", group), ("row", row), ("col", col)) if name is not None}
-    if x is None or len(dimensions) > 3:
-        raise ValueError("supply x and at most two of group, row, col")
+    if x is None:
+        raise ValueError("x is required")
     if len(set(dimensions.values())) != len(dimensions):
         raise ValueError("each dimension must use a distinct column")
     bins = dict(bins or {})

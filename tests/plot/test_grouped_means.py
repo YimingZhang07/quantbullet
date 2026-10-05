@@ -36,7 +36,7 @@ def _plot_call_source(test_method):
     return "result = " + ast.get_source_segment(source, call)
 
 
-def make_fake_mortgage_data(n=12000, seed=731):
+def make_fake_mortgage_data(n=40000, seed=731):
     """Seeded demonstration data, not a fitted or financial forecast model."""
     rng = np.random.default_rng(seed)
     vintage = rng.choice([2019, 2020, 2021], size=n, p=[0.25, 0.5, 0.25])
@@ -123,6 +123,18 @@ class TestGroupedMeansStatistics(unittest.TestCase):
         self.assertEqual(sum(p.get_height() for ax in result.count_axes.flat for p in ax.patches), 4)
         self.assertIn("g: 0", result.axes[0, 0].get_title())
 
+    def test_group_row_and_col_combine(self):
+        df = pd.MultiIndex.from_product([[0, 1]] * 4, names=["r", "c", "g", "x"]).to_frame(index=False)
+        df["y"] = np.arange(16.)
+        result = plot_grouped_means(df, x="x", y="y", group="g", row="r", col="c", count_mode="stacked")
+        self.assertEqual(result.axes.shape, (2, 2))
+        for (r, c), ax in np.ndenumerate(result.axes):
+            for g, line in enumerate(ax.lines):
+                expected = df.loc[(df["r"] == r) & (df["c"] == c) & (df["g"] == g), "y"]
+                np.testing.assert_array_equal(line.get_ydata(), expected)
+        self.assertEqual(sum(p.get_height() for ax in result.count_axes.flat for p in ax.patches), 16)
+        self.assertEqual(result.axes[1, 0].get_title(), "r: 1 | c: 0")
+
 
 class TestGroupedMeansGallery(unittest.TestCase):
     """One reproducible scenario per unittest, with saved figures to inspect."""
@@ -148,7 +160,7 @@ class TestGroupedMeansGallery(unittest.TestCase):
         )
         html = '''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>Grouped means gallery</title>
 <style>body{font:16px/1.6 system-ui;background:#f3f5f7;color:#1a2635;max-width:1400px;margin:40px auto;padding:0 24px}h1{font-size:32px}section{background:white;padding:24px;margin:28px 0;border-radius:12px}h2{margin:0}p{color:#596575}nav{display:flex;flex-wrap:wrap;gap:8px 18px;padding:16px 0}nav a{color:#2e45b8}img{max-width:100%;display:block;margin:auto}pre{background:#e7edf4;padding:16px;overflow-x:auto;border-radius:8px;font:13px/1.5 ui-monospace,Consolas,monospace}</style>
-<h1>Weighted means + sample counts</h1><p>12,000 synthetic mortgage records · fixed seed 731 · UPB weighted CPR.<br>Lines and points use the left axis; background bars show row counts on the right axis. Data is synthetic, not a forecast.<br>The code below is extracted from each test case; replace <code>self.df</code> with your own DataFrame.</p>
+<h1>Weighted means + sample counts</h1><p>''' + f"{len(cls.df):,}" + ''' synthetic mortgage records · fixed seed 731 · UPB weighted CPR.<br>Lines and points use the left axis; background bars show row counts on the right axis. Data is synthetic, not a forecast.<br>The code below is extracted from each test case; replace <code>self.df</code> with your own DataFrame.</p>
 <nav aria-label="Chart examples">''' + index + "</nav>" + cards + "</html>"
         (cls.output_dir / "gallery.html").write_text(html, encoding="utf-8")
 
@@ -332,6 +344,33 @@ class TestGroupedMeansGallery(unittest.TestCase):
         legend = [text.get_text() for text in result.fig.legends[0].get_texts()]
         self.assertEqual(legend[:3], ["Purpose: Purchase", "Purpose: Rate/Term Refi", "Purpose: Cash-out Refi"])
         self.assertNotIn("CPR", legend)  # one metric needs no line-style entry
+
+    def test_09_groups_within_matrix(self):
+        result = plot_grouped_means(
+            self.df,
+            x="incentive",
+            y="historical_cpr",
+            weight="upb",
+            bins={"incentive": BinSpec.step(0.5)},
+            group="purpose",
+            row="occupancy",
+            col="vintage",
+            count_mode="stacked",
+            min_count=30,
+            y_format=".0%",
+            ylabel="CPR (UPB weighted)",
+            title="CPR by loan purpose · occupancy x vintage",
+            labels={"incentive": "Refinance incentive (pp)", "purpose": "Purpose",
+                    "occupancy": "Occupancy", "vintage": "Vintage", "historical_cpr": "CPR"},
+            outer_labels=True,
+            outer_ticks=True,
+        )
+        self.save_case("09_purpose_matrix", "矩阵内分组图 · Groups within a matrix",
+                       "group=..., row=... and col=... combine: loan purposes overlay inside an occupancy x vintage matrix. "
+                       "Each role splits the rows further, so wider x bins (step 0.5) and min_count=30 keep the thin "
+                       "investor cells readable; count axes stay per panel because owner volumes dwarf investor ones.", result)
+        self.assertEqual(result.axes.shape, (2, 3))
+        self.assertTrue(all(len(ax.lines) == 3 for ax in result.axes.flat))
 
 
 if __name__ == "__main__":
