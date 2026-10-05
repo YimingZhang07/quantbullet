@@ -26,7 +26,9 @@ KEYS = ("row_id", "loan_identifier", "d_reporting_month")
 CLIP = {
     "c_age": (1, 120),
     "c_incentive": (-5, -.5),
+    "c_sato": (-1.5, 1.5),
     "c_orig_fico": (620, 800),
+    "c_orig_ltv": (20, 97),
     "c_updated_ltv": (5, 100),
     "c_orig_balance_real": (30000, 1_000_000),
     "c_factor": (.2, 1.),
@@ -35,7 +37,9 @@ CLIP = {
 KNOTS = {
     "c_age": (3, 6, 12, 18, 24, 36, 60, 84, 108),
     "c_incentive": (-4, -3, -2, -1.5, -1, -.75),
+    "c_sato": (-.5, -.25, 0, .25, .5, 1.),
     "c_orig_fico": (660, 700, 740, 780),
+    "c_orig_ltv": (50, 70, 80, 90, 95),
     "c_updated_ltv": (20, 40, 60, 80, 95),
     "c_orig_balance_real": (125000, 200000, 300000, 425000, 600000, 850000),
     "c_factor": (.5, .7, .8, .9, .95),

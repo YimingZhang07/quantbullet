@@ -16,10 +16,10 @@ QUALITY_EXCLUSIONS = (
 )
 # CPIAUCNS for January 2025: c_orig_balance_real is in January-2025 dollars.
 CPI_BASE_MONTH, CPI_BASE = date(2025, 1, 1), 317.671
-REFERENCE = ("loan_identifier", "d_reporting_month", "d_origination_month", "vintage", "c_orig_ltv",
-             "c_orig_balance", "c_orig_cpi")
+REFERENCE = ("loan_identifier", "d_reporting_month", "d_origination_month", "vintage", "c_orig_balance", "c_orig_cpi")
 TARGET = "y_full_prepay"
-NUMERIC = ("c_age", "c_incentive", "c_orig_fico", "c_updated_ltv", "c_orig_balance_real", "c_factor", "c_hpi_ratio")
+NUMERIC = ("c_age", "c_incentive", "c_sato", "c_orig_fico", "c_orig_ltv", "c_updated_ltv", "c_orig_balance_real",
+           "c_factor", "c_hpi_ratio")
 CATEGORICAL = ("f_purpose", "f_occupancy", "f_property_type", "f_first_time_buyer", "f_month", "f_state")
 
 

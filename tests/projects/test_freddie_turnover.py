@@ -16,7 +16,7 @@ def row(identifier="A", **updates):
     value = dict(loan_identifier=identifier, d_reporting_month=date(2025,6,1),
                  d_origination_month=date(2020,1,1), d_exit_month=None, d_maturity_month=date(2050,1,1),
                  vintage="2020Q1", c_factor=.8, c_orig_ltv=80., c_prev_balance=100000.,
-                 c_age=65, c_incentive=-1., c_orig_fico=740., c_updated_ltv=60.,
+                 c_age=65, c_incentive=-1., c_sato=.1, c_orig_fico=740., c_updated_ltv=60.,
                  c_orig_balance=125000., c_orig_cpi=257.971, c_hpi_ratio=1.25, zero_balance_code=None,
                  f_pre_status="CURRENT", f_status="CURRENT", is_consecutive_month=True,
                  is_ever_modified=False, f_purpose="P", f_occupancy="P", f_property_type="SF",
@@ -45,7 +45,8 @@ def test_target_risk_set_modified_and_incentive_boundary():
 
 @pytest.mark.parametrize("field,value",[("c_orig_fico",None),("c_updated_ltv",float("inf")),("c_orig_balance",float("nan")),
                                          ("c_hpi_ratio",None),("c_hpi_ratio",float("inf")),("c_hpi_ratio",float("nan")),
-                                         ("c_orig_cpi",None),("c_factor",None),("c_factor",float("nan"))])
+                                         ("c_orig_cpi",None),("c_factor",None),("c_factor",float("nan")),
+                                         ("c_sato",None),("c_orig_ltv",float("nan"))])
 def test_numeric_missing_and_nonfinite_excluded(field,value):
     result=prepare_frame(pl.DataFrame([row("valid"),row("bad",**{field:value})]).lazy()).collect()
     assert result["loan_identifier"].to_list()==["valid"]
@@ -53,8 +54,9 @@ def test_numeric_missing_and_nonfinite_excluded(field,value):
 
 def test_caps_raw_values_categories_and_previous_balance_weights():
     frame=prepare_frame(pl.DataFrame([
-        row("A",c_age=134,c_orig_balance=2000000.,c_incentive=-9.,c_prev_balance=200000.,f_first_time_buyer=None),
-        row("B",zero_balance_code="01",d_exit_month=date(2025,6,1),current_balance=0.,c_factor=1.05),
+        row("A",c_age=134,c_orig_balance=2000000.,c_incentive=-9.,c_prev_balance=200000.,f_first_time_buyer=None,
+            c_sato=2.5,c_orig_ltv=120.),
+        row("B",zero_balance_code="01",d_exit_month=date(2025,6,1),current_balance=0.,c_factor=1.05,c_sato=-2.,c_orig_ltv=10.),
     ]).lazy()).collect()
     assert frame["c_age"].to_list()==[134,65]
     assert "c_age_fit" not in frame.columns
@@ -66,6 +68,9 @@ def test_caps_raw_values_categories_and_previous_balance_weights():
     assert frame["c_orig_balance_real"].to_list()==pytest.approx([2e6*CPI_BASE/257.971, 125000.*CPI_BASE/257.971])
     assert model["c_orig_balance_real_fit"][0]==1_000_000.
     assert model["c_factor_fit"].to_list()==pytest.approx([.8,1.])
+    assert frame["c_sato"].to_list()==[2.5,-2.] and frame["c_orig_ltv"].to_list()==[120.,10.]
+    assert model["c_sato_fit"].to_list()==pytest.approx([1.5,-1.5])
+    assert model["c_orig_ltv_fit"].to_list()==pytest.approx([97.,20.])
     assert model["c_incentive_fit"][0]==-5.
     assert model["y_full_prepay"].to_list()==[0.,1.]
 
@@ -97,6 +102,7 @@ def synthetic_config(tmp_path):
             c_orig_fico=float(rng.uniform(621,839)),c_updated_ltv=float(rng.uniform(6,119)),
             c_orig_balance=float(rng.uniform(26000,1490000)),c_hpi_ratio=float(rng.uniform(.85,2.4)),
             c_prev_balance=float(rng.uniform(10000,790000)),c_factor=float(rng.uniform(.15,1.05)),
+            c_sato=float(rng.uniform(-1.8,1.8)),c_orig_ltv=float(rng.uniform(15,105)),
             f_purpose=("P","C","N")[index%3],f_month=f"{index%12+1:02d}",
             f_state=("CA","NY")[index%2],f_property_type=("SF","CO")[index%2],
             zero_balance_code="01" if events[index] else None,
@@ -158,7 +164,7 @@ def test_fit_roundtrip_alignment_and_report_independence(synthetic_config,monkey
             monkeypatch.setattr(cls,name,wrapped)
     for name in ("plot_convergence_diagnostics","implied_actual_panels","categorical_panels"):
         spy(LinearProductModelToolkit,name)
-    for name in ("factor_date_plot","incentive_plot","age_plot","cltv_plot","current_factor_plot","fico_plot","plot","facet_panels"):
+    for name in ("factor_date_plot","incentive_plot","age_plot","cltv_plot","current_factor_plot","fico_plot","sato_plot","plot","facet_panels"):
         spy(MortgageDiagnostics,name)
     import quantbullet.plot.binned_plots as legacy
     def legacy_called(*args,**kwargs):
@@ -168,7 +174,7 @@ def test_fit_roundtrip_alignment_and_report_independence(synthetic_config,monkey
     monkeypatch.setattr(report_turnover,"MIN_COUNT",10)
     report_turnover.report(config)
     assert all(name in calls for name in ("plot_convergence_diagnostics","implied_actual_panels","categorical_panels",
-                                         "factor_date_plot","incentive_plot","age_plot","cltv_plot","current_factor_plot","fico_plot","plot",
+                                         "factor_date_plot","incentive_plot","age_plot","cltv_plot","current_factor_plot","fico_plot","sato_plot","plot",
                                          "facet_panels"))
     assert "hpi_ratio_plot" in calls
     assert [file_sha256(path) for path in files]==hashes
