@@ -227,14 +227,14 @@ def test_metrics_preserve_negative_predictions():
 
 
 def test_shared_polars_binning_does_not_require_pyarrow(monkeypatch):
-    from quantbullet.plot.grouped_data import summarize_grouped_means
+    from quantbullet.plot.binned_means import summarize_binned_means
     def forbidden(*args,**kwargs):
         raise AssertionError("Optional PyArrow conversion must not be needed for aggregates")
     monkeypatch.setattr(pl.DataFrame,"to_pandas",forbidden)
     monkeypatch.setattr(pl.Series,"to_pandas",forbidden)
     frame=pl.DataFrame({"month":[date(2025,1,1)]*2+[date(2025,2,1)],
                         "y":[0.,1.,0.],"pred":[.1,.3,.2],"w":[1.,3.,2.]})
-    summary=summarize_grouped_means(frame,x="month",y=["y","pred"],weight="w").summary
+    summary=summarize_binned_means(frame,x="month",y=["y","pred"],weight="w").summary
     assert summary["y__mean"].to_list()==[.75,0.]
     assert summary["pred__mean"].to_list()==pytest.approx([.25,.2])
     assert summary["count"].to_list()==[2,1]

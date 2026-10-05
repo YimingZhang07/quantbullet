@@ -6,8 +6,8 @@ import pandas as pd
 import polars as pl
 
 from quantbullet.plot.formatter import StepPercentFormatter
-from quantbullet.plot.grouped_data import BinSpec, GroupedMeansData, summarize_grouped_means
-from quantbullet.plot.grouped_means import GroupedMeansStyle, draw_grouped_means
+from quantbullet.plot.binned_means import (BinSpec, BinnedMeans, BinnedMeansStyle, draw_binned_means,
+                                           summarize_binned_means)
 from quantbullet.plot.panels import PanelSet
 from quantbullet.plot.theme import MINIMAL_THEME, PlotTheme
 
@@ -129,7 +129,7 @@ class MortgageDiagnostics:
         If True (default), format the y-axis as percentages.
     theme, style : optional
         Defaults for every plot (e.g. ``PRINT_THEME`` and
-        ``PRINT_GROUPED_MEANS_STYLE`` in PDF reports); a ``theme`` or
+        ``PRINT_BINNED_MEANS_STYLE`` in PDF reports); a ``theme`` or
         ``style`` passed to a plot method wins.
     """
 
@@ -141,7 +141,7 @@ class MortgageDiagnostics:
         y_transform=None,
         y_as_percent: bool = True,
         theme: PlotTheme | None = None,
-        style: GroupedMeansStyle | None = None,
+        style: BinnedMeansStyle | None = None,
     ):
         if not isinstance(df, (pl.DataFrame, pd.DataFrame)):
             raise TypeError("MortgageDiagnostics expects a polars or pandas DataFrame")
@@ -235,7 +235,7 @@ class MortgageDiagnostics:
         (``n_bins``, default 10) are used. Weighted means are aggregated first;
         ``y_transform`` (e.g. SMM -> CPR) and ``min_count`` then apply to the
         bin-level values. Count bars show rows. Scale and label arguments are
-        ``draw_grouped_means``'s; here ``y_scale`` defaults to ``'free'`` and
+        ``draw_binned_means``'s; here ``y_scale`` defaults to ``'free'`` and
         ``count_scale`` to ``'shared'``. ``figsize`` is per panel. ``title=None`` drops the default figure title,
         e.g. under a report heading. Returns ``(fig, primary_axes)``.
         """
@@ -246,7 +246,7 @@ class MortgageDiagnostics:
         default_title = None if facet_col is not None else (f"Actual vs {', '.join(preds)}" if preds else "Actual")
         title = kwargs.pop('title', default_title)
         data, options = self._prepare(x, bins, facet_col, facet_series, kwargs)
-        result = draw_grouped_means(
+        result = draw_binned_means(
             data, wrap=n_cols if facet_col is not None else None,
             panel_size=figsize, title=title, **options,
         )
@@ -284,20 +284,20 @@ class MortgageDiagnostics:
             options.setdefault(titles, 'outer')
 
         def render(panels, n_cols, panel_size):
-            result = draw_grouped_means(
-                data.select('col', panels), wrap=n_cols, compact_cols=False, panel_size=panel_size, **options,
+            result = draw_binned_means(
+                data.select('col', panels), wrap=n_cols, pad_to_wrap=True, panel_size=panel_size, **options,
             )
             self._format_y(result.axes.flat)
             return result.fig
 
         return PanelSet(data.levels['col'], render, n_cols)
 
-    def _prepare(self, x, bins, facet_col, facet_series, kwargs) -> tuple[GroupedMeansData, dict]:
+    def _prepare(self, x, bins, facet_col, facet_series, kwargs) -> tuple[BinnedMeans, dict]:
         """Aggregate ``x`` and turn the remaining ``kwargs`` into drawing options."""
         column = self._source_column(x)
         transform = kwargs.pop('y_transform', self.y_transform)
         xlabel = kwargs.pop('x_label', self._default_x_label(x))
-        ylabel = kwargs.pop('y_label', self._default_y_label())
+        y_label = kwargs.pop('y_label', self._default_y_label())
         min_count = kwargs.pop('min_count', 0)
         n_bins = kwargs.pop('n_bins', 10)
         theme = kwargs.pop('theme', None) or self.theme
@@ -314,17 +314,17 @@ class MortgageDiagnostics:
         frame = self.df if facet_series is None else self._with_column(facet_col, facet_series)
         spec = self._bin_spec(x, column, bins, n_bins)
         response, preds = self.colnames.response, self.colnames.model_preds
-        data = summarize_grouped_means(
+        data = summarize_binned_means(
             frame, x=column, y=[response, *preds.values()], weight=self.colnames.weight,
             col=facet_col, bins={column: spec} if spec is not None else None,
         )
         if transform is not None:
-            data = data.map_means(transform)
-        data = data.mask_support(min_count)
+            data = data.transform_means(transform)
+        data = data.mask_sparse(min_count)
         labels = {column: xlabel, response: 'Actual', **{source: name for name, source in preds.items()}}
         if facet_col is not None and facet_label is not None:
             labels[facet_col] = facet_label
-        options = dict(labels=labels, ylabel=ylabel, theme=theme, **kwargs)
+        options = dict(labels=labels, y_label=y_label, theme=theme, **kwargs)
         options.setdefault('y_scale', 'free')
         options.setdefault('count_scale', 'shared')
         return data, options

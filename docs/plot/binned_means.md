@@ -1,24 +1,34 @@
-# Grouped weighted means
+# Binned means
 
-`plot_grouped_means` compares one or more numeric metrics over an x dimension,
-with optional line groups, facets, and background count bars. It accepts pandas
-and eager Polars DataFrames without requiring PyArrow.
+`plot_binned_means` draws the weighted mean of one or more numeric metrics per
+bin of an x dimension, with optional line groups, facets, and background count
+bars. It accepts pandas and eager Polars DataFrames without requiring PyArrow.
+
+Three functions share one summary object, `BinnedMeans`:
+
+| Function | Does |
+| --- | --- |
+| `summarize_binned_means(df, ...)` | Aggregates raw rows once and returns `BinnedMeans` |
+| `draw_binned_means(data, ...)` | Draws a `BinnedMeans`, or any subset of it, without re-aggregating |
+| `plot_binned_means(df, ...)` | Both in one call |
 
 ## Architecture
 
-这套接口按职责分成四层：
+这套接口按职责分层：
 
 | Layer | Responsibility |
 | --- | --- |
 | `utils/grouped_stats.py` | 通用 Polars group-by：count、valid count、weighted sum、weight sum、mean |
-| `plot/grouped_data.py` | BinSpec、Polars key 表达式、类别顺序、空 bins、GroupedMeansData 及 bin-level 变换 |
-| `plot/grouped_means.py` | 曲线、Count bars、双轴、legend 与 layout |
+| `plot/binned_means/binning.py` | `BinSpec` 与 Polars key 表达式：分箱边界、rounding、类别 codes |
+| `plot/binned_means/summary.py` | `summarize_binned_means`、`BinnedMeans`：类别顺序、空 bins、x 位置及 bin-level 变换 |
+| `plot/binned_means/draw.py` | `draw_binned_means`：曲线、Count bars、双轴、legend 与 layout |
+| `plot/panels.py` | `PanelSet`、`panel_grid`、`label_outer_panels`：报告分页与外侧标签 |
 | `MortgageDiagnostics` | Mortgage 字段映射、`plot()` 与各业务方法、bin-level SMM → CPR |
 
-`MortgageDiagnostics.plot → summarize_grouped_means → grouped_weighted_summary →
-draw_grouped_means` 是独立调用链，不调用旧 `binned_plots`。旧模块保持原有的点大小
+`MortgageDiagnostics.plot → summarize_binned_means → grouped_weighted_summary →
+draw_binned_means` 是独立调用链，不调用旧 `binned_plots`。旧模块保持原有的点大小
 样式，`plot_binned_actual_vs_pred` 会发出 `DeprecationWarning`。Numeric implied actual
-的 loss-specific 公式由 toolkit 计算，小型结果通过 `GroupedMeansData.from_summary()`
+的 loss-specific 公式由 toolkit 计算，小型结果通过 `BinnedMeans.from_summary()`
 交给 renderer；不改算成普通 weighted mean。
 
 统计函数也可独立用于数据检查：
@@ -37,9 +47,9 @@ dependencies。`utils` 与 `plot` 的 exports 使用 lazy imports，独立加载
 保留 `excluded_count`。两种 DataFrame 输入最终使用同一个统计实现。
 
 ```python
-from quantbullet.plot import BinSpec, plot_grouped_means
+from quantbullet.plot import BinSpec, plot_binned_means
 
-result = plot_grouped_means(
+result = plot_binned_means(
     df,
     x="incentive",
     y=["historical_cpr", "model_cpr"],
@@ -48,7 +58,7 @@ result = plot_grouped_means(
     group="vintage",
     count_mode="total",
     y_format=".0%",
-    ylabel="CPR (UPB weighted)",
+    y_label="CPR (UPB weighted)",
     labels={
         "incentive": "Refinance incentive (pp)",
         "historical_cpr": "Historical CPR",
@@ -75,7 +85,8 @@ result.summary  # exact statistics used in the figure
 - Use `group="purpose", row="occupancy", col="vintage"` for grouped curves
   within a matrix. Every role splits the rows further, so coarser x bins and
   `min_count` keep sparse cells readable.
-- `wrap` applies only to `col` without `row`.
+- `wrap` applies only to `col` without `row`. With fewer panels than `wrap`, the
+  grid narrows to fit; `pad_to_wrap=True` keeps all `wrap` columns.
 - `panel_size=(5.2, 3.5)` is the size in inches **per subplot**.
 - All panels share the x scale and show their x tick labels.
 
@@ -83,7 +94,7 @@ result.summary  # exact statistics used in the figure
 
 Each figure has two y axes: the left axis for means (`y_*`) and the right axis
 for counts (`count_*`). Each has one argument for its range, one for its tick
-labels and one for its title; `x_titles` places the x title. `ylabel` and
+labels and one for its title; `x_titles` places the x title. `y_label` and
 `labels` set the title text:
 
 | Argument | Values (default first) | Controls |
@@ -181,11 +192,11 @@ tick labels and expects proportions (0.12 means 12%).
 
 Transformations and support thresholds apply to the aggregated table only:
 
-- `data.map_means(fn)` transforms bin-level means, e.g. SMM → CPR after weighting.
-  Weighted sums keep their original units.
-- `data.mask_support(n)` hides means where `count < n` and keeps the count bars,
-  so curves break at low-support bins.
-- `plot_grouped_means(..., y_transform=fn, min_count=n)` applies both in that order.
+- `data.transform_means(fn)` transforms bin-level means, e.g. SMM → CPR after
+  weighting. Weighted sums keep their original units.
+- `data.mask_sparse(n)` hides means where `count < n` and keeps the count bars,
+  so curves break at sparse bins.
+- `plot_binned_means(..., y_transform=fn, min_count=n)` applies both in that order.
 
 Both methods return a new object; `result.summary` holds the values that were drawn.
 
@@ -201,25 +212,25 @@ Bin widths can vary with quantiles: bar **height**, not area, represents count.
 ## Aggregate once, render again
 
 ```python
-from quantbullet.plot import summarize_grouped_means, draw_grouped_means
+from quantbullet.plot import summarize_binned_means, draw_binned_means
 
-data = summarize_grouped_means(
+data = summarize_binned_means(
     df, x="incentive", y=["historical_cpr", "model_cpr"], weight="upb",
     group="vintage", bins={"incentive": BinSpec.step(0.25)},
 )
-first = draw_grouped_means(data, count_mode="total", y_format=".0%")
-second = draw_grouped_means(data, count_mode="stacked", y_format=".0%")
+first = draw_binned_means(data, count_mode="total", y_format=".0%")
+second = draw_binned_means(data, count_mode="stacked", y_format=".0%")
 ```
 
 `PlotTheme` controls shared colors, axes, titles, labels, and legend appearance;
-`GroupedMeansStyle` controls the mean curves or points, count bars, and categorical ticks.
+`BinnedMeansStyle` controls the mean curves or points, count bars, and categorical ticks.
 Both are immutable, so derive a variant with `dataclasses.replace`:
 
 ```python
 from dataclasses import replace
 import pandas as pd
 from quantbullet.plot import (
-    MINIMAL_THEME, DEFAULT_GROUPED_MEANS_STYLE, plot_grouped_means,
+    MINIMAL_THEME, DEFAULT_BINNED_MEANS_STYLE, plot_binned_means,
 )
 
 custom_theme = replace(
@@ -230,12 +241,12 @@ custom_theme = replace(
     figure_title_fontsize=16,
 )
 custom_style = replace(
-    DEFAULT_GROUPED_MEANS_STYLE,
+    DEFAULT_BINNED_MEANS_STYLE,
     metric_linestyles=("-", ":"),
     marker="s",
     stacked_count_alpha=0.25,
 )
-result = plot_grouped_means(
+result = plot_binned_means(
     df, x="incentive", y=["historical_cpr", "model_cpr"],
     weight="upb", group="vintage", count_mode="stacked",
     theme=custom_theme, style=custom_style,
@@ -245,8 +256,8 @@ result = plot_grouped_means(
 ordered_df = df.assign(vintage_label=pd.Categorical(
     df["vintage"].astype(str), categories=["2019", "2020", "2021"], ordered=True,
 ))
-connected_style = replace(DEFAULT_GROUPED_MEANS_STYLE, connect_categorical=True)
-categorical_result = plot_grouped_means(
+connected_style = replace(DEFAULT_BINNED_MEANS_STYLE, connect_categorical=True)
+categorical_result = plot_binned_means(
     ordered_df, x="vintage_label", y="historical_cpr", weight="upb",
     style=connected_style,
 )
@@ -278,19 +289,18 @@ diagnostics.plot("incentive", facet_col="purpose", min_count=200)
 diagnostics.plot("orig_balance", bins=50_000, x_label="Original balance")
 ```
 
-`draw_grouped_means(..., ax=existing_axes, legend="none")` 可把单个 panel 画进调用方
+`draw_binned_means(..., ax=existing_axes, legend="none")` 可把单个 panel 画进调用方
 自己的网格，由调用方只保留一个 legend。
 
 ## Reproducible examples
 
-Run the unittest cases with either runner:
+Run the tests for the package, including the gallery:
 
 ```shell
-python -m unittest discover -s tests/plot -p test_grouped_means.py
-python -m pytest tests/plot/test_grouped_means.py -q
+python -m pytest tests/plot/binned_means -q
 ```
 
-`make_fake_mortgage_data()` in that test module creates 40,000 deterministic
+`make_fake_mortgage_data()` in `tests/plot/binned_means/test_gallery.py` creates 40,000 deterministic
 synthetic records. Nine visual cases are grouped by layout:
 
 | Layout | Cases |
@@ -302,10 +312,10 @@ synthetic records. Nine visual cases are grouped by layout:
 
 Set `QB_TEST_KEEP_ARTIFACTS=1` in your `.env` (see `.env.example`) or process
 environment before running the tests to retain the gallery. Then open
-`tests/_cache_dir/grouped_means/gallery.html`. With the setting off, the gallery
+`tests/_cache_dir/binned_means/gallery.html`. With the setting off, the gallery
 is generated in a temporary directory and cleaned up after the unittest class.
 The index groups the cases by layout, with bilingual titles. Each case lists
 parameter tags read from its call, so they always match the code. Each image
-shows the exact `plot_grouped_means(...)` call used to generate it.
+shows the exact `plot_binned_means(...)` call used to generate it.
 Replace `self.df` in those unittest calls with your own DataFrame.
 Individual PNGs are saved beside it. Generated artifacts are ignored by Git.

@@ -22,7 +22,7 @@ $ pip install quantbullet
 :hidden:
 
 research/jump_model_prod.ipynb
-plot/grouped_means.md
+plot/binned_means.md
 changelog.md
 contributing.md
 conduct.md

@@ -1,15 +1,15 @@
-"""Binning, dimension metadata and plot-ready summaries for grouped means.
+"""Bin-level weighted means: one aggregation that every figure draws from.
 
 Raw rows are processed once: the selected columns form a slim Polars frame,
-each dimension becomes a Polars key expression, and a single group-by
-produces the statistics. Level ordering, empty-bin completion and plot
-positions are derived from that small aggregated table only.
+each dimension becomes a Polars key expression (see ``binning``), and a
+single group-by produces the statistics. Level ordering, empty-bin
+completion and plot positions are derived from that small aggregated table.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from itertools import product
-from typing import Callable, Literal, Mapping, Sequence
+from typing import Callable, Mapping, Sequence
 
 import numpy as np
 import pandas as pd
@@ -17,59 +17,14 @@ import polars as pl
 
 from quantbullet.utils.grouped_stats import grouped_weighted_summary
 
+from .binning import BinSpec, _dimension_key
+
 _STAT_SUFFIXES = ("valid_count", "weight_sum", "weighted_sum", "mean")
 
 
-@dataclass(frozen=True)
-class BinSpec:
-    """Explicit binning: edges, quantiles, fixed-width intervals or rounding.
-
-    All intervals are right-closed and include the lowest boundary. ``step``
-    uses multiples of its width as edges (not rounding to the nearest value).
-    Missing/nonfinite values and values outside explicit edges are excluded.
-    """
-
-    method: Literal["edges", "quantile", "step", "round"]
-    breaks: tuple[float, ...] = ()
-    n_bins: int = 10
-    width: float | None = None
-
-    def __post_init__(self):
-        if self.method == "edges":
-            edges = np.asarray(self.breaks, dtype=float)
-            if edges.ndim != 1 or len(edges) < 2 or not np.isfinite(edges).all() or not (np.diff(edges) > 0).all():
-                raise ValueError("edges must contain at least two finite, strictly increasing values")
-            object.__setattr__(self, "breaks", tuple(edges))
-        elif self.method == "quantile":
-            if isinstance(self.n_bins, bool) or not isinstance(self.n_bins, (int, np.integer)) or self.n_bins < 1:
-                raise ValueError("n_bins must be a positive integer")
-        elif self.method in {"step", "round"}:
-            if self.width is None or not np.isfinite(self.width) or self.width <= 0:
-                raise ValueError("width must be finite and positive")
-        else:
-            raise ValueError("unknown binning method")
-
-    @classmethod
-    def edges(cls, values: Sequence[float]) -> BinSpec:
-        return cls("edges", breaks=tuple(values))
-
-    @classmethod
-    def quantile(cls, n_bins: int = 10) -> BinSpec:
-        return cls("quantile", n_bins=n_bins)
-
-    @classmethod
-    def step(cls, width: float) -> BinSpec:
-        return cls("step", width=width)
-
-    @classmethod
-    def round(cls, width: float) -> BinSpec:
-        """Round to the nearest width multiple (ties to even), not intervals."""
-        return cls("round", width=width)
-
-
 @dataclass
-class GroupedMeansData:
-    """Reusable aggregation; role columns in ``summary`` are x/group/row/col.
+class BinnedMeans:
+    """Bin-level statistics for drawing; role columns in ``summary`` are x/group/row/col.
 
     For each metric, ``__mean``, ``__valid_count``, ``__weight_sum`` and
     ``__weighted_sum`` describe its independently filtered observations.
@@ -92,7 +47,7 @@ class GroupedMeansData:
     def from_summary(
         cls, summary: pd.DataFrame, *, x: str,
         mean_columns: Mapping[str, str], count: str = "count", col: str | None = None,
-    ) -> GroupedMeansData:
+    ) -> BinnedMeans:
         """Adapt a small preaggregated table without regrouping raw observations.
 
         Use this for bin-level estimates that are not weighted means, such as
@@ -124,7 +79,7 @@ class GroupedMeansData:
         return _assemble(stats, dimensions, tuple(mean_columns), levels, bin_info,
                          int(counts.sum()), int(counts[~valid].sum()))
 
-    def map_means(self, transform: Callable, metrics: Sequence[str] | None = None) -> GroupedMeansData:
+    def transform_means(self, transform: Callable, metrics: Sequence[str] | None = None) -> BinnedMeans:
         """Return a copy with ``transform`` applied to aggregated means only.
 
         Use this for display units after weighting, e.g. bin-level SMM -> CPR.
@@ -140,10 +95,10 @@ class GroupedMeansData:
             summary[column] = np.asarray(transform(summary[column]), dtype=float)
         return replace(self, summary=summary)
 
-    def mask_support(self, min_count: int) -> GroupedMeansData:
+    def mask_sparse(self, min_count: int) -> BinnedMeans:
         """Return a copy whose means are missing where ``count < min_count``.
 
-        Counts are kept, so low-support bins still show their bars while the
+        Counts are kept, so sparse bins still show their bars while the
         curves break there. This object is unchanged.
         """
         if isinstance(min_count, bool) or not isinstance(min_count, (int, np.integer)) or min_count < 0:
@@ -154,7 +109,7 @@ class GroupedMeansData:
             summary.loc[low, f"{metric}__mean"] = np.nan
         return replace(self, summary=summary)
 
-    def select(self, role: str, levels: Sequence) -> GroupedMeansData:
+    def select(self, role: str, levels: Sequence) -> BinnedMeans:
         """Return a copy limited to ``levels`` of ``role`` (row, col or group), in that order.
 
         ``bin_info`` still lists every level, so panel labels describe the
@@ -168,10 +123,6 @@ class GroupedMeansData:
             raise ValueError(f"unknown {role} levels: {unknown}")
         summary = self.summary.loc[self.summary[role].isin(levels)]
         return replace(self, summary=summary, levels={**self.levels, role: levels})
-
-
-def _is_datetime(dtype: pl.DataType) -> bool:
-    return dtype == pl.Date or isinstance(dtype, pl.Datetime)
 
 
 def _numeric(series: pd.Series, name: str) -> np.ndarray:
@@ -246,66 +197,6 @@ def _slim_frame(df, dimensions: Mapping[str, str], metrics: Sequence[str], weigh
     return pl.DataFrame(columns), declared
 
 
-def _fit_edges(frame: pl.DataFrame, values: pl.Expr, spec: BinSpec) -> np.ndarray:
-    """Global edges from finite values; one small select, no row-level copy."""
-    if spec.method == "edges":
-        return np.asarray(spec.breaks, dtype=float)
-    finite = values.filter(values.is_finite())
-    if spec.method == "quantile":
-        probabilities = np.linspace(0, 1, spec.n_bins + 1)
-        row = frame.select([finite.quantile(float(p), "linear").alias(f"q{i}")
-                            for i, p in enumerate(probabilities)]).row(0)
-        return np.array([], dtype=float) if row[0] is None else np.unique(np.asarray(row, dtype=float))
-    low, high = frame.select(finite.min().alias("low"), finite.max().alias("high")).row(0)
-    if low is None:
-        return np.array([], dtype=float)
-    low = np.floor(low / spec.width)
-    high = max(np.ceil(high / spec.width), low + 1)
-    return np.arange(low, high + 1) * spec.width
-
-
-def _dimension_key(frame: pl.DataFrame, role: str, spec: BinSpec | None, declared: tuple | None):
-    """Return a key expression (null means excluded), known levels and info.
-
-    Known levels mean the key holds integer codes into them (declared
-    categories and interval bins); otherwise levels come from observed keys.
-    """
-    column = f"_d_{role}"
-    values = pl.col(column)
-    dtype = frame.schema[column]
-    if declared is not None:
-        return (pl.when(values >= 0).then(values).alias(role), declared,
-                {"method": "discrete", "edges": None, "categorical": True, "datetime": False})
-    if spec is None:
-        if dtype.is_float():
-            values = pl.when(values.is_finite()).then(values)
-        datetime = _is_datetime(dtype)
-        categorical = not (dtype.is_numeric() or dtype == pl.Boolean or datetime)
-        return values.alias(role), None, {"method": "discrete", "edges": None,
-                                          "categorical": categorical, "datetime": datetime}
-
-    values = values.cast(pl.Float64)
-    finite = values.is_finite()
-    if spec.method == "round":
-        key = pl.when(finite).then((values / spec.width).round() * spec.width)
-        return key.alias(role), None, {"method": "round", "width": spec.width,
-                                       "edges": None, "categorical": False}
-    edges = _fit_edges(frame, values, spec)
-    if len(edges) >= 2:
-        levels = tuple(pd.Interval(a, b, closed="both" if i == 0 else "right")
-                       for i, (a, b) in enumerate(zip(edges[:-1], edges[1:])))
-        position = pl.lit(pl.Series(edges)).search_sorted(values, side="left").cast(pl.Int64)
-        in_range = finite & (values >= edges[0]) & (values <= edges[-1])
-        key = pl.when(in_range).then(pl.max_horizontal(position - 1, 0))  # lowest edge -> first bin
-    elif len(edges) == 1:  # A constant column still has one usable quantile bin.
-        levels = (pd.Interval(edges[0], edges[0], closed="both"),)
-        key = pl.when(finite & (values == edges[0])).then(pl.lit(0, dtype=pl.Int64))
-    else:
-        levels, key = (), pl.lit(None, dtype=pl.Int64)
-    return key.alias(role), levels, {"method": spec.method, "edges": tuple(edges),
-                                     "closed": "right", "include_lowest": True}
-
-
 def _observed_codes(keys: pl.Series) -> tuple[np.ndarray, tuple]:
     """Sort the distinct keys of the small aggregated table into levels."""
     if keys.dtype == pl.Categorical:
@@ -334,7 +225,7 @@ def _encode_small(series: pd.Series) -> tuple[np.ndarray, tuple, dict]:
 
 def _assemble(stats: pd.DataFrame, dimensions: Mapping[str, str], metrics: tuple[str, ...],
               levels: dict[str, tuple], bin_info: dict[str, dict],
-              input_count: int, excluded_count: int) -> GroupedMeansData:
+              input_count: int, excluded_count: int) -> BinnedMeans:
     """Complete empty x bins, decode role codes and place x; small tables only.
 
     ``stats`` holds integer role codes into ``levels`` plus ``count`` and
@@ -377,11 +268,11 @@ def _assemble(stats: pd.DataFrame, dimensions: Mapping[str, str], metrics: tuple
     else:
         positions = np.arange(len(x_levels), dtype=float)
         widths = np.ones(len(x_levels))
-    return GroupedMeansData(summary, bin_info, dict(dimensions), metrics, levels,
+    return BinnedMeans(summary, bin_info, dict(dimensions), metrics, levels,
                             positions, widths, input_count, excluded_count)
 
 
-def summarize_grouped_means(
+def summarize_binned_means(
     df,
     *,
     x: str,
@@ -391,12 +282,12 @@ def summarize_grouped_means(
     row: str | None = None,
     col: str | None = None,
     bins: Mapping[str, BinSpec] | None = None,
-) -> GroupedMeansData:
+) -> BinnedMeans:
     """Aggregate pandas or eager Polars data without mutating the input.
 
     ``x`` is required; group, row and col are optional and may be combined.
     Each extra role splits the rows further, so sparse cells may need coarser
-    x bins or ``mask_support``. Binning specs are keyed by source column and
+    x bins or ``mask_sparse``. Binning specs are keyed by source column and
     fitted globally before group-by.
     Negative weights raise; nonfinite weights/y are omitted per metric.
     Missing grouping keys are excluded and counted in ``excluded_count``.

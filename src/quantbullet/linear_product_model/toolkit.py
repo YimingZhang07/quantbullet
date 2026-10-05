@@ -19,9 +19,9 @@ from quantbullet.linear_product_model.datacontainer import ProductModelDataConta
 from quantbullet.linear_product_model._acceleration import vector_product_numexpr_dict_values
 from quantbullet.model.core import FeatureSpec
 from quantbullet.plot.formatter import PlotFormatter
-from quantbullet.plot.grouped_data import GroupedMeansData
-from quantbullet.plot.grouped_means import (DEFAULT_GROUPED_MEANS_STYLE, GroupedMeansStyle,
-                                            draw_grouped_means, label_outer_panels)
+from quantbullet.plot.binned_means import (DEFAULT_BINNED_MEANS_STYLE, BinnedMeans, BinnedMeansStyle,
+                                           draw_binned_means)
+from quantbullet.plot.panels import label_outer_panels
 from quantbullet.plot.colors import EconomistBrandColor
 from quantbullet.plot.panels import PanelSet, panel_grid
 from quantbullet.plot.theme import MINIMAL_THEME, PlotTheme
@@ -450,7 +450,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
             ylim=ylim, show_lowess=show_lowess, lowess_frac=lowess_frac, n_cols=n_cols, legend='axes',
         )
         fig = panels.draw(panel_size=figsize)
-        # panel_grid creates the grid first; draw_grouped_means then adds one count axis per panel.
+        # panel_grid creates the grid first; draw_binned_means then adds one count axis per panel.
         n_slots = panels.n_rows * panels.n_cols
         axes = np.array(fig.axes[:n_slots], dtype=object)
         self.implied_actual_plot_axes = axes
@@ -471,7 +471,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         lowess_frac: float = 0.3,
         n_cols: int = 3,
         theme: PlotTheme = MINIMAL_THEME,
-        style: GroupedMeansStyle = DEFAULT_GROUPED_MEANS_STYLE,
+        style: BinnedMeansStyle = DEFAULT_BINNED_MEANS_STYLE,
         legend: str = 'figure',
     ) -> PanelSet:
         """``plot_implied_actuals`` as a ``PanelSet`` of numerical features.
@@ -501,11 +501,11 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
             for i, feature in enumerate(features):
                 ax = grid.flat[i]
                 agg = per_feature[feature]
-                drawing_data = GroupedMeansData.from_summary(
+                drawing_data = BinnedMeans.from_summary(
                     agg, x='bin_val', count='count',
                     mean_columns={'Implied Actual': 'implied_actual', 'Model Prediction': 'model_pred'},
-                ).mask_support(min_count)
-                result = draw_grouped_means(drawing_data, ax=ax, labels={'bin_val': feature}, ylabel='Implied Actual',
+                ).mask_sparse(min_count)
+                result = draw_binned_means(drawing_data, ax=ax, labels={'bin_val': feature}, y_label='Implied Actual',
                                             theme=theme, style=style, legend=legend if i == 0 else 'none')
                 count_axes.flat[i] = result.count_axes[0, 0]
 

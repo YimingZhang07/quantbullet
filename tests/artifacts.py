@@ -85,7 +85,7 @@ def artifact_dir(test: unittest.TestCase, area: str) -> Path:
 def gallery_dir(test_class: type[unittest.TestCase]) -> Path:
     """One stable gallery when retained, isolated temp output otherwise."""
     if keep_test_artifacts():
-        path = CACHE_ROOT / "grouped_means"
+        path = CACHE_ROOT / "binned_means"
         path.mkdir(parents=True, exist_ok=True)
         return path
     temporary = temporary_artifact_dir(prefix="gallery-")

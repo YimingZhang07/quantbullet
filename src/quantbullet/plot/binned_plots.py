@@ -1,4 +1,4 @@
-"""Legacy binned actual-vs-predicted plots; new code uses ``grouped_means``."""
+"""Legacy binned actual-vs-predicted plots; new code uses ``binned_means``."""
 from __future__ import annotations
 
 import warnings
@@ -405,11 +405,11 @@ def plot_binned_actual_vs_pred(
         Visual theme for the axes. Defaults to ECONOMIST_THEME.
 
     .. deprecated::
-        Use ``quantbullet.plot.plot_grouped_means`` or ``MortgageDiagnostics.plot``,
+        Use ``quantbullet.plot.plot_binned_means`` or ``MortgageDiagnostics.plot``,
         which show counts as background bars instead of point sizes.
     """
     warnings.warn(
-        "plot_binned_actual_vs_pred is deprecated; use quantbullet.plot.plot_grouped_means "
+        "plot_binned_actual_vs_pred is deprecated; use quantbullet.plot.plot_binned_means "
         "or MortgageDiagnostics.plot instead.",
         DeprecationWarning, stacklevel=2,
     )

@@ -64,9 +64,9 @@ Actual-vs-predicted 直接使用 `MortgageDiagnostics` / `MortgageColnames`，�
 HPI ratio、original LTV 没有 mortgage role，按源列名调用同一个 `MortgageDiagnostics.plot()`，不在 project 重写统计或绘图。
 Implied actuals 与模型数值的 actual-vs-predicted 都使用 `*_fit`。Reporting month 和 current balance 没有 fit 列。
 沿用 reference 的 CPR 显示：先聚合 bin-level SMM，再转换 `1-(1-SMM)^12`。Summary / context 仍保留月度 SMM。
-两类 numeric/binned 图复用 `draw_grouped_means()`，背景 Count bars 表示 loan-month 行数（不是余额或 unique loans），曲线/markers 使用左轴，不再以点大小表示 Count。
+两类 numeric/binned 图复用 `draw_binned_means()`，背景 Count bars 表示 loan-month 行数（不是余额或 unique loans），曲线/markers 使用左轴，不再以点大小表示 Count。
 最低支持为 overall 500 rows、purpose facet 200 rows：低支持/空 bins 的曲线置空，Count bars 保留，曲线不跨空值连接。Purpose 与 balance facet panels 共用 Count 右轴和 CPR 主轴尺度，范围取自全量聚合，分页时各页一致；每个 panel 都显示两侧刻度数字，轴标题只在外侧显示一次。
-Mortgage 图的 rounding 分箱沿用 `BinSpec.round`，聚合由 `summarize_grouped_means` 以 Polars 表达式一次完成。Implied actuals 保留 toolkit 的 loss-specific 计算，小型 aggregated table 通过 `GroupedMeansData.from_summary()` 传给 renderer。
+Mortgage 图的 rounding 分箱沿用 `BinSpec.round`，聚合由 `summarize_binned_means` 以 Polars 表达式一次完成。Implied actuals 保留 toolkit 的 loss-specific 计算，小型 aggregated table 通过 `BinnedMeans.from_summary()` 传给 renderer。
 CPR 转换在 bin-level SMM 聚合后执行，原数据及 predictions 不裁剪、不修改。日期使用真实日期位置，保留时间轴的月份间隔。
 
 Poisson implied actual 使用现有 toolkit 的 convention：

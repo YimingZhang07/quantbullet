@@ -1,4 +1,4 @@
-"""Panel sets: a grid of panels drawn in any subset at any panel size."""
+"""Panel grids: sets of panels drawn in any subset at any size, and their outer labels."""
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
@@ -64,3 +64,35 @@ class PanelSet:
         if not panels:
             raise ValueError("select at least one panel")
         return panels
+
+
+def label_outer_panels(axes, count_axes=None, *, y_titles: bool = False, count_titles: bool = False,
+                       x_titles: bool = False, y_ticks: bool = False, count_ticks: bool = False) -> None:
+    """Keep the chosen axis titles and tick labels on the outer panels only.
+
+    Each flag moves one element: y titles and tick labels to the first
+    visible panel of each row, Count titles and tick labels to the last, and
+    x titles to the lowest visible panel of each column. Use the tick flags
+    only on a shared or fixed scale. Hidden axes are skipped.
+    """
+    grid = np.asarray(axes, dtype=object)
+    grid = grid.reshape(1, -1) if grid.ndim == 1 else grid
+    twins = np.full(grid.shape, None, dtype=object) if count_axes is None else np.asarray(count_axes, dtype=object).reshape(grid.shape)
+    n_rows, n_cols = grid.shape
+    for r in range(n_rows):
+        visible = [c for c in range(n_cols) if grid[r, c] is not None and grid[r, c].get_visible()]
+        for c in visible:
+            ax, twin = grid[r, c], twins[r, c]
+            if c != visible[0]:
+                if y_titles:
+                    ax.set_ylabel("")
+                if y_ticks:
+                    ax.tick_params(axis="y", labelleft=False)
+            if x_titles and any(grid[below, c] is not None and grid[below, c].get_visible()
+                                for below in range(r + 1, n_rows)):
+                ax.set_xlabel("")
+            if twin is not None and c != visible[-1]:
+                if count_titles:
+                    twin.set_ylabel("")
+                if count_ticks:
+                    twin.tick_params(axis="y", labelright=False, length=0)

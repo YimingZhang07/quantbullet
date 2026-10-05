@@ -13,7 +13,7 @@ import polars as pl
 
 from quantbullet.linear_product_model.mortgage_diagnostics import MortgageColnames, MortgageDiagnostics
 from quantbullet.plot.formatter import compact_number
-from quantbullet.plot.grouped_means import PRINT_GROUPED_MEANS_STYLE
+from quantbullet.plot.binned_means import PRINT_BINNED_MEANS_STYLE
 from quantbullet.plot.theme import PRINT_THEME
 from quantbullet.preprocessing.transformers import FlatRampTransformer
 from quantbullet.reporting import PdfTextReport
@@ -147,7 +147,7 @@ def report(config: Config) -> dict:
         chart("3. Convergence", lambda w, h: toolkit.plot_convergence_diagnostics(model, figsize=(w, h))[0])
         pdf.add_figure_grid(panels("4. Numeric implied actuals", lambda: toolkit.implied_actual_panels(
             model=model, dcontainer=container, sample_weights=weights, bin_config=IMPLIED_BIN_CONFIG,
-            min_count=MIN_COUNT, n_cols=3, theme=PRINT_THEME, style=PRINT_GROUPED_MEANS_STYLE),
+            min_count=MIN_COUNT, n_cols=3, theme=PRINT_THEME, style=PRINT_BINNED_MEANS_STYLE),
             level=1, new_page=True))
         categorical = panels("5. Categorical implied actuals", lambda: toolkit.categorical_panels(
             model=model, dcontainer=container, sample_weights=weights, theme=PRINT_THEME),
@@ -168,7 +168,7 @@ def report(config: Config) -> dict:
 
         diagnostics = MortgageDiagnostics(
             df=frame, colnames=MORTGAGE_COLUMNS, y_transform="smm_to_cpr", y_as_percent=True,
-            theme=PRINT_THEME, style=PRINT_GROUPED_MEANS_STYLE,
+            theme=PRINT_THEME, style=PRINT_BINNED_MEANS_STYLE,
         )
         chart("6. Reporting month", lambda w, h: diagnostics.factor_date_plot(
             min_count=MIN_COUNT, figsize=(w, h), x_label=MORTGAGE_COLUMNS.factor_dt, title=None)[0], height=half_page)

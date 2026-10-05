@@ -1,9 +1,9 @@
-"""Weighted-mean curves with count overlays and optional grouping/facets."""
+"""Draw bin-level means as curves over count bars, with optional groups and facets."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from itertools import product
-from typing import Callable, Literal, Mapping, Sequence
+from typing import Literal, Mapping
 
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
@@ -14,13 +14,14 @@ from matplotlib.dates import AutoDateLocator, ConciseDateFormatter
 import numpy as np
 import pandas as pd
 
-from .formatter import PlotFormatter, compact_number
-from .grouped_data import BinSpec, GroupedMeansData, summarize_grouped_means
-from .theme import MINIMAL_THEME, PlotTheme
+from ..formatter import PlotFormatter, compact_number
+from ..panels import label_outer_panels
+from ..theme import MINIMAL_THEME, PlotTheme
+from .summary import BinnedMeans
 
 
 @dataclass
-class GroupedMeansPlot:
+class BinnedMeansPlot:
     """Figure, 2-D primary/secondary axes, and the exact aggregation plotted.
 
     Unused wrapped slots are hidden with ``None`` in ``count_axes``. With
@@ -30,7 +31,7 @@ class GroupedMeansPlot:
     fig: Figure
     axes: np.ndarray
     count_axes: np.ndarray
-    data: GroupedMeansData
+    data: BinnedMeans
 
     @property
     def summary(self) -> pd.DataFrame:
@@ -42,7 +43,7 @@ class GroupedMeansPlot:
 
 
 @dataclass(frozen=True)
-class GroupedMeansStyle:
+class BinnedMeansStyle:
     """Visual settings specific to weighted-mean curves and count bars."""
 
     metric_linestyles: tuple[str, ...] = ("-", "--", "-.", ":")
@@ -61,9 +62,9 @@ class GroupedMeansStyle:
     categorical_tick_rotation: float = 30.0
 
 
-DEFAULT_GROUPED_MEANS_STYLE = GroupedMeansStyle()
+DEFAULT_BINNED_MEANS_STYLE = BinnedMeansStyle()
 # Thinner marks for the small panels of PRINT_THEME figures.
-PRINT_GROUPED_MEANS_STYLE = GroupedMeansStyle(line_width=1.3, legend_line_width=1.5, marker_size=2.2)
+PRINT_BINNED_MEANS_STYLE = BinnedMeansStyle(line_width=1.3, legend_line_width=1.5, marker_size=2.2)
 
 
 def _level_label(value, first=False):
@@ -72,44 +73,16 @@ def _level_label(value, first=False):
     return str(value)
 
 
-def label_outer_panels(axes, count_axes=None, *, y_titles: bool = False, count_titles: bool = False,
-                       x_titles: bool = False, y_ticks: bool = False, count_ticks: bool = False) -> None:
-    """Keep the chosen axis titles and tick labels on the outer panels only.
-
-    Each flag moves one element: y titles and tick labels to the first
-    visible panel of each row, Count titles and tick labels to the last, and
-    x titles to the lowest visible panel of each column. Use the tick flags
-    only on a shared or fixed scale. Hidden axes are skipped.
-    """
-    grid = np.asarray(axes, dtype=object)
-    grid = grid.reshape(1, -1) if grid.ndim == 1 else grid
-    twins = np.full(grid.shape, None, dtype=object) if count_axes is None else np.asarray(count_axes, dtype=object).reshape(grid.shape)
-    n_rows, n_cols = grid.shape
-    for r in range(n_rows):
-        visible = [c for c in range(n_cols) if grid[r, c] is not None and grid[r, c].get_visible()]
-        for c in visible:
-            ax, twin = grid[r, c], twins[r, c]
-            if c != visible[0]:
-                if y_titles:
-                    ax.set_ylabel("")
-                if y_ticks:
-                    ax.tick_params(axis="y", labelleft=False)
-            if x_titles and any(grid[below, c] is not None and grid[below, c].get_visible()
-                                for below in range(r + 1, n_rows)):
-                ax.set_xlabel("")
-            if twin is not None and c != visible[-1]:
-                if count_titles:
-                    twin.set_ylabel("")
-                if count_ticks:
-                    twin.tick_params(axis="y", labelright=False, length=0)
-
-
-def draw_grouped_means(
-    data: GroupedMeansData,
+def draw_binned_means(
+    data: BinnedMeans,
     *,
+    # Layout
     count_mode: Literal["total", "stacked", "none"] = "total",
     wrap: int | None = None,
+    pad_to_wrap: bool = False,
     panel_size: tuple[float, float] = (5.2, 3.5),
+    ax: plt.Axes | None = None,
+    # Axes
     y_scale: Literal["shared", "free"] | tuple[float, float] = "shared",
     count_scale: Literal["shared", "free"] | float = "free",
     y_ticks: Literal["all", "outer"] = "all",
@@ -117,24 +90,27 @@ def draw_grouped_means(
     y_titles: Literal["all", "outer"] = "all",
     count_titles: Literal["all", "outer"] = "all",
     x_titles: Literal["all", "outer"] = "all",
-    theme: PlotTheme = MINIMAL_THEME,
-    style: GroupedMeansStyle = DEFAULT_GROUPED_MEANS_STYLE,
+    # Text
     labels: Mapping[str, str] | None = None,
+    y_label: str = "Weighted mean",
     title: str | None = None,
-    ylabel: str = "Weighted mean",
     y_format: str | None = None,
-    ax: plt.Axes | None = None,
-    compact_cols: bool = True,
     legend: Literal["figure", "axes", "none"] | None = None,
-) -> GroupedMeansPlot:
-    """Render reusable statistics; no raw-data aggregation happens here.
+    # Look
+    theme: PlotTheme = MINIMAL_THEME,
+    style: BinnedMeansStyle = DEFAULT_BINNED_MEANS_STYLE,
+) -> BinnedMeansPlot:
+    """Draw a ``BinnedMeans`` summary; no raw-data aggregation happens here.
 
-    ``labels`` maps source column names to display labels. ``y_format`` is a
-    Python format spec, e.g. '.0%' for proportions. ``panel_size`` is in inches
-    per subplot. Numeric/binned x uses numeric positions, categories are
-    equally spaced. Counts are rows, never duplicated across y metrics; count
-    ticks and large numeric x ticks use K/M suffixes. All panels share the x
-    scale and show their x tick labels.
+    ``labels`` maps source column names to display labels and ``y_label`` is
+    the y axis title. ``y_format`` is a Python format spec, e.g. '.0%' for
+    proportions. ``panel_size`` is in inches per subplot. With ``wrap``, the
+    grid narrows to the number of panels when there are fewer, unless
+    ``pad_to_wrap`` keeps all ``wrap`` columns (hiding empty slots), e.g. so
+    pages share column widths. Numeric/binned x uses numeric positions,
+    categories are equally spaced. Counts are rows, never duplicated across y
+    metrics; count ticks and large numeric x ticks use K/M suffixes. All
+    panels share the x scale and show their x tick labels.
 
     Each axis is set by its own arguments; ``y_*`` is the primary (mean)
     axis, ``count_*`` the right-hand count axis and ``x_*`` the x axis:
@@ -149,7 +125,7 @@ def draw_grouped_means(
     - ``y_titles`` / ``count_titles`` / ``x_titles``: ``'all'`` shows the axis
       title on every panel; ``'outer'`` keeps it on the first (y) or last
       (count) panel of each row, or the lowest panel of each column (x).
-      ``ylabel`` and ``labels`` set the title text.
+      ``y_label`` and ``labels`` set the title text.
 
     With group, colors identify groups and line styles identify metrics (a
     single metric gets no legend entry of its own); otherwise colors
@@ -201,7 +177,7 @@ def draw_grouped_means(
     rows = data.levels.get("row", (None,)) or (None,)
     cols = data.levels.get("col", (None,)) or (None,)
     panels = list(product(rows, cols))
-    ncols = (min(wrap, len(cols)) if compact_cols else wrap) if wrap else len(cols)
+    ncols = (wrap if pad_to_wrap else min(wrap, len(cols))) if wrap else len(cols)
     nrows = int(np.ceil(len(panels) / ncols)) if wrap else len(rows)
     external_ax = ax is not None
     if external_ax:
@@ -288,7 +264,7 @@ def draw_grouped_means(
                      pad=theme.title_pad, loc=theme.title_loc, color=theme.title_color)
         ax.set_xlabel(labels.get(dim["x"], dim["x"]), fontsize=theme.label_fontsize,
                       fontweight=theme.label_fontweight, color=theme.label_color)
-        ax.set_ylabel(ylabel, fontsize=theme.label_fontsize, fontweight=theme.label_fontweight, color=theme.label_color)
+        ax.set_ylabel(y_label, fontsize=theme.label_fontsize, fontweight=theme.label_fontweight, color=theme.label_color)
         if y_format is not None:
             ax.yaxis.set_major_formatter(lambda value, _: format(value, y_format))
         if xlevels and categorical_x:
@@ -369,63 +345,6 @@ def draw_grouped_means(
                      fontweight=theme.title_fontweight, color=theme.title_color)
     elif title:
         ax.set_title(title)
-    return GroupedMeansPlot(fig, axes, count_axes, data)
+    return BinnedMeansPlot(fig, axes, count_axes, data)
 
 
-def plot_grouped_means(
-    df,
-    *,
-    x: str,
-    y: str | Sequence[str],
-    weight: str | None = None,
-    group: str | None = None,
-    row: str | None = None,
-    col: str | None = None,
-    bins: Mapping[str, BinSpec] | None = None,
-    count_mode: Literal["total", "stacked", "none"] = "total",
-    wrap: int | None = None,
-    panel_size: tuple[float, float] = (5.2, 3.5),
-    y_scale: Literal["shared", "free"] | tuple[float, float] = "shared",
-    count_scale: Literal["shared", "free"] | float = "free",
-    y_ticks: Literal["all", "outer"] = "all",
-    count_ticks: Literal["all", "outer"] = "all",
-    y_titles: Literal["all", "outer"] = "all",
-    count_titles: Literal["all", "outer"] = "all",
-    x_titles: Literal["all", "outer"] = "all",
-    theme: PlotTheme = MINIMAL_THEME,
-    style: GroupedMeansStyle = DEFAULT_GROUPED_MEANS_STYLE,
-    labels: Mapping[str, str] | None = None,
-    title: str | None = None,
-    ylabel: str = "Weighted mean",
-    y_format: str | None = None,
-    y_transform: Callable | None = None,
-    min_count: int = 0,
-) -> GroupedMeansPlot:
-    """Aggregate then plot; see summarize_grouped_means/draw_grouped_means.
-
-    ``y_transform`` applies to bin-level means after weighting (e.g. SMM ->
-    CPR); ``min_count`` hides curve values for bins with fewer rows while
-    keeping their count bars. ``y_scale`` / ``count_scale`` set each y
-    axis's range, ``y_ticks`` / ``count_ticks`` its tick labels and
-    ``y_titles`` / ``count_titles`` / ``x_titles`` the axis titles; see
-    ``draw_grouped_means``.
-
-    Example::
-
-        result = plot_grouped_means(
-            df, x="incentive", y=["historical_cpr", "model_cpr"],
-            weight="upb", bins={"incentive": BinSpec.step(0.25)},
-            col="vintage", wrap=3, y_format=".0%",
-        )
-    """
-    data = summarize_grouped_means(df, x=x, y=y, weight=weight, group=group,
-                                   row=row, col=col, bins=bins)
-    if y_transform is not None:
-        data = data.map_means(y_transform)
-    if min_count:
-        data = data.mask_support(min_count)
-    return draw_grouped_means(data, count_mode=count_mode, wrap=wrap, panel_size=panel_size,
-                              y_scale=y_scale, count_scale=count_scale, y_ticks=y_ticks,
-                              count_ticks=count_ticks, y_titles=y_titles, count_titles=count_titles,
-                              x_titles=x_titles, theme=theme, style=style,
-                              labels=labels, title=title, ylabel=ylabel, y_format=y_format)

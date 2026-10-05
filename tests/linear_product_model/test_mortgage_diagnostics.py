@@ -1,4 +1,4 @@
-"""Mortgage methods use the grouped system directly, with post-mean CPR."""
+"""Mortgage methods draw through binned means directly, with post-mean CPR."""
 from datetime import date
 import subprocess
 import sys
@@ -8,11 +8,10 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from pandas.testing import assert_frame_equal
 import polars as pl
 import pytest
 
-from quantbullet.plot.grouped_data import BinSpec, summarize_grouped_means
+from quantbullet.plot.binned_means import BinSpec, summarize_binned_means
 from quantbullet.linear_product_model.mortgage_diagnostics import MortgageColnames, MortgageDiagnostics
 
 
@@ -20,29 +19,6 @@ from quantbullet.linear_product_model.mortgage_diagnostics import MortgageColnam
 def close_figures():
     yield
     plt.close('all')
-
-
-def test_round_ties_and_step_have_distinct_membership_and_input_parity():
-    records = {'x': [-.75, -.25, .25, .75, 1., None], 'y': [1., 2., 3., 4., 5., 6.]}
-    options = dict(x='x', y='y', bins={'x': BinSpec.round(.5)})
-    a = summarize_grouped_means(pd.DataFrame(records), **options)
-    b = summarize_grouped_means(pl.DataFrame(records), **options)
-    assert_frame_equal(a.summary, b.summary)
-    assert a.x_positions.tolist() == [-1., 0., 1.]
-    assert a.summary['count'].tolist() == [1, 2, 2]
-    expected = pl.DataFrame(records).select((pl.col('x')/.5).round()*.5)['x'].drop_nulls().to_list()
-    assert sorted(expected) == [-1., 0., 0., 1., 1.]
-    step = summarize_grouped_means(pl.DataFrame(records), x='x', y='y', bins={'x': BinSpec.step(.5)})
-    assert step.summary['count'].tolist() != a.summary['count'].tolist()
-
-
-def test_decimal_rounding_uses_polars_arithmetic_for_both_inputs():
-    records = {'x': [.15, .35, .95], 'y': [1., 2., 3.]}
-    expected = pl.DataFrame(records).select((pl.col('x')/.1).round()*.1)['x'].to_list()
-    for frame in [pd.DataFrame(records), pl.DataFrame(records)]:
-        result = summarize_grouped_means(frame, x='x', y='y', bins={'x':BinSpec.round(.1)})
-        np.testing.assert_allclose(result.x_positions, expected)
-        assert result.summary['count'].tolist() == [1,1,1]
 
 
 def test_mortgage_direct_new_chain_means_support_counts_and_cpr(monkeypatch):
@@ -81,7 +57,7 @@ def test_pandas_ordered_categories_dates_empty_and_vintage():
     assert np.isnan(axes[0].lines[0].get_ydata()[2])
     _, axes = diag.by_vintage_year('age', min_count=0)
     assert '2020' in axes[0].get_title()
-    empty = summarize_grouped_means(pl.DataFrame({'x': [], 'y': []}, schema={'x':pl.Float64, 'y':pl.Float64}), x='x', y='y')
+    empty = summarize_binned_means(pl.DataFrame({'x': [], 'y': []}, schema={'x':pl.Float64, 'y':pl.Float64}), x='x', y='y')
     assert empty.summary.empty
 
 
@@ -120,9 +96,9 @@ def test_generic_plot_accepts_source_columns_and_bin_overrides():
 
 def test_source_imports_do_not_reference_legacy():
     import inspect
-    from quantbullet.plot import grouped_data, grouped_means
+    from quantbullet.plot.binned_means import binning, draw, summary
     from quantbullet.linear_product_model import mortgage_diagnostics
-    for module in [grouped_data, grouped_means, mortgage_diagnostics]:
+    for module in [binning, summary, draw, mortgage_diagnostics]:
         assert 'binned_plots' not in inspect.getsource(module)
     subprocess.run([sys.executable, '-c', '''
 import sys

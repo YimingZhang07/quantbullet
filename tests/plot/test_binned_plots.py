@@ -245,6 +245,12 @@ class TestPlotBinnedPlots(unittest.TestCase):
         labels = [t.get_text() for t in size_legend.get_texts()]
         self.assertEqual(len(labels), len(set(labels)), f"Size legend labels should be unique. Got: {labels}")
 
+    def test_legacy_entry_point_is_deprecated_but_keeps_point_sizes(self):
+        df = pd.DataFrame({"x": [1., 2., 3., 4.], "y": [.1, .2, .3, .4], "p": [.1, .2, .3, .4]})
+        with self.assertWarnsRegex(DeprecationWarning, "plot_binned_means"):
+            fig, _ = plot_binned_actual_vs_pred(df, "x", "y", "p", bins="discrete")
+        self.assertTrue(any(legend.get_title().get_text() == "Size" for legend in fig.legends))
+
 
 class TestPlotBinnedPlotsPlotnine(unittest.TestCase):
     def setUp(self):
