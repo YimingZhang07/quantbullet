@@ -72,13 +72,16 @@ def _level_label(value, first=False):
     return str(value)
 
 
-def label_outer_panels(axes, count_axes=None, *, shared_x: bool = True, shared_counts: bool = False) -> None:
-    """Keep axis labels on the outer panels of a grid only.
+def label_outer_panels(axes, count_axes=None, *, titles: bool = True, shared_x: bool = True,
+                       shared_y: bool = False, shared_counts: bool = False) -> None:
+    """Keep axis titles, and the tick labels of shared scales, on the outer panels only.
 
-    The y label stays on the first visible panel of each row and the Count
-    label on the last. With ``shared_x`` the x label stays only on the lowest
-    visible panel of each column; with ``shared_counts`` the count tick labels
-    are kept only where the Count label is. Hidden axes are skipped.
+    With ``titles`` the y title stays on the first visible panel of each row
+    and the Count title on the last; with ``shared_x`` too, the x title stays
+    only on the lowest visible panel of each column. Tick labels are hidden
+    only on a shared scale: with ``shared_y`` the primary y ticks stay on the
+    first visible panel of each row, with ``shared_counts`` the count ticks
+    stay on the last. Hidden axes are skipped.
     """
     grid = np.asarray(axes, dtype=object)
     grid = grid.reshape(1, -1) if grid.ndim == 1 else grid
@@ -89,12 +92,16 @@ def label_outer_panels(axes, count_axes=None, *, shared_x: bool = True, shared_c
         for c in visible:
             ax, twin = grid[r, c], twins[r, c]
             if c != visible[0]:
-                ax.set_ylabel("")
-            if shared_x and any(grid[below, c] is not None and grid[below, c].get_visible()
-                                for below in range(r + 1, n_rows)):
+                if titles:
+                    ax.set_ylabel("")
+                if shared_y:
+                    ax.tick_params(axis="y", labelleft=False)
+            if titles and shared_x and any(grid[below, c] is not None and grid[below, c].get_visible()
+                                           for below in range(r + 1, n_rows)):
                 ax.set_xlabel("")
             if twin is not None and c != visible[-1]:
-                twin.set_ylabel("")
+                if titles:
+                    twin.set_ylabel("")
                 if shared_counts:
                     twin.tick_params(axis="y", labelright=False, length=0)
 
@@ -118,6 +125,8 @@ def draw_grouped_means(
     legend: Literal["figure", "axes", "none"] | None = None,
     count_ylim: float | None = None,
     outer_labels: bool = False,
+    ylim: tuple[float, float] | None = None,
+    outer_ticks: bool = False,
 ) -> GroupedMeansPlot:
     """Render reusable statistics; no raw-data aggregation happens here.
 
@@ -126,9 +135,13 @@ def draw_grouped_means(
     per subplot. Numeric/binned x uses numeric positions, categories are
     equally spaced. Counts are rows, never duplicated across y metrics; count
     ticks and large numeric x ticks use K/M suffixes. ``count_ylim`` fixes
-    the top of every count axis, so figures drawn from subsets of one
-    aggregation keep one count scale. ``outer_labels`` keeps axis labels on
-    the outer panels only (see ``label_outer_panels``).
+    the top of every count axis and ``ylim`` the range of every primary
+    axis, so figures drawn from subsets of one aggregation keep one scale.
+    Scale and display are separate: ``share_y`` / ``ylim`` and
+    ``share_count_y`` / ``count_ylim`` only set ranges, and every panel shows
+    its tick labels. ``outer_labels`` keeps axis titles on the outer panels;
+    ``outer_ticks`` keeps the tick labels of each shared scale there, while
+    independent scales always show theirs (see ``label_outer_panels``).
 
     With group, colors identify groups and line styles identify metrics;
     otherwise colors identify metrics and lines stay solid. Categorical x
@@ -152,6 +165,8 @@ def draw_grouped_means(
         raise ValueError("panel_size must contain two positive finite values")
     if count_ylim is not None and not (np.isfinite(count_ylim) and count_ylim > 0):
         raise ValueError("count_ylim must be a positive finite value")
+    if ylim is not None and not (len(ylim) == 2 and all(np.isfinite(v) for v in ylim) and ylim[0] < ylim[1]):
+        raise ValueError("ylim must be two finite values with ylim[0] < ylim[1]")
     if not theme.palette:
         raise ValueError("theme.palette must contain at least one color")
     if not style.metric_linestyles:
@@ -262,9 +277,11 @@ def draw_grouped_means(
             locator = AutoDateLocator()
             ax.xaxis.set_major_locator(locator)
             ax.xaxis.set_major_formatter(ConciseDateFormatter(locator))
-        # Wrapped grids can have a hidden last-row slot. Keep every visible
-        # panel's x ticks readable even when its shared-axis sibling is hidden.
+        # Shared axes hide inner tick labels by default; undo that so sharing
+        # only sets the scale and ``outer_ticks`` alone decides what is shown.
+        # This also keeps x ticks readable above a hidden last-row slot.
         ax.tick_params(axis="x", labelbottom=True)
+        ax.tick_params(axis="y", labelleft=True)
         if len(xpos):
             ax.set_xlim(np.min(xpos - widths / 2) - widths.min() * 0.12,
                         np.max(xpos + widths / 2) + widths.min() * 0.12)
@@ -283,8 +300,13 @@ def draw_grouped_means(
         maximum = max((twin.get_ylim()[1] for twin in twins), default=1)
         for twin in twins:
             twin.set_ylim(0, maximum)
-    if outer_labels:
-        label_outer_panels(axes, count_axes, shared_counts=share_count_y or count_ylim is not None)
+    if ylim is not None:
+        for primary in list(axes.flat)[:len(panels)]:
+            primary.set_ylim(*ylim)
+    if outer_labels or outer_ticks:
+        label_outer_panels(axes, count_axes, titles=outer_labels,
+                           shared_y=outer_ticks and (share_y or ylim is not None),
+                           shared_counts=outer_ticks and (share_count_y or count_ylim is not None))
 
     handles = []
     if "group" in dim:
@@ -352,12 +374,15 @@ def plot_grouped_means(
     y_format: str | None = None,
     y_transform: Callable | None = None,
     min_count: int = 0,
+    outer_labels: bool = False,
+    outer_ticks: bool = False,
 ) -> GroupedMeansPlot:
     """Aggregate then plot; see summarize_grouped_means/draw_grouped_means.
 
     ``y_transform`` applies to bin-level means after weighting (e.g. SMM ->
     CPR); ``min_count`` hides curve values for bins with fewer rows while
-    keeping their count bars.
+    keeping their count bars. ``outer_labels`` shows axis titles, and
+    ``outer_ticks`` the tick labels of shared scales, on the outer panels only.
 
     Example::
 
@@ -375,4 +400,5 @@ def plot_grouped_means(
         data = data.mask_support(min_count)
     return draw_grouped_means(data, count_mode=count_mode, wrap=wrap, panel_size=panel_size,
                               share_y=share_y, share_count_y=share_count_y, theme=theme, style=style,
-                              labels=labels, title=title, ylabel=ylabel, y_format=y_format)
+                              labels=labels, title=title, ylabel=ylabel, y_format=y_format,
+                              outer_labels=outer_labels, outer_ticks=outer_ticks)

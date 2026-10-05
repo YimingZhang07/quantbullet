@@ -38,6 +38,16 @@ _Y_TRANSFORM_LABELS: dict[str, str] = {
 }
 
 
+def _padded_range(values: np.ndarray, margin: float = .05) -> tuple[float, float] | None:
+    """Finite min/max widened by ``margin`` of the span, as matplotlib pads autoscaled axes."""
+    finite = values[np.isfinite(values)]
+    if not finite.size:
+        return None
+    low, high = float(finite.min()), float(finite.max())
+    pad = (high - low) * margin or abs(high) * margin or margin
+    return low - pad, high + pad
+
+
 def _column_and_bin(role: str, value):
     """A role is a column name, or ``(column, bin)``."""
     if value is None or isinstance(value, str):
@@ -250,23 +260,30 @@ class MortgageDiagnostics:
         """Faceted ``plot`` as a ``PanelSet``: a report layout sizes and pages it.
 
         Aggregates once. Every drawn subset keeps the count scale of the full
-        aggregation and labels its outer panels only. ``facet_label`` names the
-        facet in panel titles (default: the column name). Takes ``plot``'s
-        options except ``figsize`` and ``close_unused``; ``align_ylim`` aligns
-        the panels drawn together.
+        aggregation. ``facet_label`` names the facet in panel titles (default:
+        the column name). Takes ``plot``'s options except ``figsize`` and
+        ``close_unused``. Scale and display are separate: ``align_ylim`` puts
+        every panel, on every page, on one y range from the full aggregation;
+        ``outer_labels`` keeps axis titles and ``outer_ticks`` the tick labels
+        of shared scales on the outer panels (both default True).
         """
         for name in ('figsize', 'close_unused'):
             if name in kwargs:
                 raise TypeError(f"facet_panels takes its panel size from the layout; {name!r} is not accepted")
         n_cols = kwargs.pop('n_cols', 3)
+        outer_labels = kwargs.pop('outer_labels', True)
+        outer_ticks = kwargs.pop('outer_ticks', True)
         data, options = self._prepare(x, bins, facet_col, facet_series, kwargs)
         totals = data.summary.groupby(['col', 'x'], observed=True)['count'].sum()
         count_ylim = max(float(totals.max()) if len(totals) else 0., 1.) * 1.05
+        means = data.summary[[f"{metric}__mean" for metric in data.metrics]].to_numpy(dtype=float)
+        ylim = _padded_range(means) if options['share_y'] else None
 
         def render(panels, n_cols, panel_size):
             result = draw_grouped_means(
                 data.select('col', panels), wrap=n_cols, compact_cols=False, panel_size=panel_size,
-                count_ylim=count_ylim, outer_labels=True, **options,
+                count_ylim=count_ylim, ylim=ylim, outer_labels=outer_labels,
+                outer_ticks=outer_ticks, **options,
             )
             self._format_y(result.axes.flat)
             return result.fig

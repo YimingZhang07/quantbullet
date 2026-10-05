@@ -87,7 +87,8 @@ def test_external_axes_title_stays_on_the_curve_axes_with_shared_counts():
 
 def test_outer_labels_and_fixed_count_scale():
     data = summarize_grouped_means(facet_frame(), x="x", y=["y", "p"], col="f", bins={"x": BinSpec.step(.25)})
-    result = draw_grouped_means(data, wrap=3, compact_cols=False, count_ylim=2e5, outer_labels=True, ylabel="Rate")
+    result = draw_grouped_means(data, wrap=3, compact_cols=False, count_ylim=2e5, outer_labels=True, outer_ticks=True,
+                                ylabel="Rate")
     axes, twins = result.axes, result.count_axes
     assert [ax.get_ylabel() for ax in axes[0]] == ["Rate", "", ""]
     assert [twin.get_ylabel() for twin in twins[0]] == ["", "", "Count"]
@@ -97,6 +98,72 @@ def test_outer_labels_and_fixed_count_scale():
     assert all(twin.get_ylim() == (0, 2e5) for twin in twins.flat if twin is not None)
     assert "200K" in visible_tick_labels(result.fig, twins[0, 2].yaxis)
     assert visible_tick_labels(result.fig, twins[0, 0].yaxis) == []
+
+
+@pytest.mark.parametrize("scale,outer_ticks,ticks", [
+    (dict(share_y=False), False, [True, True, True]),
+    (dict(share_y=False), True, [True, True, True]),  # independent scales always keep their ticks
+    (dict(share_y=True), False, [True, True, True]),  # sharing alone only sets the scale
+    (dict(share_y=True), True, [True, False, False]),
+    (dict(share_y=False, ylim=(0, .2)), False, [True, True, True]),
+    (dict(share_y=False, ylim=(0, .2)), True, [True, False, False]),
+])
+def test_primary_scale_and_tick_display_are_separate(scale, outer_ticks, ticks):
+    data = summarize_grouped_means(facet_frame(), x="x", y=["y", "p"], col="f", bins={"x": BinSpec.step(.25)})
+    result = draw_grouped_means(data, wrap=3, compact_cols=False, outer_ticks=outer_ticks, **scale)
+    row = result.axes[0]
+    assert [bool(visible_tick_labels(result.fig, ax.yaxis)) for ax in row] == ticks
+    shared = scale["share_y"] or "ylim" in scale
+    assert (len({ax.get_ylim() for ax in row}) == 1) == shared
+
+
+def test_axis_titles_and_tick_labels_are_independent():
+    data = summarize_grouped_means(facet_frame(), x="x", y=["y", "p"], col="f", bins={"x": BinSpec.step(.25)})
+    shared = dict(wrap=3, compact_cols=False, share_y=True, share_count_y=True, ylabel="Rate")
+    titles_only = draw_grouped_means(data, outer_labels=True, outer_ticks=False, **shared)
+    axes, twins = titles_only.axes[0], titles_only.count_axes[0]
+    assert [ax.get_ylabel() for ax in axes] == ["Rate", "", ""]
+    assert [twin.get_ylabel() for twin in twins] == ["", "", "Count"]
+    assert all(visible_tick_labels(titles_only.fig, ax.yaxis) for ax in [*axes, *twins])
+    ticks_only = draw_grouped_means(data, outer_labels=False, outer_ticks=True, **shared)
+    axes, twins = ticks_only.axes[0], ticks_only.count_axes[0]
+    assert [ax.get_ylabel() for ax in axes] == ["Rate"] * 3
+    assert [bool(visible_tick_labels(ticks_only.fig, ax.yaxis)) for ax in axes] == [True, False, False]
+    assert [bool(visible_tick_labels(ticks_only.fig, twin.yaxis)) for twin in twins] == [False, False, True]
+
+
+def test_fixed_primary_range_applies_to_every_panel():
+    data = summarize_grouped_means(facet_frame(), x="x", y=["y", "p"], col="f", bins={"x": BinSpec.step(.25)})
+    result = draw_grouped_means(data, wrap=3, compact_cols=False, ylim=(-.01, .2))
+    assert [ax.get_ylim() for ax in result.axes.flat[:len(LEVELS)]] == [(-.01, .2)] * len(LEVELS)
+    for bad in ((.2, .1), (0, float("inf")), (0,)):
+        with pytest.raises(ValueError, match="ylim"):
+            draw_grouped_means(data, wrap=3, ylim=bad)
+
+
+def test_facet_panels_align_primary_scale_across_pages():
+    diagnostics = MortgageDiagnostics(facet_frame(), MortgageColnames(
+        response="y", model_preds={"Model": "p"}, incentive=("x", .25)))
+    panels = diagnostics.facet_panels("incentive", "f", n_cols=2, align_ylim=True)
+    first = panels.draw(["a", "b", "c", "d"], panel_size=(3, 2))
+    rest = panels.draw(["e"], panel_size=(3, 2))
+    primaries = [ax for ax in first.axes[:4] + rest.axes[:1]]
+    limits = {ax.get_ylim() for ax in primaries}
+    assert len(limits) == 1
+    low, high = limits.pop()
+    means = np.concatenate([line.get_ydata() for ax in primaries for line in ax.get_lines()]).astype(float)
+    means = means[np.isfinite(means)]
+    pad = (means.max() - means.min()) * .05
+    assert (low, high) == pytest.approx((means.min() - pad, means.max() + pad))
+    assert visible_tick_labels(first, first.axes[1].yaxis) == []
+    assert visible_tick_labels(first, first.axes[0].yaxis)
+    every = diagnostics.facet_panels("incentive", "f", n_cols=2, align_ylim=True, outer_ticks=False)
+    shown = every.draw(["a", "b"], panel_size=(3, 2))
+    assert {ax.get_ylim() for ax in shown.axes[:2]} == {(low, high)}
+    assert all(visible_tick_labels(shown, ax.yaxis) for ax in shown.axes)  # both panels, both axes
+    assert shown.axes[1].get_ylabel() == "" and shown.axes[0].get_ylabel()
+    default = diagnostics.facet_panels("incentive", "f", n_cols=2)
+    assert len({ax.get_ylim() for ax in default.draw(["a", "b"], panel_size=(3, 2)).axes[:2]}) == 2
 
 
 def test_facet_panels_keep_one_count_scale_across_pages():
