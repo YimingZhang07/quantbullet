@@ -45,14 +45,22 @@ def make_fake_mortgage_data(n=12000, seed=731):
     incentive = np.clip(rng.normal(0.7 + 0.25 * (vintage - 2020), 0.8, n), -1, 3)
     fico = np.clip(rng.normal(735, 40, n), 600, 850)
     upb = rng.lognormal(np.log(250000), 0.5, n)
-    base = 0.035 + 0.22 / (1 + np.exp(-2.3 * (incentive - 0.7)))
-    adjustment = 0.014 * (vintage - 2020) + 0.012 * (channel == "Broker") - 0.023 * (occupancy == "Investor") + 0.0002 * (fico - 735)
-    historical = np.clip(base + adjustment + rng.normal(0, 0.025, n), 0, 0.6)
+    noise = rng.normal(0, 0.025, n)
+    # Drawn after the original inputs so they keep their seeded values.
+    purposes = ["Purchase", "Rate/Term Refi", "Cash-out Refi"]
+    purpose = rng.choice(purposes, size=n, p=[0.55, 0.25, 0.2])
+    # Rate/term refis respond most to incentive; cash-outs least, but turn over faster out of the money.
+    sensitivity = np.select([purpose == "Rate/Term Refi", purpose == "Cash-out Refi"], [1.25, 0.7], 1.0)
+    base = 0.035 + 0.22 * sensitivity / (1 + np.exp(-2.3 * (incentive - 0.7)))
+    adjustment = (0.014 * (vintage - 2020) + 0.012 * (channel == "Broker") - 0.023 * (occupancy == "Investor")
+                  + 0.0002 * (fico - 735) + 0.02 * (purpose == "Cash-out Refi"))
+    historical = np.clip(base + adjustment + noise, 0, 0.6)
     model = np.clip(base + adjustment * 0.8 + 0.008 * np.tanh(incentive - 1), 0, 0.6)
     return pd.DataFrame({
         "incentive": incentive, "historical_cpr": historical, "model_cpr": model,
         "upb": upb, "vintage": vintage, "channel": channel,
         "occupancy": occupancy, "fico": fico,
+        "purpose": pd.Categorical(purpose, categories=purposes, ordered=True),
     })
 
 
@@ -293,6 +301,37 @@ class TestGroupedMeansGallery(unittest.TestCase):
         )
         self.save_case("07_categorical", "分类轴点图 · Categorical point chart",
                        "Use an unbinned categorical x axis for unconnected metric points; col=... creates one panel per occupancy.", result)
+
+    def test_08_single_metric_groups_within_facets(self):
+        result = plot_grouped_means(
+            self.df,
+            x="incentive",
+            y="historical_cpr",
+            weight="upb",
+            bins={"incentive": BinSpec.step(0.25)},
+            group="purpose",
+            col="vintage",
+            count_mode="stacked",
+            share_count_y=True,
+            min_count=30,
+            y_format=".0%",
+            ylabel="CPR (UPB weighted)",
+            title="CPR by loan purpose within each vintage",
+            labels={"incentive": "Refinance incentive (pp)", "purpose": "Purpose",
+                    "vintage": "Vintage", "historical_cpr": "CPR"},
+            outer_labels=True,
+            outer_ticks=True,
+        )
+        self.save_case("08_purpose_by_vintage", "分面内分组图 · Groups within facets",
+                       "One metric with group=... overlays loan purposes inside each col=... vintage panel. "
+                       "purpose is an ordered pandas Categorical, so the legend follows its declared order; "
+                       "min_count=30 breaks curves at sparse bins but keeps their bars; "
+                       "outer_labels/outer_ticks keep axis titles and shared tick labels on the outer panels.", result)
+        self.assertEqual(result.axes.shape, (1, 3))
+        self.assertTrue(all(len(ax.lines) == 3 for ax in result.axes.flat))
+        legend = [text.get_text() for text in result.fig.legends[0].get_texts()]
+        self.assertEqual(legend[:3], ["Purpose: Purchase", "Purpose: Rate/Term Refi", "Purpose: Cash-out Refi"])
+        self.assertNotIn("CPR", legend)  # one metric needs no line-style entry
 
 
 if __name__ == "__main__":

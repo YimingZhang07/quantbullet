@@ -143,8 +143,9 @@ def draw_grouped_means(
     ``outer_ticks`` keeps the tick labels of each shared scale there, while
     independent scales always show theirs (see ``label_outer_panels``).
 
-    With group, colors identify groups and line styles identify metrics;
-    otherwise colors identify metrics and lines stay solid. Categorical x
+    With group, colors identify groups and line styles identify metrics (a
+    single metric gets no legend entry of its own); otherwise colors
+    identify metrics and lines stay solid. Categorical x
     uses unconnected markers, with marker shapes identifying metrics, unless
     ``style.connect_categorical`` is true. ``stacked`` requires group. Axes
     use a common x scale, and primary y scales are shared by default. Count
@@ -315,7 +316,8 @@ def draw_grouped_means(
                                   label=f"{labels.get(dim['group'], dim['group'])}: {_level_label(value, gi == 0)}",
                                   linewidth=style.legend_line_width,
                                   **(metric_appearance(0) if points_only else {})))
-        for mi, metric in enumerate(data.metrics):
+        # A single metric has no line style to tell apart; the y title names it.
+        for mi, metric in enumerate(data.metrics if len(data.metrics) > 1 else ()):
             appearance = metric_appearance(mi)
             if not points_only:
                 # The common marker can obscure a short dashed legend sample.
