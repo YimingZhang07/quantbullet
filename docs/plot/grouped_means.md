@@ -253,16 +253,21 @@ python -m pytest tests/plot/test_grouped_means.py -q
 ```
 
 `make_fake_mortgage_data()` in that test module creates 40,000 deterministic
-synthetic records. Nine visual cases cover basic comparison, overlapping
-groups, stacked counts, wrapped facets, a two-dimensional matrix, binned facets
-with groups, a single metric on categorical x, loan purposes within vintage
-panels, and loan purposes within an occupancy x vintage matrix.
+synthetic records. Nine visual cases are grouped by layout:
+
+| Layout | Cases |
+| --- | --- |
+| Single panel | 01 multiple metrics · 02 groups overlaid · 03 groups + stacked counts |
+| Facets | 04 wrapped facets · 05 groups with quantile and edge bins · 06 groups, one metric, SMM → CPR |
+| Row x col matrix | 07 multiple metrics with shared scales · 08 groups overlaid |
+| Categorical x | 09 unconnected points with column facets |
 
 Set `QB_TEST_KEEP_ARTIFACTS=1` in your `.env` (see `.env.example`) or process
 environment before running the tests to retain the gallery. Then open
 `tests/_cache_dir/grouped_means/gallery.html`. With the setting off, the gallery
 is generated in a temporary directory and cleaned up after the unittest class.
-The page has a linked index and bilingual, function-oriented section titles.
-Each image shows the exact `plot_grouped_means(...)` call used to generate it.
+The index groups the cases by layout, with bilingual titles. Each case lists
+parameter tags read from its call, so they always match the code. Each image
+shows the exact `plot_grouped_means(...)` call used to generate it.
 Replace `self.df` in those unittest calls with your own DataFrame.
 Individual PNGs are saved beside it. Generated artifacts are ignored by Git.
