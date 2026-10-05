@@ -32,16 +32,16 @@ IMPLIED_BIN_CONFIG = {
     "c_incentive_fit": .25,
     "c_orig_fico_fit": 20,
     "c_updated_ltv_fit": 5,
-    "c_orig_balance_fit": 50000,
-    "c_prev_balance_fit": 50000,
+    "c_orig_balance_real_fit": 50000,
+    "c_factor_fit": .05,
     "c_hpi_ratio_fit": .1,
 }
 MORTGAGE_COLUMNS = MortgageColnames(
     response=TARGET, model_preds={"Model": "pred_turnover"},
     incentive=("c_incentive_fit", .25), age=("c_age_fit", "discrete"),
-    cltv=("c_updated_ltv_fit", 5), current_factor=("c_factor", .1),
-    fico=("c_orig_fico_fit", 20), orig_balance=("c_orig_balance_fit", 50000),
-    current_balance=("c_prev_balance_fit", 50000), orig_dt="d_origination_month",
+    cltv=("c_updated_ltv_fit", 5), current_factor=("c_factor_fit", .05),
+    fico=("c_orig_fico_fit", 20), orig_balance=("c_orig_balance_real_fit", 50000),
+    current_balance=("c_prev_balance", 50000), orig_dt="d_origination_month",
     factor_dt=("d_reporting_month", "discrete"), weight="c_prev_balance",
 )
 CURRENT_BALANCE_BREAKS = (100000, 150000, 250000, 350000, 500000, 700000)
@@ -139,7 +139,7 @@ def report(config: Config) -> dict:
             detail = f"FlatRamp knots={transformer.knots.tolist()}" if isinstance(transformer, FlatRampTransformer) else type(transformer).__name__
             config_lines.append(f"<b>{name}</b> ({len(columns)} terms): {detail}")
         pdf.add_list(config_lines)
-        pdf.add_body("Model-numeric actual-vs-predicted charts and implied actuals use clipped _fit fields. Reporting month, previous factor, and original LTV have no fit column. The age ramp is estimated separately by f_purpose. Burnout is excluded. Numeric missing values are dropped; categorical missing values become MISSING.", font_size=9)
+        pdf.add_body("Model-numeric actual-vs-predicted charts and implied actuals use clipped _fit fields. Reporting month, current balance, and original LTV are diagnostics without a fit column. Original balance is in January-2025 dollars (CPIAUCNS at the origination month; October 2025 interpolated). Balance factor is previous balance / original balance. The age ramp is estimated separately by f_purpose. Burnout is excluded. Numeric missing values are dropped; categorical missing values become MISSING.", font_size=9)
         pdf.add_body("HPI ratio is lag1 ZHVI / origination ZHVI: 1.0 means unchanged, 1.1 means a cumulative 10% increase. Ratio axes show multiples, not percentages.", font_size=9)
 
         chart("3. Convergence", lambda w, h: toolkit.plot_convergence_diagnostics(model, figsize=(w, h))[0])
@@ -189,9 +189,9 @@ def report(config: Config) -> dict:
 
         singles = [
             ("9. Updated first-lien LTV", diagnostics.cltv_plot, MORTGAGE_COLUMNS.cltv),
-            ("10. Previous balance factor", diagnostics.current_factor_plot, MORTGAGE_COLUMNS.current_factor),
+            ("10. Balance factor (previous / original)", diagnostics.current_factor_plot, MORTGAGE_COLUMNS.current_factor),
             ("11. Original FICO", diagnostics.fico_plot, MORTGAGE_COLUMNS.fico),
-            ("12. Original balance", diagnostics.orig_balance_plot, MORTGAGE_COLUMNS.orig_balance),
+            ("12. Original balance (Jan-2025 USD)", diagnostics.orig_balance_plot, MORTGAGE_COLUMNS.orig_balance),
             ("13. Current balance", diagnostics.current_balance_plot, MORTGAGE_COLUMNS.current_balance),
         ]
         for index, (title, role_plot, x_label) in enumerate(singles):

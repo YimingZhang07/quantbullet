@@ -28,8 +28,8 @@ CLIP = {
     "c_incentive": (-5, -.5),
     "c_orig_fico": (620, 800),
     "c_updated_ltv": (5, 100),
-    "c_orig_balance": (25000, 800_000),
-    "c_prev_balance": (25000, 800_000),
+    "c_orig_balance_real": (30000, 1_000_000),
+    "c_factor": (.2, 1.),
     "c_hpi_ratio": (.8, 2.0),
 }
 KNOTS = {
@@ -37,8 +37,8 @@ KNOTS = {
     "c_incentive": (-4, -3, -2, -1.5, -1, -.75),
     "c_orig_fico": (660, 700, 740, 780),
     "c_updated_ltv": (20, 40, 60, 80, 95),
-    "c_orig_balance": (100000, 150000, 250000, 350000, 500000, 700000),
-    "c_prev_balance": (100000, 150000, 250000, 350000, 500000, 700000),
+    "c_orig_balance_real": (125000, 200000, 300000, 425000, 600000, 850000),
+    "c_factor": (.5, .7, .8, .9, .95),
     "c_hpi_ratio": (.95, 1, 1.1, 1.25, 1.5, 1.75),
 }
 FIT_NUMERIC = tuple(name + "_fit" for name in KNOTS)

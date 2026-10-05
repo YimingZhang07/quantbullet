@@ -17,7 +17,7 @@ class Config:
     incentive_max: float = -.5
     n_iterations: int = 60
     early_stopping_rounds: int = 10
-    ftol: float = 1e-8
+    ftol: float = 1e-5
 
     def __post_init__(self):
         if not math.isfinite(self.incentive_max) or self.incentive_max > -.5:

@@ -245,7 +245,8 @@ def test_hpi_pair_fallback_and_updated_ltv(macro_frames):
     assert april["c_hpi_ratio"] == pytest.approx(215 / 200)
     assert may["c_hpi_ratio"] == pytest.approx(1.1)
     assert may["c_updated_ltv"] == pytest.approx(80 * .98 * 100 / 110)
-    assert may["c_cpi_lag1"] is None
+    assert may["c_cpi_lag1"] == pytest.approx(203.)  # April CPI interpolated between March and May
+    assert may["c_orig_cpi"] == 200.
     assert may["is_consecutive_month"] is True
 
 
@@ -394,6 +395,28 @@ def test_post_exit_rows_and_anomalies_preserve_reported_states_and_lags(macro_fr
     assert result.select(panel.columns).equals(panel)
 
 
+def test_cpi_fills_interior_months_and_keeps_outer_nulls(macro_frames):
+    hpi, pmms, _ = macro_frames
+    cpi = pl.DataFrame({  # March is absent, May is null after the last published value
+        "series_id": ["CPIAUCNS"] * 4,
+        "month": [date(2015, 1, 1), date(2015, 2, 1), date(2015, 4, 1), date(2015, 5, 1)],
+        "value": [200., 202., 206., None],
+    })
+    macro = prepare_macro_tables(hpi, pmms, cpi)
+    assert macro.cpi_filled_months == (date(2015, 3, 1),)
+    assert macro.cpi.sort("month")["value"].to_list() == [200., 202., 204., 206., None]
+    assert prepare_macro_tables(*macro_frames).cpi_filled_months == (date(2015, 4, 1),)
+
+
+def test_origination_cpi_uses_the_interpolated_month(macro_frames):
+    loans = [_loan(first_payment_date="201505")]  # originated April 2015, the interpolated month
+    result = _prepare(loans, _panel(loans, [
+        {"loan_identifier": "A", "period": "201505", "current_actual_upb": "100000"},
+    ]), macro_frames)
+    assert result["c_orig_cpi"].to_list() == [pytest.approx(203.)]
+    assert result["c_cpi_lag1"].to_list() == [pytest.approx(203.)]
+
+
 @pytest.mark.parametrize("table", [0, 1, 2])
 def test_duplicate_macro_keys_fail(macro_frames, table):
     frames = list(macro_frames)
@@ -469,6 +492,9 @@ def test_pipeline_and_complete_replacement(config):
     assert "c_hpi_ratio" in summary["vintages"][0]["feature_missing"]
     assert summary["conventions"]["hpi_ratio"] == "lag1 ZHVI divided by origination ZHVI; 1.0 means unchanged"
     assert summary["burnout_threshold"] == .5
+    assert summary["cpi_interpolated_months"] == [date(2015, 4, 1)]
+    assert "interpolated" in summary["conventions"]["cpi"]
+    assert summary["vintages"][0]["feature_missing"]["c_orig_cpi"]["rows"] == 0
     assert summary["vintages"][0]["feature_missing"]["c_burnout"]["rows"] == 0
     assert summary["ever_modified_rows"] == 0
     assert summary["vintages"][0]["feature_missing"]["c_interest"]["rows"] == 1

@@ -70,7 +70,7 @@ NUMERIC_FEATURES = (
     "c_age", *(name for name, _ in ORIG_NUMBERS.values()),
     "c_balance", "c_monthly_payment", "c_interest", "c_scheduled_principal", "c_scheduled_balance",
     "c_prev_balance", "c_prev_rate", "c_orig_pmms", "c_pmms_lag1",
-    "c_sato", "c_incentive", "c_orig_hpi", "c_hpi_lag1", "c_cpi_lag1",
+    "c_sato", "c_incentive", "c_orig_hpi", "c_hpi_lag1", "c_orig_cpi", "c_cpi_lag1",
     "c_burnout", "c_burnout_months",
     "c_factor", "c_hpi_ratio", "c_updated_ltv", "c_current_hpi", "c_current_pmms",
 )
@@ -165,12 +165,16 @@ def _require(frame: pl.LazyFrame, columns: list[str]) -> None:
 
 @dataclass(frozen=True)
 class MacroTables:
-    """Validated, small monthly tables used repeatedly across vintages."""
+    """Validated, small monthly tables used repeatedly across vintages.
+
+    ``cpi_filled_months`` lists CPI months interpolated between published values.
+    """
 
     state_hpi: pl.DataFrame
     national_hpi: pl.DataFrame
     pmms: pl.DataFrame
     cpi: pl.DataFrame
+    cpi_filled_months: tuple = ()
 
 
 def _validate_macro(frame: pl.DataFrame, keys: list[str], table: str) -> pl.DataFrame:
@@ -189,8 +193,29 @@ def _validate_macro(frame: pl.DataFrame, keys: list[str], table: str) -> pl.Data
     return frame
 
 
+def _interpolate_interior_months(table: pl.DataFrame) -> tuple[pl.DataFrame, tuple]:
+    """Linearly fill months missing between the first and last valid values.
+
+    Absent months and null values inside those bounds are filled; months
+    outside them are kept as they are. Returns the table and the filled months.
+    """
+    valid = table.filter(pl.col("value").is_not_null())
+    if valid.height < 2:
+        return table, ()
+    first, last = valid["month"].min(), valid["month"].max()
+    calendar = pl.DataFrame({"month": pl.date_range(first, last, "1mo", eager=True)})
+    inside = calendar.join(table, on="month", how="left").with_columns(pl.col("value").interpolate())
+    filled = tuple(inside.join(valid, on="month", how="anti")["month"].to_list())
+    outside = table.filter(~pl.col("month").is_between(first, last))
+    return pl.concat([inside, outside]).sort("month"), filled
+
+
 def prepare_macro_tables(hpi: pl.DataFrame, pmms: pl.DataFrame, cpi: pl.DataFrame) -> MacroTables:
-    """Select Zillow state/national ZHVI and national PMMS/CPI; reject bad keys."""
+    """Select Zillow state/national ZHVI and national PMMS/CPI; reject bad keys.
+
+    CPI months missing between published values are linearly interpolated
+    (BLS published no October 2025 CPI-U); PMMS and HPI gaps stay null.
+    """
     hpi = hpi.filter((pl.col("provider") == "zillow") & (pl.col("metric") == "ZHVI"))
     state = hpi.filter(pl.col("geography_level") == "state").select(
         pl.col("region_name").replace_strict(STATE_CODES, default=None).alias("f_state"),
@@ -211,9 +236,10 @@ def prepare_macro_tables(hpi: pl.DataFrame, pmms: pl.DataFrame, cpi: pl.DataFram
     cpi = _validate_macro(cpi.filter(pl.col("series_id") == "CPIAUCNS").select(
         "month", "value"
     ), ["month"], "CPI")
+    cpi, cpi_filled = _interpolate_interior_months(cpi)
     return MacroTables(
         state.with_columns(_positive(pl.col("value")).alias("value")),
-        national.with_columns(_positive(pl.col("value")).alias("value")), pmms, cpi,
+        national.with_columns(_positive(pl.col("value")).alias("value")), pmms, cpi, cpi_filled,
     )
 
 
@@ -239,6 +265,8 @@ def derive_loan_features(loans: pl.LazyFrame, *, macro: MacroTables) -> pl.LazyF
     )
     return features.join(macro.pmms.lazy().rename({
         "month": "d_origination_month", "value": "c_orig_pmms",
+    }), on="d_origination_month", how="left", validate="m:1").join(macro.cpi.lazy().rename({
+        "month": "d_origination_month", "value": "c_orig_cpi",
     }), on="d_origination_month", how="left", validate="m:1").join(
         macro.state_hpi.lazy().rename({
             "month": "d_origination_month", "value": "_state_orig_hpi", "region_id": "_state_region_id",

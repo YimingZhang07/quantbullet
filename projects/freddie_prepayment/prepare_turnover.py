@@ -1,6 +1,8 @@
 """Stage 1: filter the cohort, label categories, and derive the target."""
 
 import argparse
+from datetime import date
+
 import polars as pl
 
 from quantbullet.utils.files import temporary_output
@@ -12,9 +14,12 @@ QUALITY_EXCLUSIONS = (
     "is_post_exit", "is_unknown_exit_code", "is_missing_exit_month",
     "is_event_month_mismatch", "is_zero_balance_without_exit",
 )
-REFERENCE = ("loan_identifier", "d_reporting_month", "d_origination_month", "vintage", "c_factor", "c_orig_ltv")
+# CPIAUCNS for January 2025: c_orig_balance_real is in January-2025 dollars.
+CPI_BASE_MONTH, CPI_BASE = date(2025, 1, 1), 317.671
+REFERENCE = ("loan_identifier", "d_reporting_month", "d_origination_month", "vintage", "c_orig_ltv",
+             "c_orig_balance", "c_orig_cpi")
 TARGET = "y_full_prepay"
-NUMERIC = ("c_age", "c_incentive", "c_orig_fico", "c_updated_ltv", "c_orig_balance", "c_hpi_ratio")
+NUMERIC = ("c_age", "c_incentive", "c_orig_fico", "c_updated_ltv", "c_orig_balance_real", "c_factor", "c_hpi_ratio")
 CATEGORICAL = ("f_purpose", "f_occupancy", "f_property_type", "f_first_time_buyer", "f_month", "f_state")
 
 
@@ -31,6 +36,13 @@ def cohort_filters(incentive_max: float):
     ]
 
 
+def add_real_balance(panel: pl.LazyFrame) -> pl.LazyFrame:
+    """Original balance deflated by origination-month CPI to January-2025 dollars."""
+    return panel.with_columns(
+        (pl.col("c_orig_balance") * CPI_BASE / pl.col("c_orig_cpi")).alias("c_orig_balance_real"),
+    )
+
+
 def add_target(frame: pl.LazyFrame) -> pl.LazyFrame:
     return frame.with_columns(
         ((pl.col("zero_balance_code") == "01")
@@ -41,6 +53,7 @@ def add_target(frame: pl.LazyFrame) -> pl.LazyFrame:
 
 
 def prepare_frame(panel: pl.LazyFrame, *, incentive_max: float = -.5) -> pl.LazyFrame:
+    panel = add_real_balance(panel)
     for _, condition in cohort_filters(incentive_max):
         panel = panel.filter(condition)
     return add_target(panel).select(
@@ -52,7 +65,13 @@ def prepare_frame(panel: pl.LazyFrame, *, incentive_max: float = -.5) -> pl.Lazy
 
 
 def prepare(config: Config) -> dict:
-    source = pl.scan_parquet(config.panel_path)
+    panel = pl.scan_parquet(config.panel_path)
+    mismatched = panel.filter(pl.col("d_origination_month") == CPI_BASE_MONTH).select(
+        ((pl.col("c_orig_cpi") - CPI_BASE).abs() > 1e-6).fill_null(True).sum()
+    ).collect().item()
+    if mismatched:
+        raise ValueError(f"Panel c_orig_cpi for {CPI_BASE_MONTH:%Y-%m} differs from CPI_BASE={CPI_BASE}")
+    source = add_real_balance(panel)
     mask = pl.lit(True)
     for _, condition in cohort_filters(config.incentive_max):
         mask = mask & condition.fill_null(False)
@@ -62,7 +81,7 @@ def prepare(config: Config) -> dict:
 
     target = config.output_root / "turnover_frame.parquet"
     with temporary_output(target) as path:
-        prepare_frame(source, incentive_max=config.incentive_max).sink_parquet(path, compression="zstd", row_group_size=250000)
+        prepare_frame(panel, incentive_max=config.incentive_max).sink_parquet(path, compression="zstd", row_group_size=250000)
         stats = pl.scan_parquet(path).select(
             pl.len().alias("rows"), pl.col("loan_identifier").n_unique().alias("loans"),
             pl.col(TARGET).sum().alias("events"),

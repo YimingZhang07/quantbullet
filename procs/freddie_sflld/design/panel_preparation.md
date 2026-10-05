@@ -69,7 +69,7 @@ Loan history 的 window calculation 在各 vintage 内完成，因此不需要�
 Missing/duplicate keys、非法日期、不可解析或非有限数值会使构建失败；正常 null 允许保留。
 Macro joins 使用 many-to-one validation，输出行数必须与输入一致。
 整次构建先写 staging directory，成功后替换专用 output；转换或校验失败时保留上一版成功产物。
-Summary 记录行数、贷款数、feature null fractions、status/exit counts、HPI fallback、quality counts、`ever_modified_rows` 和 `burnout_threshold`。
+Summary 记录行数、贷款数、feature null fractions、status/exit counts、HPI fallback、quality counts、`ever_modified_rows`、`burnout_threshold` 和 `cpi_interpolated_months`。
 
 ## 2. 日期与 naming
 
@@ -253,6 +253,7 @@ June c_burnout_months = 2
 | `c_orig_pmms` | `d_origination_month` | Percent；没有对应有效数值 → null |
 | `c_pmms_lag1` | t−1 | Percent；同上 |
 | `c_current_pmms` | t | Percent；同上 |
+| `c_orig_cpi` | `d_origination_month` | CPIAUCNS index level；内部缺月按下述规则插值，其余缺失 → null |
 | `c_cpi_lag1` | t−1 | CPIAUCNS index level；同上 |
 | `c_orig_hpi` | `d_origination_month` | ZHVI USD；按下述 geography pair 选择 |
 | `c_hpi_lag1` | t−1 | ZHVI USD；同上 |
@@ -263,6 +264,10 @@ June c_burnout_months = 2
 PMMS 使用 `MORTGAGE30US`，CPI 使用 `CPIAUCNS`；HPI 只使用 Zillow `ZHVI` 的 state / national rows。
 Macro tables 的 month 必须为月初、lookup keys 唯一、数值有限，允许 null。
 上游 PMMS weekly→monthly 的处理见 [housing macro data rules](../../housing_macro/data_rules.md)。
+
+CPI 在首个与最后一个已发布值之间的缺月（null 或整月缺行）按月线性插值；区间之外保持 null。
+BLS 因 2025 年 10 月政府停摆未发布当月 CPI-U，因此 2025-10 取 9 月与 11 月的中点。
+Summary 的 `cpi_interpolated_months` 列出被插值的月份。PMMS 与 HPI 不插值。
 
 Zillow state 全名通过 `STATE_CODES` 映射到 Freddie 两位 state code；Zillow `RegionID` 不当作 Freddie MSA code。
 当前不做 MSA/ZIP matching。**Origination 和 t−1 两个 state ZHVI 都为正时，整对使用 state；否则整对使用 national。**

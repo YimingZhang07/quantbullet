@@ -210,7 +210,7 @@ def build_prepared_panel(config: PreparationConfig, *, vintages: list[str] | Non
         raise ValueError("Sampled loan count does not match sampling summary")
     if loans.select(pl.any_horizontal(*[
         ~pl.col(name).is_finite().fill_null(True)
-        for name in [*(name for name, _ in ORIG_NUMBERS.values()), "c_orig_pmms", "c_sato"]
+        for name in [*(name for name, _ in ORIG_NUMBERS.values()), "c_orig_pmms", "c_orig_cpi", "c_sato"]
     ]).any()).item():
         raise ValueError("Sampled loans contain nonfinite numeric features")
     if loans["f_vintage"].null_count() or set(loans["f_vintage"].unique()) != {
@@ -276,10 +276,12 @@ def build_prepared_panel(config: PreparationConfig, *, vintages: list[str] | Non
             },
             "feature_columns": list(FEATURE_COLUMNS),
             "burnout_threshold": config.burnout_threshold,
+            "cpi_interpolated_months": list(macro.cpi_filled_months),
             "conventions": {
                 "origination_month": "first payment month minus one month; approximate",
                 "age": "months since inferred origination; not reset by modification",
                 "macro_lag": "one observation month; not a historical publication-time guarantee",
+                "cpi": "CPIAUCNS; months missing between published values are linearly interpolated",
                 "hpi": "state pair when available, otherwise national pair; raw ZHVI dollars",
                 "hpi_ratio": "lag1 ZHVI divided by origination ZHVI; 1.0 means unchanged",
                 "status": "reported row status; distinct exit reasons; 01 is voluntary payoff",

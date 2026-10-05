@@ -7,7 +7,7 @@ import pytest
 
 from quantbullet.utils.files import file_sha256
 from projects.freddie_prepayment.config import Config, read_config
-from projects.freddie_prepayment.prepare_turnover import QUALITY_EXCLUSIONS, prepare, prepare_frame
+from projects.freddie_prepayment.prepare_turnover import CPI_BASE, CPI_BASE_MONTH, QUALITY_EXCLUSIONS, prepare, prepare_frame
 from projects.freddie_prepayment.fit_turnover import fit, prediction_metrics, to_model_data
 from projects.freddie_prepayment import report_turnover
 
@@ -17,7 +17,7 @@ def row(identifier="A", **updates):
                  d_origination_month=date(2020,1,1), d_exit_month=None, d_maturity_month=date(2050,1,1),
                  vintage="2020Q1", c_factor=.8, c_orig_ltv=80., c_prev_balance=100000.,
                  c_age=65, c_incentive=-1., c_orig_fico=740., c_updated_ltv=60.,
-                 c_orig_balance=125000., c_hpi_ratio=1.25, zero_balance_code=None,
+                 c_orig_balance=125000., c_orig_cpi=257.971, c_hpi_ratio=1.25, zero_balance_code=None,
                  f_pre_status="CURRENT", f_status="CURRENT", is_consecutive_month=True,
                  is_ever_modified=False, f_purpose="P", f_occupancy="P", f_property_type="SF",
                  f_first_time_buyer="N", f_month="06", f_state="CA")
@@ -44,7 +44,8 @@ def test_target_risk_set_modified_and_incentive_boundary():
 
 
 @pytest.mark.parametrize("field,value",[("c_orig_fico",None),("c_updated_ltv",float("inf")),("c_orig_balance",float("nan")),
-                                         ("c_hpi_ratio",None),("c_hpi_ratio",float("inf")),("c_hpi_ratio",float("nan"))])
+                                         ("c_hpi_ratio",None),("c_hpi_ratio",float("inf")),("c_hpi_ratio",float("nan")),
+                                         ("c_orig_cpi",None),("c_factor",None),("c_factor",float("nan"))])
 def test_numeric_missing_and_nonfinite_excluded(field,value):
     result=prepare_frame(pl.DataFrame([row("valid"),row("bad",**{field:value})]).lazy()).collect()
     assert result["loan_identifier"].to_list()==["valid"]
@@ -53,7 +54,7 @@ def test_numeric_missing_and_nonfinite_excluded(field,value):
 def test_caps_raw_values_categories_and_previous_balance_weights():
     frame=prepare_frame(pl.DataFrame([
         row("A",c_age=134,c_orig_balance=2000000.,c_incentive=-9.,c_prev_balance=200000.,f_first_time_buyer=None),
-        row("B",zero_balance_code="01",d_exit_month=date(2025,6,1),current_balance=0.),
+        row("B",zero_balance_code="01",d_exit_month=date(2025,6,1),current_balance=0.,c_factor=1.05),
     ]).lazy()).collect()
     assert frame["c_age"].to_list()==[134,65]
     assert "c_age_fit" not in frame.columns
@@ -62,9 +63,18 @@ def test_caps_raw_values_categories_and_previous_balance_weights():
     model=to_model_data(frame)
     assert model.index.to_list()==[0,1]
     assert model["c_age_fit"].to_list()==pytest.approx([120.,65.])
-    assert model["c_orig_balance_fit"][0]==800000.
+    assert frame["c_orig_balance_real"].to_list()==pytest.approx([2e6*CPI_BASE/257.971, 125000.*CPI_BASE/257.971])
+    assert model["c_orig_balance_real_fit"][0]==1_000_000.
+    assert model["c_factor_fit"].to_list()==pytest.approx([.8,1.])
     assert model["c_incentive_fit"][0]==-5.
     assert model["y_full_prepay"].to_list()==[0.,1.]
+
+
+def test_prepare_rejects_a_base_month_cpi_that_differs_from_cpi_base(tmp_path):
+    source = tmp_path / "panel.parquet"
+    pl.DataFrame([row("base", d_origination_month=CPI_BASE_MONTH, c_orig_cpi=CPI_BASE + 1)]).write_parquet(source)
+    with pytest.raises(ValueError, match="CPI_BASE"):
+        prepare(Config(source, tmp_path / "turnover"))
 
 
 def test_hpi_ratio_raw_values_and_fit_caps():
@@ -86,7 +96,7 @@ def synthetic_config(tmp_path):
         records.append(row(str(index),c_age=int(rng.integers(1,135)),c_incentive=-float(rng.uniform(.5,5.8)),
             c_orig_fico=float(rng.uniform(621,839)),c_updated_ltv=float(rng.uniform(6,119)),
             c_orig_balance=float(rng.uniform(26000,1490000)),c_hpi_ratio=float(rng.uniform(.85,2.4)),
-            c_prev_balance=float(rng.uniform(10000,790000)),
+            c_prev_balance=float(rng.uniform(10000,790000)),c_factor=float(rng.uniform(.15,1.05)),
             f_purpose=("P","C","N")[index%3],f_month=f"{index%12+1:02d}",
             f_state=("CA","NY")[index%2],f_property_type=("SF","CO")[index%2],
             zero_balance_code="01" if events[index] else None,

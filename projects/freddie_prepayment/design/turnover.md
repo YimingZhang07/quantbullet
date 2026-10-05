@@ -26,22 +26,24 @@ pred_turnover = global_scalar × product(numeric blocks) × product(categorical 
 
 使用 `LinearProductRegressorBCD(loss="poisson")`。`c_age_fit` 按 `f_purpose` 各估一条 ramp，其余 block 是 main effects。
 每个 block 在 fit 中归一化，global scalar 表示整体 response level。
-默认 60 sweeps、10-round early stopping、ftol=1e-8，不缓存 QR。
+默认最多 60 sweeps、10-round early stopping、ftol=1e-5，不缓存 QR。ftol 比较最近 5 个 sweep 的相对 loss 改进，低于 ftol 即停止；1e-8 实际从不触发。Early stopping 在当前 loss 不低于 10 个 sweep 前时停止。
 完整 one-hot 的普通 Poisson blocks 使用 category codes + grouped sums 更新，保留原 IRLS epsilon-floor 和 ridge=1e-8；
 其他 design matrices、numeric / interaction curves 和 MSE 路径仍使用原 solver。Codes 仅在当前 fit 中缓存，不写入 artifacts。
 `model.fit_timing_` 记录 setup、各 block 累计时间、每个 sweep 时间和总 fit 时间。
 Metadata 的 `timing_seconds` 分别记录 read_frame、model_data、toolkit、container、fit、predict、metrics 和 metadata，
 `actual_sweeps` 是实际执行轮数；`fit_seconds` 仍只计 `model.fit()`。Artifact write 和全流程总时间完成后打印，不回写 pickle。
 
-Prepared frame 保留 raw values。Fit 按 [fit](../fit_turnover.py) 的 `CLIP` 生成 `_fit` inputs：age、incentive、original FICO、updated LTV、original balance 和 HPI ratio。改 clip 或 knots 不重写 frame。
+Prepared frame 保留 raw values。Fit 按 [fit](../fit_turnover.py) 的 `CLIP` 生成 `_fit` inputs：age、incentive、original FICO、updated LTV、real original balance、balance factor 和 HPI ratio。改 clip 或 knots 不重写 frame。
 同一文件的 `KNOTS` 给出对应 FlatRamp knots。Implied-actual bin widths 在 [report](../report_turnover.py) 的 `IMPLIED_BIN_CONFIG`。
 Updated LTV 是 first-lien estimate；`c_hpi_ratio = c_hpi_lag1 / c_orig_hpi`，表示 origination→lag1 的 ZHVI 倍数，不年化，也不是 trailing 24-month HPA。
 `1.00` 表示持平，`1.10` 表示累计上涨 10%；fit clip 为 `[0.8, 2.0]`，knots 为 `0.95, 1.0, 1.1, 1.25, 1.5, 1.75`，report bin width 为 `0.1`。
-Original balance 为 nominal USD，本阶段不 inflation-adjust。
+`c_orig_balance_real = c_orig_balance × CPI(2025-01) / c_orig_cpi`，单位为 2025 年 1 月美元；CPIAUCNS 2025-01 = 317.671，即 [prepare](../prepare_turnover.py) 的 `CPI_BASE`，prepare 会校验 panel 中该月的 `c_orig_cpi` 与之相等。
+`c_orig_cpi` 由 panel 按 origination month 查得，2025-10 未发布，按 9 月与 11 月插值。基准月只决定单位，不影响拟合。Nominal `c_orig_balance` 留在 frame 中作 diagnostics。
+`c_factor = c_prev_balance / c_orig_balance`（t−1）替代 previous balance 作为 model input；previous balance 与 original balance 相关系数约 0.98，factor 与之约 0.12。
 
 Categorical blocks：purpose、occupancy、property type、first-time buyer、month、state，采用 OneHotEncoder(drop=None)。
 Missing categories 为 MISSING；未知类别报错。Numeric missing rows 排除，不 impute。
-Burnout、current balance/status 和 current macro 不作为 predictors；factor、original LTV、vintage 只作 diagnostics。
+Burnout、current balance/status 和 current macro 不作为 predictors；original LTV、vintage 只作 diagnostics。Current balance 仍用于权重和 balance facets。
 
 Polars 负责 filtering、target、categorical labels 和 artifacts。Clip 在 `to_model_data` 中完成，prepared frame 不保存 `_fit` 列。Model inputs 按列通过 NumPy 转入 pandas，不依赖 PyArrow。
 每个 expanded block 先 cast float32 再拼接，避免 full-cohort one-hot matrix 被 numeric ramps 提升为 float64。
@@ -56,8 +58,8 @@ Report 展示收敛、components / implied actuals、actual vs predicted、repor
 Report 参考既有 turnover report，重建 saved toolkit 的 float32 design container，不重新 fit。
 收敛、numeric/categorical implied actuals 直接调用 `LinearProductModelToolkit` 的标准绘图方法。
 Actual-vs-predicted 直接使用 `MortgageDiagnostics` / `MortgageColnames`，包括 reporting month、incentive / age 及 purpose facets、LTV、factor 和 FICO。
-Original balance、HPI ratio、original LTV 没有 mortgage role，按源列名调用同一个 `MortgageDiagnostics.plot()`，不在 project 重写统计或绘图。
-Implied actuals 与模型数值的 actual-vs-predicted 都使用 `*_fit`。Reporting month、previous factor 和 original LTV 没有 fit 列。
+HPI ratio、original LTV 没有 mortgage role，按源列名调用同一个 `MortgageDiagnostics.plot()`，不在 project 重写统计或绘图。
+Implied actuals 与模型数值的 actual-vs-predicted 都使用 `*_fit`。Reporting month、current balance 和 original LTV 没有 fit 列。
 沿用 reference 的 CPR 显示：先聚合 bin-level SMM，再转换 `1-(1-SMM)^12`。Summary / context 仍保留月度 SMM。
 两类 numeric/binned 图复用 `draw_grouped_means()`，背景 Count bars 表示 loan-month 行数（不是余额或 unique loans），曲线/markers 使用左轴，不再以点大小表示 Count。
 最低支持为 overall 500 rows、purpose facet 200 rows：低支持/空 bins 的曲线置空，Count bars 保留，曲线不跨空值连接。Purpose panels 共用 Count 右轴尺度。
