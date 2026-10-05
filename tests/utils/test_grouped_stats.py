@@ -14,6 +14,7 @@ def test_metric_specific_validity_and_row_counts():
                        "w": [1., 3., 2., None, 0., 1., float('inf')]})
     result = grouped_weighted_summary(df, by=['g'], metrics=['a', 'b'], weight='w').row(0, named=True)
     assert result['count'] == 7
+    assert result['weight_sum'] == 7  # every finite weight, with or without a valid metric
     assert result['a__valid_count'] == 3
     assert result['a__weight_sum'] == 4
     assert result['a__weighted_sum'] == 10
@@ -26,6 +27,7 @@ def test_equal_weights_zero_denominator_null_keys_and_empty():
     df = pl.DataFrame({'g': [None, None, 'A'], 'y': [2., 4., None], 'w': [0., 0., 1.]})
     unweighted = grouped_weighted_summary(df, by=['g'], metrics=['y'])
     assert unweighted['y__mean'].to_list() == [3., None]
+    assert unweighted['weight_sum'].to_list() == [2., 1.]  # unit weights match count
     weighted = grouped_weighted_summary(df, by=['g'], metrics=['y'], weight='w')
     assert weighted['y__mean'].to_list() == [None, None]
     assert weighted['y__valid_count'].to_list() == [2, 0]

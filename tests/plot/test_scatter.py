@@ -4,14 +4,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from quantbullet.plot.scatter_binned import plot_scatter_multi_y
-from quantbullet.plot.scatter_binned import _prepare_binned_stats
+from quantbullet.plot.scatter import plot_scatter_multi_y
+from quantbullet.plot.scatter import _prepare_binned_stats
 from tests.artifacts import artifact_dir
 
 
-class TestScatterBinned(unittest.TestCase):
+class TestScatter(unittest.TestCase):
     def setUp(self):
-        self.cache_dir = artifact_dir(self, "plot/scatter_binned")
+        self.cache_dir = artifact_dir(self, "plot/scatter")
 
     def test_scatter_multi_y_basic(self):
         np.random.seed(1)

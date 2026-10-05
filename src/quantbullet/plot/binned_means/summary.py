@@ -29,8 +29,10 @@ class BinnedMeans:
     For each metric, ``__mean``, ``__valid_count``, ``__weight_sum`` and
     ``__weighted_sum`` describe its independently filtered observations.
     ``count`` counts all rows with valid grouping keys, including missing y or
-    weights. Zero weights are valid observations but contribute no weight.
-    Empty x bins are retained for every observed combination of other roles.
+    weights, and ``weight_sum`` adds their finite weights. ``weight`` names the
+    weight column (``None`` when unweighted). Zero weights are valid
+    observations but contribute no weight. Empty x bins are retained for
+    every observed combination of other roles.
     """
 
     summary: pd.DataFrame
@@ -42,29 +44,36 @@ class BinnedMeans:
     x_widths: np.ndarray
     input_count: int
     excluded_count: int
+    weight: str | None = None
 
     @classmethod
     def from_summary(
         cls, summary: pd.DataFrame, *, x: str,
         mean_columns: Mapping[str, str], count: str = "count", col: str | None = None,
+        weight: str | None = None,
     ) -> BinnedMeans:
         """Adapt a small preaggregated table without regrouping raw observations.
 
         Use this for bin-level estimates that are not weighted means, such as
         implied-actual ratios. ``mean_columns`` maps metric names to supplied
-        estimate columns. Rows with missing keys count toward ``excluded_count``;
+        estimate columns and ``weight``, if given, a column of weight sums for
+        weight bars. Rows with missing keys count toward ``excluded_count``;
         metric weight sums and valid counts are not inferred.
         """
         if not mean_columns:
             raise ValueError("mean_columns must name at least one metric")
         dimensions = {"x": x} if col is None else {"x": x, "col": col}
-        missing = {*dimensions.values(), count, *mean_columns.values()} - set(summary.columns)
+        missing = {*dimensions.values(), count, *mean_columns.values(), *([weight] if weight else [])}             - set(summary.columns)
         if missing:
             raise ValueError(f"missing summary columns: {sorted(missing)}")
         counts = summary[count].to_numpy(dtype=float)
         if not np.isfinite(counts).all() or (counts < 0).any() or (counts != np.floor(counts)).any():
             raise ValueError("summary counts must be finite nonnegative integers")
         counts = counts.astype(np.int64)
+        if weight is not None:
+            weights = summary[weight].to_numpy(dtype=float)
+            if not np.isfinite(weights).all() or (weights < 0).any():
+                raise ValueError("summary weights must be finite and nonnegative")
         codes, levels, bin_info = {}, {}, {}
         for role, name in dimensions.items():
             codes[role], levels[role], info = _encode_small(summary[name].reset_index(drop=True))
@@ -72,12 +81,14 @@ class BinnedMeans:
         valid = np.logical_and.reduce([codes[role] >= 0 for role in dimensions])
         stats = pd.DataFrame({role: codes[role][valid] for role in dimensions})
         stats["count"] = counts[valid]
+        if weight is not None:
+            stats["weight_sum"] = weights[valid]
         for metric, source in mean_columns.items():
             stats[f"{metric}__mean"] = summary[source].to_numpy(dtype=float)[valid]
         if stats.duplicated(list(dimensions)).any():
             raise ValueError("summary contains duplicate x/col keys")
         return _assemble(stats, dimensions, tuple(mean_columns), levels, bin_info,
-                         int(counts.sum()), int(counts[~valid].sum()))
+                         int(counts.sum()), int(counts[~valid].sum()), weight)
 
     def transform_means(self, transform: Callable, metrics: Sequence[str] | None = None) -> BinnedMeans:
         """Return a copy with ``transform`` applied to aggregated means only.
@@ -225,7 +236,7 @@ def _encode_small(series: pd.Series) -> tuple[np.ndarray, tuple, dict]:
 
 def _assemble(stats: pd.DataFrame, dimensions: Mapping[str, str], metrics: tuple[str, ...],
               levels: dict[str, tuple], bin_info: dict[str, dict],
-              input_count: int, excluded_count: int) -> BinnedMeans:
+              input_count: int, excluded_count: int, weight: str | None = None) -> BinnedMeans:
     """Complete empty x bins, decode role codes and place x; small tables only.
 
     ``stats`` holds integer role codes into ``levels`` plus ``count`` and
@@ -240,6 +251,8 @@ def _assemble(stats: pd.DataFrame, dimensions: Mapping[str, str], metrics: tuple
     grid = pd.DataFrame(complete, columns=roles, dtype=np.int64)
     summary = grid.merge(stats.astype({role: np.int64 for role in roles}), on=roles, how="left", sort=False)
     summary["count"] = summary["count"].fillna(0).astype(np.int64)
+    if "weight_sum" in summary:
+        summary["weight_sum"] = summary["weight_sum"].fillna(0.0)
     for metric in metrics:
         for suffix in ("valid_count", "weight_sum", "weighted_sum"):
             column = f"{metric}__{suffix}"
@@ -269,7 +282,7 @@ def _assemble(stats: pd.DataFrame, dimensions: Mapping[str, str], metrics: tuple
         positions = np.arange(len(x_levels), dtype=float)
         widths = np.ones(len(x_levels))
     return BinnedMeans(summary, bin_info, dict(dimensions), metrics, levels,
-                            positions, widths, input_count, excluded_count)
+                       positions, widths, input_count, excluded_count, weight)
 
 
 def summarize_binned_means(
@@ -340,7 +353,8 @@ def summarize_binned_means(
             table[role] = stats[role].cast(pl.Int64).to_numpy()
         bin_info[dimensions[role]]["levels"] = levels[role]
     table["count"] = stats["count"].to_numpy()
+    table["weight_sum"] = stats["weight_sum"].to_numpy()
     for i, metric in enumerate(metrics):
         for suffix in _STAT_SUFFIXES:
             table[f"{metric}__{suffix}"] = stats[f"_metric{i}__{suffix}"].to_numpy()
-    return _assemble(pd.DataFrame(table), dimensions, metrics, levels, bin_info, len(df), excluded)
+    return _assemble(pd.DataFrame(table), dimensions, metrics, levels, bin_info, len(df), excluded, weight)

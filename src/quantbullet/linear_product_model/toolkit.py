@@ -450,7 +450,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
             ylim=ylim, show_lowess=show_lowess, lowess_frac=lowess_frac, n_cols=n_cols, legend='axes',
         )
         fig = panels.draw(panel_size=figsize)
-        # panel_grid creates the grid first; draw_binned_means then adds one count axis per panel.
+        # panel_grid creates the grid first; draw_binned_means then adds one bar axis per panel.
         n_slots = panels.n_rows * panels.n_cols
         axes = np.array(fig.axes[:n_slots], dtype=object)
         self.implied_actual_plot_axes = axes
@@ -497,7 +497,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
 
         def render(features, n_cols, panel_size):
             fig, grid = panel_grid(len(features), n_cols, panel_size)
-            count_axes = np.full(grid.shape, None, dtype=object)
+            bar_axes = np.full(grid.shape, None, dtype=object)
             for i, feature in enumerate(features):
                 ax = grid.flat[i]
                 agg = per_feature[feature]
@@ -507,7 +507,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
                 ).mask_sparse(min_count)
                 result = draw_binned_means(drawing_data, ax=ax, labels={'bin_val': feature}, y_label='Implied Actual',
                                             theme=theme, style=style, legend=legend if i == 0 else 'none')
-                count_axes.flat[i] = result.count_axes[0, 0]
+                bar_axes.flat[i] = result.bar_axes[0, 0]
 
                 show = agg if min_count <= 0 else agg[agg['count'] >= min_count]
                 if show_lowess and len(show) >= 3:
@@ -529,7 +529,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
                     elif isinstance(ylim, tuple):
                         ax.set_ylim(ylim)
             # Every panel has its own x variable and count scale.
-            label_outer_panels(grid, count_axes, y_titles=True, count_titles=True)
+            label_outer_panels(grid, bar_axes, y_titles=True, bar_titles=True)
             return fig
 
         return PanelSet(tuple(per_feature), render, n_cols)

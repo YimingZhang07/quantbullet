@@ -103,9 +103,9 @@ _X_ROLES = frozenset(f.name for f in fields(MortgageColnames)) - {'response', 'm
 class MortgageDiagnostics:
     """Mortgage model diagnostic plots.
 
-    ``plot`` maps a role or source column to grouped-data dimensions,
-    aggregates through Polars, then draws curves and Count bars with
-    grouped-means; the role methods (``incentive_plot`` etc.) wrap it.
+    ``plot`` maps a role or source column to binned-means dimensions,
+    aggregates through Polars, then draws curves over row-count (or weight)
+    bars; the role methods (``incentive_plot`` etc.) wrap it.
     The caller's input DataFrame is never mutated. Pandas categorical order
     is retained, and neither input path requires PyArrow.
 
@@ -234,10 +234,12 @@ class MortgageDiagnostics:
         rounding unit, or a ``BinSpec``; otherwise quantile bins
         (``n_bins``, default 10) are used. Weighted means are aggregated first;
         ``y_transform`` (e.g. SMM -> CPR) and ``min_count`` then apply to the
-        bin-level values. Count bars show rows. Scale and label arguments are
+        bin-level values. Bars show rows, or the summed weight with
+        ``bar_value='weight'``. Scale and label arguments are
         ``draw_binned_means``'s; here ``y_scale`` defaults to ``'free'`` and
-        ``count_scale`` to ``'shared'``. ``figsize`` is per panel. ``title=None`` drops the default figure title,
-        e.g. under a report heading. Returns ``(fig, primary_axes)``.
+        ``bar_scale`` to ``'shared'``. ``figsize`` is per panel. ``title=None``
+        drops the default figure title, e.g. under a report heading. Returns
+        ``(fig, primary_axes)``.
         """
         n_cols = kwargs.pop('n_cols', 3)
         figsize = kwargs.pop('figsize', (6, 4))
@@ -263,7 +265,7 @@ class MortgageDiagnostics:
         Aggregates once. ``facet_label`` names the facet in panel titles
         (default: the column name). Takes ``plot``'s options except
         ``figsize`` and ``close_unused``. A ``'shared'`` scale here means one
-        range on every page, fixed from the full aggregation: counts default
+        range on every page, fixed from the full aggregation: bars default
         to it, ``y_scale`` to ``'free'``. Tick labels default to ``'outer'``
         on scales that are not free, and every axis title to ``'outer'``.
         """
@@ -272,15 +274,16 @@ class MortgageDiagnostics:
                 raise TypeError(f"facet_panels takes its panel size from the layout; {name!r} is not accepted")
         n_cols = kwargs.pop('n_cols', 3)
         data, options = self._prepare(x, bins, facet_col, facet_series, kwargs)
-        if options['count_scale'] == 'shared':
-            totals = data.summary.groupby(['col', 'x'], observed=True)['count'].sum()
-            options['count_scale'] = max(float(totals.max()) if len(totals) else 0., 1.) * 1.05
+        if options['bar_scale'] == 'shared':
+            column = 'weight_sum' if options.get('bar_value') == 'weight' else 'count'
+            totals = data.summary.groupby(['col', 'x'], observed=True)[column].sum()
+            options['bar_scale'] = max(float(totals.max()) if len(totals) else 0., 1.) * 1.05
         if options['y_scale'] == 'shared':
             means = data.summary[[f"{metric}__mean" for metric in data.metrics]].to_numpy(dtype=float)
             options['y_scale'] = _padded_range(means)
         options.setdefault('y_ticks', 'all' if options['y_scale'] == 'free' else 'outer')
-        options.setdefault('count_ticks', 'all' if options['count_scale'] == 'free' else 'outer')
-        for titles in ('y_titles', 'count_titles', 'x_titles'):
+        options.setdefault('bar_ticks', 'all' if options['bar_scale'] == 'free' else 'outer')
+        for titles in ('y_titles', 'bar_titles', 'x_titles'):
             options.setdefault(titles, 'outer')
 
         def render(panels, n_cols, panel_size):
@@ -326,7 +329,7 @@ class MortgageDiagnostics:
             labels[facet_col] = facet_label
         options = dict(labels=labels, y_label=y_label, theme=theme, **kwargs)
         options.setdefault('y_scale', 'free')
-        options.setdefault('count_scale', 'shared')
+        options.setdefault('bar_scale', 'shared')
         return data, options
 
     def _format_y(self, axes):

@@ -1,4 +1,4 @@
-"""Draw bin-level means as curves over count bars, with optional groups and facets."""
+"""Draw bin-level means as curves over count or weight bars, with optional groups and facets."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -22,15 +22,15 @@ from .summary import BinnedMeans
 
 @dataclass
 class BinnedMeansPlot:
-    """Figure, 2-D primary/secondary axes, and the exact aggregation plotted.
+    """Figure, 2-D mean and bar axes, and the exact aggregation plotted.
 
-    Unused wrapped slots are hidden with ``None`` in ``count_axes``. With
-    ``count_mode='none'`` all secondary axes entries are ``None``.
+    Unused wrapped slots are hidden with ``None`` in ``bar_axes``. With
+    ``bar_mode='none'`` all secondary axes entries are ``None``.
     """
 
     fig: Figure
     axes: np.ndarray
-    count_axes: np.ndarray
+    bar_axes: np.ndarray
     data: BinnedMeans
 
     @property
@@ -44,7 +44,7 @@ class BinnedMeansPlot:
 
 @dataclass(frozen=True)
 class BinnedMeansStyle:
-    """Visual settings specific to weighted-mean curves and count bars."""
+    """Visual settings specific to weighted-mean curves and bars."""
 
     metric_linestyles: tuple[str, ...] = ("-", "--", "-.", ":")
     line_width: float = 1.8
@@ -54,10 +54,10 @@ class BinnedMeansStyle:
     categorical_metric_markers: tuple[str, ...] = ("o", "s", "^", "D", "v", "P", "X")
     categorical_marker_size: float = 5.0
     connect_categorical: bool = False
-    count_color: str = "#AEB8C2"
-    count_edgecolor: str = "none"
-    total_count_alpha: float = 0.27
-    stacked_count_alpha: float = 0.18
+    bar_color: str = "#AEB8C2"
+    bar_edgecolor: str = "none"
+    total_bar_alpha: float = 0.27
+    stacked_bar_alpha: float = 0.18
     bar_width_ratio: float = 0.86
     categorical_tick_rotation: float = 30.0
 
@@ -77,22 +77,24 @@ def draw_binned_means(
     data: BinnedMeans,
     *,
     # Layout
-    count_mode: Literal["total", "stacked", "none"] = "total",
+    bar_mode: Literal["total", "stacked", "none"] = "total",
+    bar_value: Literal["count", "weight"] = "count",
     wrap: int | None = None,
     pad_to_wrap: bool = False,
     panel_size: tuple[float, float] = (5.2, 3.5),
     ax: plt.Axes | None = None,
     # Axes
     y_scale: Literal["shared", "free"] | tuple[float, float] = "shared",
-    count_scale: Literal["shared", "free"] | float = "free",
+    bar_scale: Literal["shared", "free"] | float = "free",
     y_ticks: Literal["all", "outer"] = "all",
-    count_ticks: Literal["all", "outer"] = "all",
+    bar_ticks: Literal["all", "outer"] = "all",
     y_titles: Literal["all", "outer"] = "all",
-    count_titles: Literal["all", "outer"] = "all",
+    bar_titles: Literal["all", "outer"] = "all",
     x_titles: Literal["all", "outer"] = "all",
     # Text
     labels: Mapping[str, str] | None = None,
     y_label: str = "Weighted mean",
+    bar_label: str | None = None,
     title: str | None = None,
     y_format: str | None = None,
     legend: Literal["figure", "axes", "none"] | None = None,
@@ -102,30 +104,35 @@ def draw_binned_means(
 ) -> BinnedMeansPlot:
     """Draw a ``BinnedMeans`` summary; no raw-data aggregation happens here.
 
-    ``labels`` maps source column names to display labels and ``y_label`` is
-    the y axis title. ``y_format`` is a Python format spec, e.g. '.0%' for
-    proportions. ``panel_size`` is in inches per subplot. With ``wrap``, the
-    grid narrows to the number of panels when there are fewer, unless
-    ``pad_to_wrap`` keeps all ``wrap`` columns (hiding empty slots), e.g. so
-    pages share column widths. Numeric/binned x uses numeric positions,
-    categories are equally spaced. Counts are rows, never duplicated across y
-    metrics; count ticks and large numeric x ticks use K/M suffixes. All
-    panels share the x scale and show their x tick labels.
+    ``labels`` maps source column names to display labels; ``y_label`` and
+    ``bar_label`` title the two y axes. ``y_format`` is a Python format spec,
+    e.g. '.0%' for proportions. ``panel_size`` is in inches per subplot. With
+    ``wrap``, the grid narrows to the number of panels when there are fewer,
+    unless ``pad_to_wrap`` keeps all ``wrap`` columns (hiding empty slots),
+    e.g. so pages share column widths. Numeric/binned x uses numeric positions,
+    categories are equally spaced. All panels share the x scale and show
+    their x tick labels.
+
+    Bars show row counts (``bar_value='count'``) or weight sums
+    (``'weight'``, which needs a weighted summary), never duplicated across
+    y metrics. ``bar_label`` defaults to 'Count' or the weight's display
+    label. ``min_count`` and "No observations" still use row counts. Bar
+    ticks and large numeric x ticks use K/M/B suffixes.
 
     Each axis is set by its own arguments; ``y_*`` is the primary (mean)
-    axis, ``count_*`` the right-hand count axis and ``x_*`` the x axis:
+    axis, ``bar_*`` the right-hand bar axis and ``x_*`` the x axis:
 
     - ``y_scale``: ``'shared'`` one range for every panel, ``'free'`` each
       panel fits its own, or ``(low, high)`` fixed, e.g. to keep figures drawn
       from subsets of one aggregation on one scale.
-    - ``count_scale``: ``'free'``, ``'shared'``, or a fixed top value.
-    - ``y_ticks`` / ``count_ticks``: ``'all'`` shows tick labels on every
-      panel; ``'outer'`` keeps them on the first (y) or last (count) panel of
+    - ``bar_scale``: ``'free'``, ``'shared'``, or a fixed top value.
+    - ``y_ticks`` / ``bar_ticks``: ``'all'`` shows tick labels on every
+      panel; ``'outer'`` keeps them on the first (y) or last (bar) panel of
       each row. ``'outer'`` needs a shared or fixed scale.
-    - ``y_titles`` / ``count_titles`` / ``x_titles``: ``'all'`` shows the axis
+    - ``y_titles`` / ``bar_titles`` / ``x_titles``: ``'all'`` shows the axis
       title on every panel; ``'outer'`` keeps it on the first (y) or last
-      (count) panel of each row, or the lowest panel of each column (x).
-      ``y_label`` and ``labels`` set the title text.
+      (bar) panel of each row, or the lowest panel of each column (x).
+      ``y_label``, ``bar_label`` and ``labels`` set the title text.
 
     With group, colors identify groups and line styles identify metrics (a
     single metric gets no legend entry of its own); otherwise colors
@@ -137,38 +144,45 @@ def draw_binned_means(
     figure legend, or an Axes legend when ``ax`` is given; ``"none"`` lets a
     caller sharing one figure across several calls draw a single legend.
     """
-    if count_mode not in {"total", "stacked", "none"}:
-        raise ValueError("count_mode must be total, stacked, or none")
+    if bar_mode not in {"total", "stacked", "none"}:
+        raise ValueError("bar_mode must be total, stacked, or none")
     if legend not in {None, "figure", "axes", "none"}:
         raise ValueError("legend must be figure, axes, or none")
-    if count_mode == "stacked" and "group" not in data.dimensions:
+    if bar_value not in {"count", "weight"}:
+        raise ValueError("bar_value must be 'count' or 'weight'")
+    if bar_value == "weight" and data.weight is None:
+        raise ValueError("bar_value='weight' needs a weighted summary; pass weight= when summarizing")
+    if bar_mode == "stacked" and "group" not in data.dimensions:
         raise ValueError("stacked counts require group")
     if wrap is not None and (isinstance(wrap, bool) or not isinstance(wrap, int) or wrap < 1 or "col" not in data.dimensions or "row" in data.dimensions):
         raise ValueError("wrap must be a positive integer and requires col without row")
     if len(panel_size) != 2 or not all(np.isfinite(v) and v > 0 for v in panel_size):
         raise ValueError("panel_size must contain two positive finite values")
     y_scale_mode = y_scale if isinstance(y_scale, str) else "fixed"
-    count_scale_mode = count_scale if isinstance(count_scale, str) else "fixed"
+    bar_scale_mode = bar_scale if isinstance(bar_scale, str) else "fixed"
     if y_scale_mode not in {"shared", "free"} and not (
             y_scale_mode == "fixed" and np.shape(y_scale) == (2,) and np.isfinite(y_scale).all() and y_scale[0] < y_scale[1]):
         raise ValueError("y_scale must be 'shared', 'free', or (low, high) with finite low < high")
-    if count_scale_mode not in {"shared", "free"} and not (
-            count_scale_mode == "fixed" and not isinstance(count_scale, bool) and np.ndim(count_scale) == 0
-            and np.isfinite(count_scale) and count_scale > 0):
-        raise ValueError("count_scale must be 'shared', 'free', or a positive finite top value")
-    for name, value in (("y_ticks", y_ticks), ("count_ticks", count_ticks), ("y_titles", y_titles),
-                        ("count_titles", count_titles), ("x_titles", x_titles)):
+    if bar_scale_mode not in {"shared", "free"} and not (
+            bar_scale_mode == "fixed" and not isinstance(bar_scale, bool) and np.ndim(bar_scale) == 0
+            and np.isfinite(bar_scale) and bar_scale > 0):
+        raise ValueError("bar_scale must be 'shared', 'free', or a positive finite top value")
+    for name, value in (("y_ticks", y_ticks), ("bar_ticks", bar_ticks), ("y_titles", y_titles),
+                        ("bar_titles", bar_titles), ("x_titles", x_titles)):
         if value not in {"all", "outer"}:
             raise ValueError(f"{name} must be 'all' or 'outer'")
     if y_ticks == "outer" and y_scale_mode == "free":
         raise ValueError("y_ticks='outer' needs y_scale 'shared' or fixed; free panels keep their own tick labels")
-    if count_ticks == "outer" and count_scale_mode == "free":
-        raise ValueError("count_ticks='outer' needs count_scale 'shared' or fixed; free panels keep their own tick labels")
+    if bar_ticks == "outer" and bar_scale_mode == "free":
+        raise ValueError("bar_ticks='outer' needs bar_scale 'shared' or fixed; free panels keep their own tick labels")
     if not theme.palette:
         raise ValueError("theme.palette must contain at least one color")
     if not style.metric_linestyles:
         raise ValueError("style.metric_linestyles must contain at least one line style")
     labels = dict(labels or {})
+    bar_column = "weight_sum" if bar_value == "weight" else "count"
+    if bar_label is None:
+        bar_label = "Count" if bar_value == "count" else labels.get(data.weight, data.weight)
     dim = data.dimensions
     categorical_x = bool(data.bin_info[dim["x"]].get("categorical", False))
     points_only = categorical_x and not style.connect_categorical
@@ -187,7 +201,7 @@ def draw_binned_means(
     else:
         fig, axes = plt.subplots(nrows, ncols, squeeze=False, sharex=True, sharey=y_scale_mode != "free",
                                  figsize=(panel_size[0] * ncols, panel_size[1] * nrows), layout="constrained")
-    count_axes = np.full(axes.shape, None, dtype=object)
+    bar_axes = np.full(axes.shape, None, dtype=object)
     palette = theme.palette
     styles = style.metric_linestyles
     groups = data.levels.get("group", (None,))
@@ -211,36 +225,37 @@ def draw_binned_means(
         PlotFormatter.apply_theme(ax, theme)
         ax.set_axisbelow(theme.grid_below)
         twin = None
-        if count_mode != "none":
+        if bar_mode != "none":
             twin = ax.twinx()
-            count_axes.flat[index] = twin
+            bar_axes.flat[index] = twin
             # Draw the primary axes last, with its background transparent.
             ax.set_zorder(twin.get_zorder() + 1)
             ax.patch.set_visible(False)
             twin.set_facecolor(ax.get_facecolor())
             twin.grid(False)
-            twin.set_ylabel("Count", fontsize=theme.label_fontsize, color=theme.muted_text_color)
+            twin.set_ylabel(bar_label, fontsize=theme.label_fontsize, color=theme.muted_text_color)
             twin.tick_params(axis="y", labelsize=theme.tick_labelsize, colors=theme.muted_text_color)
-            twin.yaxis.set_major_locator(MaxNLocator(nbins=4, integer=True))
+            twin.yaxis.set_major_locator(MaxNLocator(nbins=4, integer=bar_value == "count"))
             twin.yaxis.set_major_formatter(FuncFormatter(compact_number))
             for spine in twin.spines.values():
                 spine.set_visible(False)
             twin.spines["right"].set_visible(True)
             twin.spines["right"].set_color(theme.secondary_spine_color)
-            if count_mode == "total":
-                counts = panel.groupby("x", observed=True)["count"].sum().reindex(xlevels, fill_value=0)
-                twin.bar(xpos, counts, width=widths, color=style.count_color,
-                         alpha=style.total_count_alpha, edgecolor=style.count_edgecolor)
+            if bar_mode == "total":
+                heights = panel.groupby("x", observed=True)[bar_column].sum().reindex(xlevels, fill_value=0)
+                twin.bar(xpos, heights, width=widths, color=style.bar_color,
+                         alpha=style.total_bar_alpha, edgecolor=style.bar_edgecolor)
             else:
                 bottom = np.zeros(len(xlevels))
                 for gi, value in enumerate(groups):
-                    counts = panel.loc[panel["group"] == value].set_index("x")["count"].reindex(xlevels, fill_value=0).to_numpy()
-                    twin.bar(xpos, counts, bottom=bottom, width=widths,
-                             color=palette[gi % len(palette)], alpha=style.stacked_count_alpha,
-                             edgecolor=style.count_edgecolor)
-                    bottom += counts
+                    heights = (panel.loc[panel["group"] == value].set_index("x")[bar_column]
+                               .reindex(xlevels, fill_value=0).to_numpy())
+                    twin.bar(xpos, heights, bottom=bottom, width=widths,
+                             color=palette[gi % len(palette)], alpha=style.stacked_bar_alpha,
+                             edgecolor=style.bar_edgecolor)
+                    bottom += heights
             twin.set_ylim(bottom=0)
-            if panel.empty or not panel["count"].sum():
+            if panel.empty or not panel[bar_column].sum():
                 twin.set_ylim(0, 1)
 
         for gi, value in enumerate(groups):
@@ -289,20 +304,20 @@ def draw_binned_means(
     # These loops must not rebind ``ax``: an external Axes receives the title below.
     for unused in list(axes.flat)[len(panels):]:
         unused.set_visible(False)
-    twins = [twin for twin in count_axes.flat if twin is not None]
-    if count_scale_mode == "fixed":
+    twins = [twin for twin in bar_axes.flat if twin is not None]
+    if bar_scale_mode == "fixed":
         for twin in twins:
-            twin.set_ylim(0, count_scale)
-    elif count_scale_mode == "shared":
+            twin.set_ylim(0, bar_scale)
+    elif bar_scale_mode == "shared":
         maximum = max((twin.get_ylim()[1] for twin in twins), default=1)
         for twin in twins:
             twin.set_ylim(0, maximum)
     if y_scale_mode == "fixed":
         for primary in list(axes.flat)[:len(panels)]:
             primary.set_ylim(*y_scale)
-    label_outer_panels(axes, count_axes, y_titles=y_titles == "outer", count_titles=count_titles == "outer",
+    label_outer_panels(axes, bar_axes, y_titles=y_titles == "outer", bar_titles=bar_titles == "outer",
                        x_titles=x_titles == "outer", y_ticks=y_ticks == "outer",
-                       count_ticks=count_ticks == "outer")
+                       bar_ticks=bar_ticks == "outer")
 
     handles = []
     if "group" in dim:
@@ -325,14 +340,14 @@ def draw_binned_means(
                           label=labels.get(metric, metric),
                           linewidth=style.legend_line_width, **metric_appearance(mi))
                    for mi, metric in enumerate(data.metrics)]
-    if count_mode == "total":
-        handles.append(Patch(facecolor=style.count_color, alpha=style.total_count_alpha,
-                             edgecolor=style.count_edgecolor, label="Count (right axis)"))
-    elif count_mode == "stacked":
+    if bar_mode == "total":
+        handles.append(Patch(facecolor=style.bar_color, alpha=style.total_bar_alpha,
+                             edgecolor=style.bar_edgecolor, label=f"{bar_label} (right axis)"))
+    elif bar_mode == "stacked":
         for gi, value in enumerate(groups):
             handles.append(Patch(facecolor=palette[gi % len(palette)],
-                                 alpha=style.stacked_count_alpha, edgecolor=style.count_edgecolor,
-                                 label=f"Count: {_level_label(value, gi == 0)} (right axis)"))
+                                 alpha=style.stacked_bar_alpha, edgecolor=style.bar_edgecolor,
+                                 label=f"{bar_label}: {_level_label(value, gi == 0)} (right axis)"))
     placement = legend or ("axes" if external_ax else "figure")
     if placement == "axes":
         axes.flat[0].legend(handles=handles, frameon=theme.legend_frameon, fontsize=theme.legend_fontsize)
@@ -345,6 +360,6 @@ def draw_binned_means(
                      fontweight=theme.title_fontweight, color=theme.title_color)
     elif title:
         ax.set_title(title)
-    return BinnedMeansPlot(fig, axes, count_axes, data)
+    return BinnedMeansPlot(fig, axes, bar_axes, data)
 
 

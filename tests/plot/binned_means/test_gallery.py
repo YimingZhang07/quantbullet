@@ -152,7 +152,7 @@ class TestBinnedMeansGallery(unittest.TestCase):
             y=["historical_cpr", "model_cpr"],
             weight="upb",
             bins={"incentive": BinSpec.step(0.25)},
-            count_mode="total",
+            bar_mode="total",
             panel_size=(8, 4.8),
             y_format=".0%",
             y_label="CPR (UPB weighted)",
@@ -161,7 +161,7 @@ class TestBinnedMeansGallery(unittest.TestCase):
                     "historical_cpr": "Historical CPR", "model_cpr": "Model CPR"},
         )
         self.save_case("01_single_metrics", "single", ("多指标对比", "Multiple metrics"),
-                       "y=[...] draws multiple weighted means; count_mode='total' overlays one count series on the right axis.", result)
+                       "y=[...] draws multiple weighted means; bar_mode='total' overlays one count series on the right axis.", result)
 
     def test_02_single_panel_groups(self):
         result = plot_binned_means(
@@ -171,7 +171,7 @@ class TestBinnedMeansGallery(unittest.TestCase):
             weight="upb",
             bins={"incentive": BinSpec.step(0.25)},
             group="vintage",
-            count_mode="total",
+            bar_mode="total",
             panel_size=(9, 5.2),
             y_format=".0%",
             y_label="CPR (UPB weighted)",
@@ -190,7 +190,7 @@ class TestBinnedMeansGallery(unittest.TestCase):
             weight="upb",
             bins={"incentive": BinSpec.step(0.25)},
             group="vintage",
-            count_mode="stacked",
+            bar_mode="stacked",
             panel_size=(9, 5.2),
             y_format=".0%",
             y_label="CPR (UPB weighted)",
@@ -199,10 +199,35 @@ class TestBinnedMeansGallery(unittest.TestCase):
                     "historical_cpr": "Historical CPR", "model_cpr": "Model CPR"},
         )
         self.save_case("03_single_groups_stacked", "single", ("分组叠线 + 堆叠计数", "Groups + stacked counts"),
-                       "Case 02 with count_mode='stacked': the count bars split by group, in the group colors, "
+                       "Case 02 with bar_mode='stacked': the count bars split by group, in the group colors, "
                        "so each vintage's share of every bin is visible.", result)
 
-    def test_04_facets_metrics(self):
+    def test_04_single_panel_groups_stacked_weight(self):
+        result = plot_binned_means(
+            self.df,
+            x="incentive",
+            y=["historical_cpr", "model_cpr"],
+            weight="upb",
+            bins={"incentive": BinSpec.step(0.25)},
+            group="vintage",
+            bar_mode="stacked",
+            bar_value="weight",
+            panel_size=(9, 5.2),
+            y_format=".0%",
+            y_label="CPR (UPB weighted)",
+            title="Vintage curves with UPB composition",
+            labels={"incentive": "Refinance incentive (pp)", "vintage": "Vintage", "upb": "UPB",
+                    "historical_cpr": "Historical CPR", "model_cpr": "Model CPR"},
+        )
+        self.save_case("04_single_groups_stacked_weight", "single", ("分组叠线 + 堆叠 UPB", "Groups + stacked UPB"),
+                       "Case 03 with bar_value='weight': bars add up the weight column (UPB) instead of counting "
+                       "rows, so larger loans count for more. The right-axis title and legend take the weight's "
+                       "label from labels; min_count would still count rows.", result)
+        self.assertEqual(result.bar_axes[0, 0].get_ylabel(), "UPB")
+        np.testing.assert_allclose(sum(bar.get_height() for bar in result.bar_axes[0, 0].patches),
+                                   self.df["upb"].sum(), rtol=1e-12)
+
+    def test_05_facets_metrics(self):
         result = plot_binned_means(
             self.df,
             x="incentive",
@@ -211,19 +236,19 @@ class TestBinnedMeansGallery(unittest.TestCase):
             bins={"incentive": BinSpec.step(0.25)},
             col="vintage",
             wrap=2,
-            count_mode="total",
+            bar_mode="total",
             y_format=".0%",
             y_label="CPR (UPB weighted)",
             title="One panel per vintage",
             labels={"incentive": "Refinance incentive (pp)", "vintage": "Vintage",
                     "historical_cpr": "Historical CPR", "model_cpr": "Model CPR"},
         )
-        self.save_case("04_facets_metrics", "facets", ("换行分面 · 多指标", "Wrapped facets · multiple metrics"),
+        self.save_case("05_facets_metrics", "facets", ("换行分面 · 多指标", "Wrapped facets · multiple metrics"),
                        "col=... creates one panel per category; wrap=2 arranges panels in two columns.", result)
         self.assertEqual(result.axes.shape, (2, 2))
         self.assertFalse(result.axes[1, 1].get_visible())
 
-    def test_05_facets_groups_binned(self):
+    def test_06_facets_groups_binned(self):
         result = plot_binned_means(
             self.df,
             x="incentive",
@@ -234,7 +259,7 @@ class TestBinnedMeansGallery(unittest.TestCase):
             group="vintage",
             col="fico",
             wrap=2,
-            count_mode="total",
+            bar_mode="total",
             y_format=".0%",
             y_label="CPR (UPB weighted)",
             title="Vintage comparison within FICO bands",
@@ -242,11 +267,11 @@ class TestBinnedMeansGallery(unittest.TestCase):
                     "fico": "FICO", "historical_cpr": "Historical CPR",
                     "model_cpr": "Model CPR"},
         )
-        self.save_case("05_facets_groups_binned", "facets", ("分组叠线 · 分位数与区间分箱", "Groups · quantile and edge bins"),
+        self.save_case("06_facets_groups_binned", "facets", ("分组叠线 · 分位数与区间分箱", "Groups · quantile and edge bins"),
                        "BinSpec.quantile(12) gives x bins with equal row counts overall, hence the uneven bar widths; "
                        "BinSpec.edges([...]) cuts the col=fico dimension into four panels; group=... overlays vintages in each.", result)
 
-    def test_06_facets_groups_smm(self):
+    def test_07_facets_groups_smm(self):
         result = plot_binned_means(
             self.df,
             x="incentive",
@@ -255,8 +280,8 @@ class TestBinnedMeansGallery(unittest.TestCase):
             bins={"incentive": BinSpec.step(0.25)},
             group="purpose",
             col="vintage",
-            count_mode="stacked",
-            count_scale="shared",
+            bar_mode="stacked",
+            bar_scale="shared",
             min_count=30,
             y_transform=lambda smm: 1 - (1 - smm) ** 12,
             y_format=".0%",
@@ -265,17 +290,17 @@ class TestBinnedMeansGallery(unittest.TestCase):
             labels={"incentive": "Refinance incentive (pp)", "purpose": "Purpose",
                     "vintage": "Vintage", "historical_smm": "CPR"},
             y_ticks="outer",
-            count_ticks="outer",
+            bar_ticks="outer",
             y_titles="outer",
-            count_titles="outer",
+            bar_titles="outer",
         )
-        self.save_case("06_facets_groups_smm", "facets", ("分组叠线 · 单指标 SMM→CPR", "Groups · one metric, SMM → CPR"),
+        self.save_case("07_facets_groups_smm", "facets", ("分组叠线 · 单指标 SMM→CPR", "Groups · one metric, SMM → CPR"),
                        "One metric with group=... overlays loan purposes inside each col=... vintage panel. "
                        "y_transform converts each bin's weighted SMM to CPR (weight first, then convert); "
                        "purpose is an ordered pandas Categorical, so the legend follows its declared order; "
                        "min_count=30 breaks curves at sparse bins but keeps their bars; "
-                       "both y scales are shared, so y_ticks/count_ticks='outer' keep tick labels on the outer panels, "
-                       "and y_titles/count_titles='outer' do the same for the axis titles.", result)
+                       "both y scales are shared, so y_ticks/bar_ticks='outer' keep tick labels on the outer panels, "
+                       "and y_titles/bar_titles='outer' do the same for the axis titles.", result)
         self.assertEqual(result.axes.shape, (1, 3))
         self.assertTrue(all(len(ax.lines) == 3 for ax in result.axes.flat))
         self.assertGreater(np.nanmax(result.summary["historical_smm__mean"]), 0.2)  # CPR scale, not SMM
@@ -283,7 +308,7 @@ class TestBinnedMeansGallery(unittest.TestCase):
         self.assertEqual(legend[:3], ["Purpose: Purchase", "Purpose: Rate/Term Refi", "Purpose: Cash-out Refi"])
         self.assertNotIn("CPR", legend)  # one metric needs no line-style entry
 
-    def test_07_matrix_metrics(self):
+    def test_08_matrix_metrics(self):
         result = plot_binned_means(
             self.df,
             x="incentive",
@@ -292,9 +317,9 @@ class TestBinnedMeansGallery(unittest.TestCase):
             bins={"incentive": BinSpec.step(0.25)},
             row="channel",
             col="occupancy",
-            count_mode="total",
+            bar_mode="total",
             y_scale="shared",
-            count_scale="shared",
+            bar_scale="shared",
             y_format=".0%",
             y_label="CPR (UPB weighted)",
             title="Channel x occupancy",
@@ -302,12 +327,12 @@ class TestBinnedMeansGallery(unittest.TestCase):
                     "occupancy": "Occupancy", "historical_cpr": "Historical CPR",
                     "model_cpr": "Model CPR"},
         )
-        self.save_case("07_matrix_metrics", "matrix", ("多指标 · 统一刻度", "Multiple metrics · shared scales"),
-                       "row=... and col=... create a matrix; y_scale='shared' and count_scale='shared' put every panel on one "
+        self.save_case("08_matrix_metrics", "matrix", ("多指标 · 统一刻度", "Multiple metrics · shared scales"),
+                       "row=... and col=... create a matrix; y_scale='shared' and bar_scale='shared' put every panel on one "
                        "range per axis, while tick labels stay on every panel (the 'all' default).", result)
         self.assertEqual(result.axes.shape, (2, 2))
 
-    def test_08_matrix_groups(self):
+    def test_09_matrix_groups(self):
         result = plot_binned_means(
             self.df,
             x="incentive",
@@ -317,7 +342,7 @@ class TestBinnedMeansGallery(unittest.TestCase):
             group="purpose",
             row="occupancy",
             col="vintage",
-            count_mode="stacked",
+            bar_mode="stacked",
             min_count=30,
             y_format=".0%",
             y_label="CPR (UPB weighted)",
@@ -326,10 +351,10 @@ class TestBinnedMeansGallery(unittest.TestCase):
                     "occupancy": "Occupancy", "vintage": "Vintage", "historical_cpr": "CPR"},
             y_ticks="outer",
             y_titles="outer",
-            count_titles="outer",
+            bar_titles="outer",
             x_titles="outer",
         )
-        self.save_case("08_matrix_groups", "matrix", ("分组叠线", "Groups overlaid"),
+        self.save_case("09_matrix_groups", "matrix", ("分组叠线", "Groups overlaid"),
                        "group=..., row=... and col=... combine: loan purposes overlay inside an occupancy x vintage matrix. "
                        "Each role splits the rows further, so wider x bins (step 0.5) and min_count=30 keep the thin "
                        "investor cells readable. Count axes stay free (the default) because owner volumes dwarf investor "
@@ -337,7 +362,7 @@ class TestBinnedMeansGallery(unittest.TestCase):
         self.assertEqual(result.axes.shape, (2, 3))
         self.assertTrue(all(len(ax.lines) == 3 for ax in result.axes.flat))
 
-    def test_09_categorical_points(self):
+    def test_10_categorical_points(self):
         result = plot_binned_means(
             self.df,
             x="channel",
@@ -345,14 +370,14 @@ class TestBinnedMeansGallery(unittest.TestCase):
             weight="upb",
             bins={},  # exact categorical values, no binning
             col="occupancy",
-            count_mode="total",
+            bar_mode="total",
             y_format=".0%",
             y_label="CPR (UPB weighted)",
             title="Historical CPR by channel",
             labels={"channel": "Channel", "occupancy": "Occupancy",
                     "historical_cpr": "Historical CPR"},
         )
-        self.save_case("09_categorical_points", "categorical", ("点图（不连线）· 按列分面", "Unconnected points · column facets"),
+        self.save_case("10_categorical_points", "categorical", ("点图（不连线）· 按列分面", "Unconnected points · column facets"),
                        "Use an unbinned categorical x axis for unconnected metric points; col=... creates one panel per occupancy.", result)
 
 

@@ -1,8 +1,8 @@
 # Binned means
 
 `plot_binned_means` draws the weighted mean of one or more numeric metrics per
-bin of an x dimension, with optional line groups, facets, and background count
-bars. It accepts pandas and eager Polars DataFrames without requiring PyArrow.
+bin of an x dimension, with optional line groups, facets, and background bars
+that show row counts or summed weights. It accepts pandas and eager Polars DataFrames without requiring PyArrow.
 
 Three functions share one summary object, `BinnedMeans`:
 
@@ -18,10 +18,10 @@ Three functions share one summary object, `BinnedMeans`:
 
 | Layer | Responsibility |
 | --- | --- |
-| `utils/grouped_stats.py` | 通用 Polars group-by：count、valid count、weighted sum、weight sum、mean |
+| `utils/grouped_stats.py` | 通用 Polars group-by：count、总 weight_sum，以及每个指标的 valid count、weighted sum、weight sum、mean |
 | `plot/binned_means/binning.py` | `BinSpec` 与 Polars key 表达式：分箱边界、rounding、类别 codes |
 | `plot/binned_means/summary.py` | `summarize_binned_means`、`BinnedMeans`：类别顺序、空 bins、x 位置及 bin-level 变换 |
-| `plot/binned_means/draw.py` | `draw_binned_means`：曲线、Count bars、双轴、legend 与 layout |
+| `plot/binned_means/draw.py` | `draw_binned_means`：曲线、背景柱（行数或权重）、双轴、legend 与 layout |
 | `plot/panels.py` | `PanelSet`、`panel_grid`、`label_outer_panels`：报告分页与外侧标签 |
 | `MortgageDiagnostics` | Mortgage 字段映射、`plot()` 与各业务方法、bin-level SMM → CPR |
 
@@ -56,7 +56,7 @@ result = plot_binned_means(
     weight="upb",
     bins={"incentive": BinSpec.step(0.25)},
     group="vintage",
-    count_mode="total",
+    bar_mode="total",
     y_format=".0%",
     y_label="CPR (UPB weighted)",
     labels={
@@ -93,24 +93,24 @@ result.summary  # exact statistics used in the figure
 ## Y scales, tick labels and axis titles
 
 Each figure has two y axes: the left axis for means (`y_*`) and the right axis
-for counts (`count_*`). Each has one argument for its range, one for its tick
+for bars (`bar_*`). Each has one argument for its range, one for its tick
 labels and one for its title; `x_titles` places the x title. `y_label` and
 `labels` set the title text:
 
 | Argument | Values (default first) | Controls |
 | --- | --- | --- |
 | `y_scale` | `"shared"`, `"free"`, `(low, high)` | Left-axis range: one for all panels, one per panel, or fixed |
-| `count_scale` | `"free"`, `"shared"`, top value | Count-axis range, same meaning |
+| `bar_scale` | `"free"`, `"shared"`, top value | Bar-axis range, same meaning |
 | `y_ticks` | `"all"`, `"outer"` | Left tick labels on every panel, or only the first panel of each row |
-| `count_ticks` | `"all"`, `"outer"` | Count tick labels on every panel, or only the last panel of each row |
+| `bar_ticks` | `"all"`, `"outer"` | Bar tick labels on every panel, or only the last panel of each row |
 | `y_titles` | `"all"`, `"outer"` | Left-axis title on every panel, or only the first panel of each row |
-| `count_titles` | `"all"`, `"outer"` | Count title on every panel, or only the last panel of each row |
+| `bar_titles` | `"all"`, `"outer"` | Bar-axis title on every panel, or only the last panel of each row |
 | `x_titles` | `"all"`, `"outer"` | x title on every panel, or only the lowest panel of each column |
 
 A scale only sets ranges. Tick labels appear on every panel until `y_ticks` or
-`count_ticks` says `"outer"`. That setting needs a shared or fixed scale and
+`bar_ticks` says `"outer"`. That setting needs a shared or fixed scale and
 raises an error with `"free"`, because each free panel needs its own numbers.
-The two axes are independent, so any left setting combines with any count
+The two axes are independent, so any left setting combines with any bar
 setting, and titles never depend on the scale:
 
 | Want | Arguments |
@@ -118,12 +118,12 @@ setting, and titles never depend on the scale:
 | Left axis shared, tick labels on every panel | `y_scale="shared"` |
 | Left axis shared, tick labels on the outer panels | `y_scale="shared", y_ticks="outer"` |
 | Left axis per panel | `y_scale="free"` |
-| Count axis shared, tick labels on every panel | `count_scale="shared"` |
-| Count axis shared, tick labels on the outer panels | `count_scale="shared", count_ticks="outer"` |
-| Count axis per panel | `count_scale="free"` |
-| Remove repeated titles (any scale) | `y_titles="outer"`, `count_titles="outer"`, `x_titles="outer"`, each on its own |
+| Bar axis shared, tick labels on every panel | `bar_scale="shared"` |
+| Bar axis shared, tick labels on the outer panels | `bar_scale="shared", bar_ticks="outer"` |
+| Bar axis per panel | `bar_scale="free"` |
+| Remove repeated titles (any scale) | `y_titles="outer"`, `bar_titles="outer"`, `x_titles="outer"`, each on its own |
 
-Fixed values (`y_scale=(0, 0.3)`, `count_scale=50_000`) keep separate figures,
+Fixed values (`y_scale=(0, 0.3)`, `bar_scale=50_000`) keep separate figures,
 such as pages drawn from one aggregation, on the same scale.
 `MortgageDiagnostics` takes the same arguments. Its `facet_panels` reads
 `"shared"` as one scale across every page. It defaults every axis title to
@@ -135,7 +135,7 @@ Categorical x values are shown as unconnected points by default; marker shapes
 identify metrics, including when colors identify groups. Encodings are
 consistent across all panels.
 Empty matrix combinations display "No observations"; unused wrapped slots are
-hidden. The result's `axes` and `count_axes` always have two dimensions.
+hidden. The result's `axes` and `bar_axes` always have two dimensions.
 
 ## Binning
 
@@ -182,6 +182,8 @@ denominator produces a missing mean. All-null metric columns are supported.
 `summary` contains role columns `x`, and optionally `group`, `row`, `col`, plus:
 
 - `count`: all records with valid grouping keys, even if their y/weight is missing.
+- `weight_sum`: the finite weights of those records, whatever their y (equals
+  `count` without `weight`). `data.weight` names the weight column.
 - `<metric>__mean`: the weighted mean.
 - `<metric>__valid_count`: records with finite y and weight, including zero weights.
 - `<metric>__weight_sum`: the denominator used for that metric.
@@ -194,20 +196,26 @@ Transformations and support thresholds apply to the aggregated table only:
 
 - `data.transform_means(fn)` transforms bin-level means, e.g. SMM → CPR after
   weighting. Weighted sums keep their original units.
-- `data.mask_sparse(n)` hides means where `count < n` and keeps the count bars,
+- `data.mask_sparse(n)` hides means where `count < n` and keeps the bars,
   so curves break at sparse bins.
 - `plot_binned_means(..., y_transform=fn, min_count=n)` applies both in that order.
 
 Both methods return a new object; `result.summary` holds the values that were drawn.
 
-The left axis shows means; the right axis shows counts:
+The left axis shows means; the right axis shows bars. `bar_value` sets what a
+bar measures and `bar_mode` how bars are drawn; any value combines with any mode:
 
-- `count_mode="total"` (default): total records in the panel at each x.
-- `count_mode="stacked"`: count bars stacked by `group` (requires `group`).
-- `count_mode="none"`: omit bars and secondary axes.
+- `bar_value="count"` (default): rows at each x. The axis title is "Count".
+- `bar_value="weight"`: the summed `weight` (e.g. UPB) at each x; needs a
+  weighted summary. The axis title is the weight's label from `labels`.
+- `bar_mode="total"` (default): one bar per x for the whole panel.
+- `bar_mode="stacked"`: bars stacked by `group` (requires `group`).
+- `bar_mode="none"`: omit bars and secondary axes.
 
-Adding metrics never multiplies counts. Counts are row counts, not weight sums.
-Bin widths can vary with quantiles: bar **height**, not area, represents count.
+`bar_label` overrides the axis title, e.g. `bar_label="Loan-months"`. Adding
+metrics never multiplies bars. `min_count` and "No observations" always use row
+counts, since they judge sample size. Bin widths can vary with quantiles: bar
+**height**, not area, represents the value.
 
 ## Aggregate once, render again
 
@@ -218,12 +226,12 @@ data = summarize_binned_means(
     df, x="incentive", y=["historical_cpr", "model_cpr"], weight="upb",
     group="vintage", bins={"incentive": BinSpec.step(0.25)},
 )
-first = draw_binned_means(data, count_mode="total", y_format=".0%")
-second = draw_binned_means(data, count_mode="stacked", y_format=".0%")
+first = draw_binned_means(data, bar_mode="total", y_format=".0%")
+second = draw_binned_means(data, bar_mode="stacked", y_format=".0%")
 ```
 
 `PlotTheme` controls shared colors, axes, titles, labels, and legend appearance;
-`BinnedMeansStyle` controls the mean curves or points, count bars, and categorical ticks.
+`BinnedMeansStyle` controls the mean curves or points, bars, and categorical ticks.
 Both are immutable, so derive a variant with `dataclasses.replace`:
 
 ```python
@@ -244,11 +252,11 @@ custom_style = replace(
     DEFAULT_BINNED_MEANS_STYLE,
     metric_linestyles=("-", ":"),
     marker="s",
-    stacked_count_alpha=0.25,
+    stacked_bar_alpha=0.25,
 )
 result = plot_binned_means(
     df, x="incentive", y=["historical_cpr", "model_cpr"],
-    weight="upb", group="vintage", count_mode="stacked",
+    weight="upb", group="vintage", bar_mode="stacked",
     theme=custom_theme, style=custom_style,
 )
 
@@ -280,7 +288,7 @@ All data processing is separate from rendering. 全量行只处理一次：
 Mortgage 的公开业务方法继续返回 `(fig, primary_axes)`，都委托给
 `MortgageDiagnostics.plot(x, bins=...)`。`x` 可以是 `MortgageColnames` 的 role，
 也可以是任意源列名；`bins` 覆盖 `bin_config`，可为 `'discrete'`、rounding 单位或
-`BinSpec`。Count axes 留在 figure 内；facets 共用 Count 尺度。`min_count` 只隐藏
+`BinSpec`。背景柱的坐标轴留在 figure 内；facets 共用柱子的尺度；柱子默认是行数，`bar_value='weight'` 时改为权重之和。`min_count` 只隐藏
 曲线，保留背景柱；SMM 聚合后才转为 CPR，不对逐行 binary target 转换。`figsize` 为
 每个 panel 的尺寸，`n_cols` 控制分面布局。
 
@@ -301,14 +309,14 @@ python -m pytest tests/plot/binned_means -q
 ```
 
 `make_fake_mortgage_data()` in `tests/plot/binned_means/test_gallery.py` creates 40,000 deterministic
-synthetic records. Nine visual cases are grouped by layout:
+synthetic records. Ten visual cases are grouped by layout:
 
 | Layout | Cases |
 | --- | --- |
-| Single panel | 01 multiple metrics · 02 groups overlaid · 03 groups + stacked counts |
-| Facets | 04 wrapped facets · 05 groups with quantile and edge bins · 06 groups, one metric, SMM → CPR |
-| Row x col matrix | 07 multiple metrics with shared scales · 08 groups overlaid |
-| Categorical x | 09 unconnected points with column facets |
+| Single panel | 01 multiple metrics · 02 groups overlaid · 03 groups + stacked counts · 04 groups + stacked UPB |
+| Facets | 05 wrapped facets · 06 groups with quantile and edge bins · 07 groups, one metric, SMM → CPR |
+| Row x col matrix | 08 multiple metrics with shared scales · 09 groups overlaid |
+| Categorical x | 10 unconnected points with column facets |
 
 Set `QB_TEST_KEEP_ARTIFACTS=1` in your `.env` (see `.env.example`) or process
 environment before running the tests to retain the gallery. Then open

@@ -1,4 +1,4 @@
-"""Binned means: weighted means of y per bin of x, drawn over count bars.
+"""Binned means: weighted means of y per bin of x, drawn over count or weight bars.
 
 The three verbs share one summary object, ``BinnedMeans``:
 
@@ -40,20 +40,22 @@ def plot_binned_means(
     y_transform: Callable | None = None,
     min_count: int = 0,
     # Layout
-    count_mode: Literal["total", "stacked", "none"] = "total",
+    bar_mode: Literal["total", "stacked", "none"] = "total",
+    bar_value: Literal["count", "weight"] = "count",
     wrap: int | None = None,
     panel_size: tuple[float, float] = (5.2, 3.5),
     # Axes
     y_scale: Literal["shared", "free"] | tuple[float, float] = "shared",
-    count_scale: Literal["shared", "free"] | float = "free",
+    bar_scale: Literal["shared", "free"] | float = "free",
     y_ticks: Literal["all", "outer"] = "all",
-    count_ticks: Literal["all", "outer"] = "all",
+    bar_ticks: Literal["all", "outer"] = "all",
     y_titles: Literal["all", "outer"] = "all",
-    count_titles: Literal["all", "outer"] = "all",
+    bar_titles: Literal["all", "outer"] = "all",
     x_titles: Literal["all", "outer"] = "all",
     # Text
     labels: Mapping[str, str] | None = None,
     y_label: str = "Weighted mean",
+    bar_label: str | None = None,
     title: str | None = None,
     y_format: str | None = None,
     # Look
@@ -64,9 +66,10 @@ def plot_binned_means(
 
     ``y_transform`` applies to bin-level means after weighting (e.g. SMM ->
     CPR); ``min_count`` hides curve values for bins with fewer rows while
-    keeping their count bars. ``y_scale`` / ``count_scale`` set each y
-    axis's range, ``y_ticks`` / ``count_ticks`` its tick labels and
-    ``y_titles`` / ``count_titles`` / ``x_titles`` the axis titles.
+    keeping their bars. ``bar_value='weight'`` sizes bars by the summed
+    ``weight`` instead of rows. ``y_scale`` / ``bar_scale`` set each y
+    axis's range, ``y_ticks`` / ``bar_ticks`` its tick labels and
+    ``y_titles`` / ``bar_titles`` / ``x_titles`` the axis titles.
 
     Example::
 
@@ -82,8 +85,8 @@ def plot_binned_means(
         data = data.transform_means(y_transform)
     if min_count:
         data = data.mask_sparse(min_count)
-    return draw_binned_means(data, count_mode=count_mode, wrap=wrap, panel_size=panel_size,
-                             y_scale=y_scale, count_scale=count_scale, y_ticks=y_ticks,
-                             count_ticks=count_ticks, y_titles=y_titles, count_titles=count_titles,
-                             x_titles=x_titles, labels=labels, y_label=y_label, title=title,
+    return draw_binned_means(data, bar_mode=bar_mode, bar_value=bar_value, wrap=wrap, panel_size=panel_size,
+                             y_scale=y_scale, bar_scale=bar_scale, y_ticks=y_ticks,
+                             bar_ticks=bar_ticks, y_titles=y_titles, bar_titles=bar_titles,
+                             x_titles=x_titles, labels=labels, y_label=y_label, bar_label=bar_label, title=title,
                              y_format=y_format, theme=theme, style=style)

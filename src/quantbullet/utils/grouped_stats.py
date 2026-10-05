@@ -18,6 +18,8 @@ def grouped_weighted_summary(
     Null/nonfinite metrics or weights do not contribute to that metric's
     statistics. Zero weights count as valid observations; zero total weight
     produces a null mean. Negative weights raise, including on excluded rows.
+    ``weight_sum`` adds every row's finite weight, whether or not its metrics
+    are valid (unit weights without ``weight``, so it equals ``count``).
     Group keys (including null keys) are passed through unchanged. Only the
     small aggregated result is sorted, never the input observations.
     """
@@ -31,7 +33,7 @@ def grouped_weighted_summary(
     required = set(by) | set(metrics) | ({weight} if weight is not None else set())
     if missing := required - set(df.columns):
         raise ValueError(f"missing columns: {sorted(missing)}")
-    generated = {"count"} | {
+    generated = {"count", "weight_sum"} | {
         f"{m}__{suffix}" for m in metrics
         for suffix in ("valid_count", "weight_sum", "weighted_sum", "mean")
     }
@@ -44,7 +46,9 @@ def grouped_weighted_summary(
     if weight is not None and df.select((w < 0).any()).item():
         raise ValueError("weights must be nonnegative")
 
-    expressions = [pl.len().cast(pl.Int64).alias("count")]
+    # A literal unit weight would sum to 1 per group, so unweighted sums count rows.
+    total_weight = pl.len().cast(pl.Float64) if weight is None else pl.when(w.is_finite()).then(w).otherwise(0.0).sum()
+    expressions = [pl.len().cast(pl.Int64).alias("count"), total_weight.alias("weight_sum")]
     for metric in metrics:
         value = pl.col(metric).cast(pl.Float64)
         valid = (value.is_finite() & w.is_finite()).fill_null(False)

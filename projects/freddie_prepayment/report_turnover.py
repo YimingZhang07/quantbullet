@@ -188,7 +188,7 @@ def report(config: Config) -> dict:
                 pdf.add_figure_grid(panels(title, lambda role=role, facet=facet, facet_label=facet_label, x_label=x_label:
                     diagnostics.facet_panels(role, facet, facet_label=facet_label, min_count=MIN_COUNT_FACET,
                                              n_cols=3, x_label=x_label, y_scale='shared',
-                                             y_ticks='all', count_ticks='all')))
+                                             y_ticks='all', bar_ticks='all')))
 
         singles = [
             ("9. Updated first-lien LTV", diagnostics.cltv_plot, MORTGAGE_COLUMNS.cltv),

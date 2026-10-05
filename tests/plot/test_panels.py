@@ -7,6 +7,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import polars as pl
 import pytest
 
 from quantbullet.linear_product_model.mortgage_diagnostics import MortgageColnames, MortgageDiagnostics
@@ -66,7 +67,7 @@ def test_facet_panels_align_primary_scale_across_pages():
     assert (low, high) == pytest.approx((means.min() - pad, means.max() + pad))
     assert visible_tick_labels(first, first.axes[1].yaxis) == []
     assert visible_tick_labels(first, first.axes[0].yaxis)
-    every = diagnostics.facet_panels("incentive", "f", n_cols=2, y_scale="shared", y_ticks="all", count_ticks="all")
+    every = diagnostics.facet_panels("incentive", "f", n_cols=2, y_scale="shared", y_ticks="all", bar_ticks="all")
     shown = every.draw(["a", "b"], panel_size=(3, 2))
     assert {ax.get_ylim() for ax in shown.axes[:2]} == {(low, high)}
     assert all(visible_tick_labels(shown, ax.yaxis) for ax in shown.axes)  # both panels, both axes
@@ -84,8 +85,8 @@ def test_facet_panels_keep_one_count_scale_across_pages():
     rest = panels.draw(["e"], panel_size=(3, 2))
     assert tuple(first.get_size_inches()) == (6, 4) and tuple(rest.get_size_inches()) == (6, 2)
     # Each grid's slots come first, then one count axis per drawn panel.
-    count_axes = first.axes[4:] + rest.axes[2:]
-    assert len(count_axes) == 5 and len({ax.get_ylim() for ax in count_axes}) == 1
+    bar_axes = first.axes[4:] + rest.axes[2:]
+    assert len(bar_axes) == 5 and len({ax.get_ylim() for ax in bar_axes}) == 1
     assert first.axes[0].get_title() == "Group: a"
     assert isinstance(first.axes[0].yaxis.get_major_formatter(), StepPercentFormatter)
     assert first.axes[0].yaxis.get_ticklabels()[0].get_fontsize() == PRINT_THEME.tick_labelsize
@@ -111,3 +112,18 @@ def test_implied_actual_panels_draw_a_subset_with_one_figure_legend():
     assert tuple(fig.get_size_inches()) == (6, 2)
     assert len(fig.legends) == 1 and fig.axes[0].get_legend() is None
     assert fig.axes[0].get_xlabel() == "z"
+
+
+def test_facet_panels_share_a_weight_bar_scale_across_pages():
+    frame = facet_frame().with_columns(w=pl.lit(2.))
+    diagnostics = MortgageDiagnostics(frame, MortgageColnames(
+        response="y", model_preds={"Model": "p"}, incentive=("x", .25), weight="w"))
+    panels = diagnostics.facet_panels("incentive", "f", n_cols=2, bar_value="weight")
+    first, rest = panels.draw(["a", "b", "c", "d"], panel_size=(3, 2)), panels.draw(["e"], panel_size=(3, 2))
+    bar_axes = first.axes[4:] + rest.axes[2:]
+    tallest = max(bar.get_height() for ax in bar_axes for bar in ax.patches)
+    limits = {ax.get_ylim() for ax in bar_axes}
+    assert len(limits) == 1
+    low, high = limits.pop()
+    assert low == 0 and high == pytest.approx(tallest * 1.05)
+    assert all(bar.get_height() % 2 == 0 for ax in bar_axes for bar in ax.patches)  # weight 2 per row

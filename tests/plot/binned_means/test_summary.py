@@ -34,10 +34,10 @@ def test_summary_adapter_preserves_estimates_and_completes_facets():
     assert first["count"].tolist()==[10,0,2]
     assert first["actual__mean"].tolist()[0]==.1
     assert first["actual__mean"].isna().tolist()==[False,True,True]
-    result=draw_binned_means(data,wrap=2,count_scale="shared")
-    assert result.count_axes[0,0].get_ylim()==result.count_axes[0,1].get_ylim()
-    assert sum(bar.get_height() for ax in result.count_axes.flat for bar in ax.patches)==33
-    assert sum(len(ax.patches) for ax in result.count_axes.flat)==6  # not 12 for two metrics
+    result=draw_binned_means(data,wrap=2,bar_scale="shared")
+    assert result.bar_axes[0,0].get_ylim()==result.bar_axes[0,1].get_ylim()
+    assert sum(bar.get_height() for ax in result.bar_axes.flat for bar in ax.patches)==33
+    assert sum(len(ax.patches) for ax in result.bar_axes.flat)==6  # not 12 for two metrics
     pd.testing.assert_frame_equal(before,summary)
 
 
@@ -113,3 +113,26 @@ def test_select_limits_facets_and_keeps_full_level_metadata():
         data.select("col", ["z"])
     with pytest.raises(ValueError):
         data.select("x", [0])
+
+
+def test_weight_sum_adds_every_finite_weight_and_fills_empty_bins():
+    df = pl.DataFrame({"x": [0., 0., 0., 2.5], "y": [1., None, 3., 4.], "w": [2., 3., None, 0.]})
+    bins = {"x": BinSpec.edges([0, 1, 2, 3])}
+    data = summarize_binned_means(df, x="x", y="y", weight="w", bins=bins)
+    assert data.weight == "w"
+    assert data.summary["count"].tolist() == [3, 0, 1]
+    assert data.summary["weight_sum"].tolist() == [5., 0., 0.]  # missing y still counts, missing weight does not
+    assert data.summary["y__weight_sum"].tolist() == [2., 0., 0.]
+    unweighted = summarize_binned_means(df, x="x", y="y", bins=bins)
+    assert unweighted.weight is None and unweighted.summary["weight_sum"].tolist() == [3., 0., 1.]
+
+
+def test_summary_adapter_accepts_weight_sums():
+    table = pd.DataFrame({"x": [1, 2], "count": [3, 1], "upb": [300., 50.], "y": [.1, .2]})
+    data = BinnedMeans.from_summary(table, x="x", mean_columns={"y": "y"}, weight="upb")
+    assert data.weight == "upb" and data.summary["weight_sum"].tolist() == [300., 50.]
+    assert BinnedMeans.from_summary(table, x="x", mean_columns={"y": "y"}).weight is None
+    with pytest.raises(ValueError, match="missing summary columns"):
+        BinnedMeans.from_summary(table, x="x", mean_columns={"y": "y"}, weight="balance")
+    with pytest.raises(ValueError, match="weights must be finite"):
+        BinnedMeans.from_summary(table.assign(upb=[-1., 50.]), x="x", mean_columns={"y": "y"}, weight="upb")
