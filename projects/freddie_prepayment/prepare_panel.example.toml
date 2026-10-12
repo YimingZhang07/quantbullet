@@ -1,0 +1,8 @@
+[data]
+sample_root = "${FREDDIE_DATA_ROOT}/samples/prepayment_800k"
+macro_root = "${MACRO_DATA_ROOT}"
+output_root = "${FREDDIE_DATA_ROOT}/prepared/prepayment_800k"
+
+[features]
+# Percentage points; 0.5 = 50 bps. Omit this section to use the same default.
+burnout_threshold = 0.5

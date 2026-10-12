@@ -36,7 +36,8 @@ filters are defined in subsequent modeling processes.
 
 - [Sample config](sample_panel.example.toml): vintage range, loan count, seed,
   optional `amortization_type` and `original_loan_term`, plus input/output roots.
-  The example samples 500k 30-year FRM loans from 2015Q1 through 2026Q1.
+  The example samples 10k 30-year FRM loans from the 2015 vintages into
+  `samples/example`; workflows keep their own sample and preparation configs.
 - [Preparation config](prepare_panel.example.toml): sampled panel, macro and output roots.
   Copy examples to an external local TOML to customize them. `${NAME}` expands
   environment variables; relative paths resolve against the TOML directory.

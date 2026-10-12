@@ -1,11 +1,12 @@
 [data]
 freddie_root = "${FREDDIE_DATA_ROOT}"
-output_root = "${FREDDIE_DATA_ROOT}/samples/prepayment_500k"
+output_root = "${FREDDIE_DATA_ROOT}/samples/example"
 
 [sample]
 start_vintage = "2015Q1"
-end_vintage = "2026Q1"
-n_loans = 500000
+end_vintage = "2015Q4"
+n_loans = 10000
 seed = 42
+# Optional product filters; omit both to sample every product.
 amortization_type = "FRM"
 original_loan_term = 360

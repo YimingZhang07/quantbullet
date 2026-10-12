@@ -9,6 +9,13 @@ from dotenv import load_dotenv
 
 from quantbullet.utils.files import expand_env_path
 
+REPOSITORY = Path(__file__).resolve().parents[2]
+
+
+def load_repo_env() -> None:
+    # Process environment wins over the gitignored repo .env.
+    load_dotenv(REPOSITORY / ".env", override=False)
+
 
 @dataclass(frozen=True)
 class Config:
@@ -24,17 +31,15 @@ class Config:
             raise ValueError("incentive_max must be finite and <= -0.5 for this turnover specification")
         if self.n_iterations < 1 or self.early_stopping_rounds < 1 or not math.isfinite(self.ftol) or self.ftol <= 0:
             raise ValueError("Fit iterations, stopping rounds and ftol must be positive")
-        repository = Path(__file__).resolve().parents[2]
         for path in (self.panel_path, self.output_root):
-            if path.resolve().is_relative_to(repository):
+            if path.resolve().is_relative_to(REPOSITORY):
                 raise ValueError("Data and artifacts must be outside the repository")
         if self.panel_path.resolve().is_relative_to(self.output_root.resolve()):
             raise ValueError("Output must be separate from the input panel")
 
 
 def read_config(path: str | Path) -> Config:
-    # Process environment wins over the gitignored repo .env.
-    load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
+    load_repo_env()
     path = Path(path).resolve()
     with path.open("rb") as file:
         config = tomllib.load(file)
