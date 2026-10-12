@@ -289,3 +289,23 @@ categorical aggregates）逐位相同；98 个 `predict` / `leave_out` 数组相
 - 测试：turnover 的 log 形式 fit + report 往返、config 校验；LPM 与 turnover 测试 119 通过，2 个既有失败不变。
 
 第 5 期其余项：log form 标准误（待决问题 5 与权重语义，见第 7 节第 3 项）、one-hot 结构化 Hessian、可选 `IdentityBernoulli`。
+
+第 5 期第一部分已提交（`01377e9`）。
+
+**one-hot 结构化 Hessian：实测不更快，未实施**（[bench_newton_pass.py](bench_newton_pass.py)，turnover 形状，每 50 万行）：
+
+| Newton pass 的实现 | 时间 |
+|---|---|
+| 当前：156 列 dense float32 Hessian（含 eta、gradient） | 约 430 ms |
+| 结构化：82 列 dense GEMM + one-hot 交叉项用 0/1 矩阵 GEMM + one-hot 之间用 bincount | 约 650 ms |
+| 结构化：one-hot 交叉项改用 sparse 乘法 | 约 1,260 ms |
+
+多线程 BLAS 让 156 列的 dense GEMM 已很便宜；每块重建 one-hot、15 组交叉 bincount 和单线程 sparse 乘法的开销超过省下的 flops。
+结构化的唯一收益是内存：缓存只需 82 列加 codes（turnover 约 5.6 GB，现为 10.6 GB），可作为 design 超过 `max_cache_gb` 时
+代替 stream 的选项。
+
+**改为每块只转换一次（已实施）**：pass 中相当一部分时间花在 float32 design 乘 float64 向量时 NumPy 对整块的 upcast，
+eta 与 gradient 各一次。现在每个 chunk 只转换一次，两个乘积共用；Hessian 升到 float64 时也直接复用。
+在 turnover 300 万行上用真实 solver 对比（每种 30 次 pass 的中位数）：每次乘积各自 upcast 4.59s，按 4096 行分块 4.66s
+（合成数据上看似更快，但真实计算中每块的 Python 调用开销抵消了收益），每块转换一次 3.71s（-19%）；三者 deviance 相同（差 1e-16）。
+turnover 全量（17.0M 行）：fit 243s（之前 262s；扣除建 design 后 Newton 部分约 211s → 187s），deviance 与预测与之前逐位相同（显式转换与 NumPy 隐式 upcast 得到同样的 float64 值）。

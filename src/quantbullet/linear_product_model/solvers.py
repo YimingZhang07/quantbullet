@@ -776,14 +776,16 @@ class NewtonSolver:
             gradient, hessian = np.zeros(p), np.zeros((p, p))
             for rows in design.chunks(n):
                 Z = design.rows(blocks, rows)
-                eta = Z @ beta
+                # Convert a float32 chunk once and reuse it: NumPy would otherwise upcast it for each product.
+                Z64 = Z.astype(np.float64, copy=False)
+                eta = Z64 @ beta
                 if offset is not None:
                     eta += offset[rows]
                 mu, dev, grad_w, hess_w = form.newton_terms(eta, y[rows], w[rows])
                 deviance += dev.sum()
                 loss += np.dot(w[rows], form.loss_terms(y[rows], mu))
-                gradient += grad_w @ Z                               # float64: sets the optimum
-                Zh = Z.astype(np.float64) if precise else Z          # Hessian only steers the step
+                gradient += grad_w @ Z64                             # float64: sets the optimum
+                Zh = Z64 if precise else Z                           # Hessian only steers the step
                 Zs = Zh * np.sqrt(hess_w).astype(Zh.dtype)[:, None]
                 hessian += Zs.T @ Zs
             model.fit_timing_['sweep_seconds'].append(time.perf_counter() - pass_started)
