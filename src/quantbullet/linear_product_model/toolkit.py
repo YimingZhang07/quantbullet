@@ -16,6 +16,7 @@ from reportlab.lib import colors
 # ===== Local Application/Library Imports =====
 from quantbullet.linear_product_model.base import LinearProductModelBase
 from quantbullet.linear_product_model.datacontainer import ProductModelDataContainer
+from quantbullet.linear_product_model.forms import ModelForm, form_of, resolve_form
 from quantbullet.linear_product_model._acceleration import vector_product_numexpr_dict_values
 from quantbullet.model.core import FeatureSpec
 from quantbullet.plot.formatter import PlotFormatter
@@ -286,20 +287,16 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
 
             coef = model.coef_.get(feature)
             if isinstance(coef, InteractionCoef):
+                # The block prediction already holds each category's curve; split it by category.
                 cat_series = dc.orig[coef.by]
-                X_block = dc.get_expanded_array_for_feature_group(feature)
-                for cat_val, cat_coef in coef.categories.items():
+                for cat_val in coef.categories:
                     mask = (cat_series == cat_val).values
-                    if hasattr(cat_coef, 'predict'):
-                        pred = cat_coef.predict(X_block[mask])
-                    else:
-                        pred = X_block[mask] @ cat_coef
                     key = f"{feature}|{coef.by}={cat_val}"
                     result[key] = pd.DataFrame({
                         'feature_value': dc.orig[feature].values[mask],
                         'y': y[mask],
                         'm': m[mask],
-                        'model_pred': pred,
+                        'model_pred': block_preds[feature][mask],
                         'w': w[mask],
                     })
             else:
@@ -317,15 +314,17 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         raw_data: dict[str, pd.DataFrame],
         bin_config: dict,
         n_quantile_groups: int,
-        loss: str = 'mse',
+        loss: 'str | ModelForm' = 'mse',
     ) -> dict[str, pd.DataFrame]:
         """Bin and aggregate per-feature data into implied actuals.
 
         Each observation carries ``y``, ``m`` (other blocks incl. scalar),
         ``w`` (sample weight), and ``model_pred`` (block prediction ``p``).
 
-        The **implied actual** is a FOC-consistent binned ratio whose formula
-        depends on the loss function used during fitting:
+        The **implied actual** is a FOC-consistent binned ratio
+        ``sum(numer) / sum(denom)`` whose terms come from the model's form
+        (``ModelForm.implied_actual_terms``). ``loss`` is that form, or a loss
+        name for the identity link:
 
         ``'mse'``:
             ``sum(w·m·y) / sum(w·m²)`` — from the MSE normal equations.
@@ -339,6 +338,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
             ``bin_val, implied_actual, model_pred, count, feature_name``.
         """
         per_feature: dict[str, pd.DataFrame] = {}
+        form = loss if isinstance(loss, ModelForm) else resolve_form('identity', loss)
 
         for feature, df in raw_data.items():
             parent_feature = feature.split('|')[0] if '|' in feature else feature
@@ -352,16 +352,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
             m = df['m'].values
             w = df['w'].values
             p = df['model_pred'].values
-
-            if loss == 'mse':
-                numer = w * m * y
-                denom = w * m ** 2
-            elif loss == 'poisson':
-                p_safe = np.maximum(p, 1e-10)
-                numer = w * y / p_safe
-                denom = w * m / p_safe
-            else:
-                raise ValueError(f"Unknown loss '{loss}'.")
+            numer, denom = form.implied_actual_terms(y, m, p, w)
 
             agg = pd.DataFrame({
                 'bin_val': bin_vals,
@@ -404,8 +395,9 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
     ):
         """Plot implied actuals vs model predictions for each numerical feature.
 
-        The implied actual per bin is a FOC-consistent ratio that depends on
-        the loss function used during fitting (auto-detected from ``model.loss_``):
+        The implied actual per bin is a FOC-consistent ratio whose terms come
+        from the model's form (``model.form_``, or its ``loss_`` with the
+        identity link):
 
         - MSE: ``sum(w·m·y) / sum(w·m²)``
         - Poisson: ``sum(w·y/p) / sum(w·m/p)``
@@ -485,9 +477,8 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
             raise ValueError("legend must be 'figure' or 'axes'")
         raw_data = self.compute_implied_actual_data(model, dcontainer, sample_frac, sample_weights)
         effective_config = {**self.implied_actual_bin_config, **(bin_config or {})}
-        loss = getattr(model, 'loss_', 'mse')
         per_feature = self._aggregate_implied_data(
-            raw_data, effective_config, n_quantile_groups, loss=loss,
+            raw_data, effective_config, n_quantile_groups, loss=form_of(model),
         )
 
         data_caches = {}
@@ -568,23 +559,14 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
             y_sample = y_sample + model.offset_y
 
         w = np.asarray(sample_weights, dtype=float).ravel() if sample_weights is not None else np.ones(len(y_sample))
-        loss = getattr(model, 'loss_', 'mse')
+        form = form_of(model)
 
         block_preds = { feature: model.single_feature_group_predict( feature, X_sample, ignore_global_scale=True ) for feature in self.feature_groups_.keys() }
         per_feature = {}
         for feature, subfeatures in self.categorical_feature_groups.items():
             m = model.global_scalar_ * vector_product_numexpr_dict_values( data=block_preds, exclude=feature )
             p = block_preds[ feature ]
-
-            if loss == 'mse':
-                numer = w * m * y_sample
-                denom = w * m ** 2
-            elif loss == 'poisson':
-                p_safe = np.maximum(p, 1e-10)
-                numer = w * y_sample / p_safe
-                denom = w * m / p_safe
-            else:
-                raise ValueError(f"Unknown loss '{loss}'.")
+            numer, denom = form.implied_actual_terms(y_sample, m, p, w)
 
             binned_df = pd.DataFrame({
                 "feature_bin": X_sample.orig[feature],
@@ -674,7 +656,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         # — loss curve —
         axes[0, 0].plot(iters, loss_hist, marker='o', markersize=4, linewidth=1.5)
         axes[0, 0].set_xlabel('Iteration')
-        loss_label = 'Poisson deviance' if getattr(model, 'loss_', 'mse') == 'poisson' else 'MSE Loss'
+        loss_label = form_of(model).loss_label
         axes[0, 0].set_ylabel(loss_label)
         axes[0, 0].set_title('Loss History')
         axes[0, 0].ticklabel_format(axis='y', style='sci', scilimits=(-2, 2))

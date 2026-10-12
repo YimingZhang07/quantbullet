@@ -1,0 +1,124 @@
+"""Model forms: the registry, their formulas, and the single block-evaluation entry point."""
+import pickle
+from types import SimpleNamespace
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from quantbullet.linear_product_model import (InteractionCoef, LinearProductModelToolkit, LinearProductRegressorBCD,
+                                              ModelForm, resolve_form)
+from quantbullet.linear_product_model.datacontainer import ProductModelDataContainer
+from quantbullet.linear_product_model.forms import IdentityMSE, IdentityPoisson, form_of
+
+
+class FrozenCurve:
+    """A fixed block, as a pre-fitted submodel would be."""
+
+    def __init__(self, coef):
+        self.coef = np.asarray(coef, dtype=float)
+
+    def predict(self, X):
+        return X @ self.coef
+
+
+def fitted(loss, submodel=False):
+    rng = np.random.default_rng(3)
+    n = 4000
+    age = rng.uniform(1., 120., n)
+    purpose = rng.integers(0, 3, n)
+    state = rng.integers(0, 4, n)
+    rate = .05 * (.6 + .8 * np.minimum(age, 36.) / 36.) * np.array([.8, 1.2, 1.])[purpose] * (1. + .1 * state)
+    matrices = {"purpose": np.eye(3)[purpose], "state": np.eye(4)[state],
+                "age": np.column_stack((np.ones(n), np.minimum(age, 36.) / 36., np.maximum(age - 36., 0.) / 84.))}
+    groups = {name: [f"{name}_{i}" for i in range(X.shape[1])] for name, X in matrices.items()}
+    expanded = pd.DataFrame(np.column_stack(list(matrices.values())), columns=sum(groups.values(), []))
+    orig = pd.DataFrame({"age": age, "purpose": pd.Categorical(np.array(["C", "N", "P"])[purpose]),
+                         "state": pd.Categorical(state)})
+    container = ProductModelDataContainer(orig, expanded, response=rng.poisson(rate).astype(float),
+                                          feature_groups=groups)
+    submodels = {"state": FrozenCurve([1., 1.1, 1.2, 1.3])} if submodel else None
+    model = LinearProductRegressorBCD().fit(container, groups, interactions={"age": "purpose"}, submodels=submodels,
+                                            loss=loss, n_iterations=5, verbose=0)
+    return model, container
+
+
+def test_registry_resolves_supported_forms_and_rejects_others():
+    assert isinstance(resolve_form("identity", "mse"), IdentityMSE)
+    assert isinstance(resolve_form("identity", "poisson"), IdentityPoisson)
+    assert resolve_form("identity", "poisson").name == "identity/poisson"
+    for link, loss in (("log", "poisson"), ("log", "mse"), ("identity", "huber")):
+        with pytest.raises(ValueError, match=f"Unsupported model form {link}/{loss}; "
+                                             "supported: identity/mse, identity/poisson"):
+            resolve_form(link, loss)
+
+
+def test_form_formulas():
+    y, y_hat, w = np.array([0., 1., 2.]), np.array([.5, 1.5, 1.]), np.array([1., 2., 3.])
+    m, p = np.array([.2, .4, .3]), np.array([1., 2., 0.])
+    mse, poisson = resolve_form("identity", "mse"), resolve_form("identity", "poisson")
+    assert mse.loss(y, y_hat, w) == pytest.approx(np.average((y - y_hat) ** 2, weights=w))
+    y_safe = np.maximum(y, 1e-10)
+    assert poisson.loss(y, y_hat) == pytest.approx(np.mean(2 * (y_safe * np.log(y_safe / y_hat) - (y - y_hat))))
+
+    numer, denom = mse.implied_actual_terms(y, m, p, w)
+    np.testing.assert_allclose(numer, w * m * y)
+    np.testing.assert_allclose(denom, w * m ** 2)
+    numer, denom = poisson.implied_actual_terms(y, m, p, w)
+    assert np.isfinite(numer).all() and np.isfinite(denom).all()   # a zero factor is floored
+    np.testing.assert_allclose(numer, w * y / np.maximum(p, 1e-10))
+    np.testing.assert_allclose(denom, w * m / np.maximum(p, 1e-10))
+
+    X, coef = np.array([[1., 2.], [3., 4.]], dtype=np.float32), np.array([.5, -1.])
+    np.testing.assert_array_equal(poisson.factor(X, coef), np.dot(X, coef))
+
+
+def test_form_of_falls_back_to_the_identity_form_of_loss():
+    assert form_of(SimpleNamespace(loss_="poisson")) is resolve_form("identity", "poisson")
+    assert form_of(SimpleNamespace()) is resolve_form("identity", "mse")
+    assert isinstance(form_of(SimpleNamespace(form_=IdentityPoisson(), loss_="mse")), IdentityPoisson)
+
+
+@pytest.mark.parametrize("loss", ["mse", "poisson"])
+@pytest.mark.parametrize("submodel", [False, True])
+def test_predictions_are_products_of_block_factors(loss, submodel):
+    model, container = fitted(loss, submodel)
+    assert model.form_ is resolve_form("identity", loss)
+    factors = {}
+    for group in model.feature_groups_:
+        coef = model.coef_[group]
+        cat_series = container.orig[coef.by] if isinstance(coef, InteractionCoef) else None
+        factors[group] = model.block_factor(group, container.get_expanded_array_for_feature_group(group),
+                                            cat_series=cat_series)
+        np.testing.assert_array_equal(model.single_feature_group_predict(group, container), factors[group])
+    expected = model.global_scalar_ * np.prod(list(factors.values()), axis=0)
+    np.testing.assert_allclose(model.predict(container), expected, rtol=1e-12)
+    if submodel:
+        X_state = container.get_expanded_array_for_feature_group("state")
+        np.testing.assert_array_equal(factors["state"], model.submodels_["state"].predict(X_state))
+
+    restored = pickle.loads(pickle.dumps(model))
+    assert restored.form_ is model.form_
+    np.testing.assert_array_equal(restored.predict(container), model.predict(container))
+
+
+def test_fit_rejects_unsupported_loss_and_keeps_the_fitted_model():
+    model, container = fitted("poisson")
+    before = model.predict(container)
+    with pytest.raises(ValueError, match="Unsupported model form identity/huber"):
+        model.fit(container, model.feature_groups_, interactions={"age": "purpose"}, loss="huber", verbose=0)
+    assert model.loss_ == "poisson"
+    np.testing.assert_array_equal(model.predict(container), before)
+
+
+def test_toolkit_aggregation_takes_a_form_or_a_loss_name():
+    from quantbullet.model.feature import DataType, Feature, FeatureRole, FeatureSpec
+    toolkit = LinearProductModelToolkit(FeatureSpec([
+        Feature("x", DataType.FLOAT, FeatureRole.MODEL_INPUT), Feature("y", DataType.FLOAT, FeatureRole.TARGET)]))
+    raw = {"x": pd.DataFrame({"feature_value": [1, 1, 2], "y": [0., 1., 0.], "m": [.2, .4, .3],
+                              "model_pred": [1., 2., 1.5], "w": [1., 3., 1.]})}
+    by_name = toolkit._aggregate_implied_data(raw, {"x": "discrete"}, 100, loss="poisson")["x"]
+    form = resolve_form("identity", "poisson")
+    assert isinstance(form, ModelForm)
+    by_form = toolkit._aggregate_implied_data(raw, {"x": "discrete"}, 100, loss=form)["x"]
+    pd.testing.assert_frame_equal(by_form, by_name)

@@ -7,6 +7,7 @@ from .utils import (
     estimate_ols_beta_se_with_scalar_vector
 )
 from .datacontainer import ProductModelDataContainer
+from .forms import resolve_form
 from quantbullet.log_config import setup_logger
 from dataclasses import dataclass
 logger = setup_logger(__name__)
@@ -417,13 +418,21 @@ class LinearProductRegressorBase(LinearProductModelBase):
         super().__init__()
         self.offset_y = None
 
-    def _predict_group(self, group, X_block, cat_series=None):
-        """Predict one group's multiplicative contribution.
+    @property
+    def form_(self):
+        """Block link and loss (``forms.ModelForm``); derived from ``loss_``, so older pickles need nothing stored."""
+        return resolve_form("identity", getattr(self, "loss_", "mse"))
 
-        Dispatches based on the type stored in ``coef_[group]``:
-        - ``np.ndarray``: standard linear ``X_block @ coef``
-        - ``InteractionCoef``: per-category prediction assembled via masking
-        - Submodel (in ``submodels_``): ``submodel.predict(X_block)``
+    def block_factor(self, group, X_block, cat_series=None, coef=None):
+        """Multiplicative factor of one feature group: the single place a block is evaluated.
+
+        Dispatches on ``coef`` (default ``coef_[group]``):
+
+        - ``InteractionCoef``: one curve per category of ``cat_series``, assembled by masking;
+          rows of categories without a curve get 1
+        - a group in ``submodels_``: ``submodel.predict(X_block)``; ``coef`` is ignored
+        - an object with ``predict`` (a frozen interaction curve): ``coef.predict(X_block)``
+        - a coefficient vector: ``form_.factor(X_block, coef)``
 
         Parameters
         ----------
@@ -431,10 +440,14 @@ class LinearProductRegressorBase(LinearProductModelBase):
         X_block : np.ndarray
             Design matrix for this group (n_obs, n_basis).
         cat_series : array-like, optional
-            Categorical column values.  Required when ``coef_[group]`` is an
+            Categorical column values.  Required when the coefficients are an
             ``InteractionCoef``.
+        coef : optional
+            Coefficients to evaluate instead of ``coef_[group]``, e.g. candidate
+            parameters during fitting.
         """
-        coef = self.coef_[group]
+        if coef is None:
+            coef = self.coef_[group]
         if isinstance(coef, InteractionCoef):
             if cat_series is None:
                 raise ValueError(
@@ -446,15 +459,22 @@ class LinearProductRegressorBase(LinearProductModelBase):
                 mask = (cat_series == cat_val)
                 if hasattr(mask, 'values'):
                     mask = mask.values
-                if hasattr(cat_coef, 'predict'):
-                    pred[mask] = cat_coef.predict(X_block[mask])
-                else:
-                    pred[mask] = X_block[mask] @ cat_coef
+                pred[mask] = self._coef_factor(cat_coef, X_block[mask])
             return pred
-        if hasattr(self, 'submodels_') and group in self.submodels_:
+        if group in (getattr(self, 'submodels_', None) or {}):
             return self.submodels_[group].predict(X_block)
-        return np.dot(X_block, coef)
-        
+        return self._coef_factor(coef, X_block)
+
+    def _coef_factor(self, coef, X_block):
+        """Factor of a coefficient vector, or of a frozen curve with ``predict``."""
+        if hasattr(coef, 'predict'):
+            return coef.predict(X_block)
+        return self.form_.factor(X_block, coef)
+
+    def _predict_group(self, group, X_block, cat_series=None):
+        """Alias of ``block_factor`` for existing callers."""
+        return self.block_factor(group, X_block, cat_series=cat_series)
+
     def calculate_feature_group_se( self, feature_group, X, y ):
         """Calculate the standard error of the coefficients for a specific feature group."""
         fixed_blocks_preds = self.leave_out_feature_group_predict(group_to_exclude=feature_group, X=X)
@@ -501,12 +521,7 @@ class LinearProductRegressorBase(LinearProductModelBase):
         for key in params_blocks:
             if key not in X_blocks:
                 raise ValueError(f"Feature group '{key}' not found in input blocks.")
-
-            # if the feature group is a submodel, use the submodel to predict
-            if hasattr( self, 'submodels_' ) and key in self.submodels_:
-                result *= self.submodels_[ key ].predict( X_blocks[ key ] )
-            else:
-                result *= np.dot( X_blocks[ key ], params_blocks[ key ] )
+            result *= self.block_factor(key, X_blocks[key], coef=params_blocks[key])
 
         if not ignore_global_scale:
             result = result * self.global_scalar_

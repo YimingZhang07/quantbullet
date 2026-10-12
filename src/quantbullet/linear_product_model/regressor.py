@@ -8,6 +8,7 @@ from scipy.optimize import least_squares
 from .base import LinearProductModelBCD, LinearProductRegressorBase, InteractionCoef, memorize_fit_args
 from .utils import init_betas_by_response_mean
 from .datacontainer import ProductModelDataContainer
+from .forms import resolve_form
 from ._acceleration import one_hot_codes, ols_normal_equation, ols_normal_equation_scaled, vector_product_numexpr_dict_values
 
 
@@ -18,20 +19,7 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
         self.interactions_ = {}
 
     def loss_function(self, y_hat, y, weights=None):
-        loss_type = getattr(self, 'loss_', 'mse')
-
-        if loss_type == 'mse':
-            per_obs = (y - y_hat) ** 2
-        elif loss_type == 'poisson':
-            y_safe = np.maximum(y, 1e-10)
-            yhat_safe = np.maximum(y_hat, 1e-10)
-            per_obs = 2 * (y_safe * np.log(y_safe / yhat_safe) - (y - y_hat))
-        else:
-            raise ValueError(f"Unknown loss type: {loss_type}")
-
-        if weights is not None:
-            return np.average(per_obs, weights=weights)
-        return np.mean(per_obs)
+        return self.form_.loss(y, y_hat, weights)
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -69,10 +57,7 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
         combined = np.ones(data_block.shape[0], dtype=float)
         for cat_val, cat_coef in interaction_params[group].items():
             m = masks[group][cat_val]
-            if hasattr(cat_coef, 'predict'):
-                combined[m] = cat_coef.predict(data_block[m])
-            else:
-                combined[m] = data_block[m] @ cat_coef
+            combined[m] = self._coef_factor(cat_coef, data_block[m])
         return combined
 
     def _absorb_block_mean(self, block_pred, weights=None):
@@ -84,6 +69,11 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
         if not np.isclose(mean, 0):
             self.global_scalar_ *= mean
         return mean
+
+    @staticmethod
+    def _cat_series(coef, orig):
+        """The ``by`` column an interaction group needs for ``block_factor``; ``None`` for other groups."""
+        return orig[coef.by] if isinstance(coef, InteractionCoef) else None
 
     def _resolve_blocks_and_orig(self, X):
         """Dispatch X type → (orig_df, get_block_fn)."""
@@ -439,21 +429,19 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
     def _compute_block_means(self, data_blocks, X, weights=None):
         """Recompute ``block_means_`` from final ``coef_`` (including A/E scalars for interactions).
 
-        Dispatch goes through ``_predict_group`` so that frozen submodel blocks
+        Dispatch goes through ``block_factor`` so that frozen submodel blocks
         report the submodel's own prediction.  Multiplying the raw block by the
         placeholder coefficient left in ``coef_`` would produce a meaningless mean.
         """
         for key in self.feature_groups_:
             coef = self.coef_[key]
             cat_series = X.orig[coef.by] if isinstance(coef, InteractionCoef) else None
-            block_pred = self._predict_group(key, data_blocks[key], cat_series=cat_series)
+            block_pred = self.block_factor(key, data_blocks[key], cat_series=cat_series)
             self.block_means_[key] = np.average(block_pred, weights=weights) if weights is not None else np.mean(block_pred)
 
     # ------------------------------------------------------------------
     # fit (public entry point)
     # ------------------------------------------------------------------
-
-    _VALID_LOSSES = ('mse', 'poisson')
 
     @memorize_fit_args
     def fit( self, X: ProductModelDataContainer, feature_groups: Dict, submodels: Dict=None,
@@ -463,8 +451,7 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
 
         fit_started = time.perf_counter()
         # ---- 1) setup model state ----
-        if loss not in self._VALID_LOSSES:
-            raise ValueError(f"Unknown loss '{loss}'. Must be one of {self._VALID_LOSSES}.")
+        resolve_form("identity", loss)  # rejects unsupported losses before the model is reset
         self.loss_ = loss
         self._reset_history( cache_qr_decomp=cache_qr_decomp )
         self.feature_groups_ = feature_groups
@@ -594,16 +581,10 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
         result = np.ones(n_obs, dtype=float) * self.global_scalar_
 
         for group in self.feature_groups_:
-            X_block = get_block(group)
             coef = self.coef_.get(group)
             if coef is None:
                 continue
-            if isinstance(coef, InteractionCoef):
-                result *= self._predict_group(group, X_block, cat_series=orig[coef.by])
-            elif hasattr(self, 'submodels_') and group in self.submodels_:
-                result *= self.submodels_[group].predict(X_block)
-            else:
-                result *= X_block @ coef
+            result *= self.block_factor(group, get_block(group), cat_series=self._cat_series(coef, orig))
 
         if self.offset_y is not None:
             result -= self.offset_y
@@ -619,7 +600,7 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
             return super().single_feature_group_predict(group_to_include, X, params_dict, ignore_global_scale)
 
         orig, get_block = self._resolve_blocks_and_orig(X)
-        return self._predict_group(group_to_include, get_block(group_to_include), cat_series=orig[coef.by])
+        return self.block_factor(group_to_include, get_block(group_to_include), cat_series=orig[coef.by])
 
     def leave_out_feature_group_predict(self, group_to_exclude, X,
                                         params_dict=None, ignore_global_scale=False):
@@ -640,16 +621,10 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
         for group in self.feature_groups_:
             if group == group_to_exclude:
                 continue
-            X_block = get_block(group)
             coef = self.coef_.get(group)
             if coef is None:
                 continue
-            if isinstance(coef, InteractionCoef):
-                result *= self._predict_group(group, X_block, cat_series=orig[coef.by])
-            elif hasattr(self, 'submodels_') and group in self.submodels_:
-                result *= self.submodels_[group].predict(X_block)
-            else:
-                result *= X_block @ coef
+            result *= self.block_factor(group, get_block(group), cat_series=self._cat_series(coef, orig))
 
         return result
 

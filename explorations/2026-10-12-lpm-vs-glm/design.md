@@ -127,8 +127,9 @@ model.fit(..., loss="mse", block_link="log")
   Newton 专用参数（`max_newton_iter`、`newton_tol`、`stream_design`、`chunk_rows`）通过 `solver_options` dict 传入，不扩展 `fit` 签名。
 - BCD 专用参数（`n_iterations`、`early_stopping_rounds`、`force_rounds`、`ftol`、`cache_qr_decomp`、`use_svd`）保持原位置；
   在 newton 下传入非默认值时报错，避免静默忽略。
-- 新属性 `form_`、`solver_name_`；`fit_metadata_` 增加 `block_link` 与 `solver`。
-- 兼容：旧 pickle 没有 `form_` 时，用 property 按 `loss_` 与 identity 重建；类名 `LinearProductRegressorBCD` 保留。
+- `form_` 是 property，由 `loss_`（第 3 期起加上 `block_link_`）推出，不单独保存；新增 `solver_name_`；
+  `fit_metadata_` 增加 `block_link` 与 `solver`。
+- 兼容：form 不进 pickle，旧 pickle 无需迁移（缺 `block_link_` 时按 identity）；类名 `LinearProductRegressorBCD` 保留。
 
 ## 7. Caveat 的归属
 
@@ -189,3 +190,25 @@ model.fit(..., loss="mse", block_link="log")
 5. Newton design 默认缓存还是 stream，是否按估计内存自动选择。
 6. Classifier 是否纳入 form 体系。
 7. 实施完成后，exploration 下的 `compare_turnover.py`、`fit_turnover_glm.py` 保留还是删除。
+
+## 12. 实施记录
+
+**第 1 期**（branch `lpm-form-solver`，2026-10-12，未提交）：
+
+- 新增 `forms.py`：`ModelForm`、`IdentityMSE`、`IdentityPoisson`、`resolve_form`、`form_of`；包内导出 `ModelForm`、`resolve_form`。
+- `LinearProductRegressorBase`：`form_` property；`block_factor` 为唯一的 block 求值入口，`forward`、`predict`、
+  `single_feature_group_predict`、`leave_out_feature_group_predict`、`_compute_block_means` 都经过它；`_predict_group` 保留为别名。
+- `loss_function` 与 fit 的 loss 校验改用 form；不支持的 loss 报 registry 错误，模型保持原状。
+- toolkit：implied actual、categorical panels、收敛图标签改用 `form_of(model)`；interaction 的 implied actual
+  直接切分 block 预测，不再自行计算曲线；`_aggregate_implied_data` 的 `loss` 参数接受 form 或 loss 名。
+- 新测试 `tests/linear_product_model/test_forms.py`（9 个）。
+
+等价检查（turnover 10 万行样本；poisson / mse × 加权 / 不加权、frozen submodel、frozen interaction curve，以及已保存的
+`turnover_model.pkl`）：325 个数组中，所有 fit 输出（系数、loss history、global scalar 轨迹、block means、implied actuals、
+categorical aggregates）逐位相同；98 个 `predict` / `leave_out` 数组相差 ≤ 8.9e-14（相对数组尺度）。
+原因是旧代码在 fit 中用 `np.dot`、在含 interaction 的 `predict` / `leave_out` 中用 `@`，二者在 column-major float32 block 上求和顺序不同；
+现统一为 `np.dot`，fit 不受影响。已保存模型的预测与存档预测相差 1.5e-16。LPM 与 turnover 测试 97 通过；
+2 个失败在改动前已存在（classifier BCD 测试传入 DataFrame 而 `memorize_fit_args` 读取 `X.response`；GPU 测试缺少 `cupy`）。
+
+留给第 2 期：`regressor.py` 中 BCD block 更新内部的 3 处 loss 分支（interaction 更新、one-hot codes 初始化、regular 更新）
+与 4 处直接的 identity 计算，随 `block_step` 移入 form、循环移入 `BCDSolver`。
