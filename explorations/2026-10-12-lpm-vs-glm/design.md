@@ -181,19 +181,31 @@ model.fit(..., loss="mse", block_link="log")
 - 两种 form 的曲线形状不同（LTV / factor / HPI 一组最多差 20%）：靠 metadata 与报告标注区分，避免混读。
 - 范围膨胀：Block 类（第 4 期）与 classifier 可推迟，不影响第 1–3 期。
 
-## 11. 待决问题
+## 11. 决定与待决问题
 
-1. 参数名用 `block_link` 是否合适；是否公开 `solver` 参数，还是只由 form 决定。
-2. Newton 专用参数用 `solver_options` dict，还是在 `fit` 上展开。
-3. 第 4 期 Block 类是否做，或停在 `block_factor` 唯一入口。
-4. Log form 的标准误范围：只给 ramp 与 level 系数，还是包括 bias。
-5. Newton design 默认缓存还是 stream，是否按估计内存自动选择。
+已决定（2026-10-12）：
+
+1. **参数名用 `block_link`**（`"identity"` / `"log"`）：它描述每个 block 的线性预测如何变成 factor；identity form 整体不是 GLM，
+   所以不用模型级的 `link`。**不公开 `solver`**：每个 form 目前只有一个 solver，由 form 决定；
+   solver 名记入 `solver_name_` 和 metadata，类属性 `bcd_solver` / `newton_solver` 可由子类替换。
+   某个 form 有了第二个 solver 时再加 `solver=`。
+2. **Newton 设置用 `solver_options` dict**，未知 key 报错并列出可用 key；BCD 参数保持原位以兼容。
+   不复用 BCD 的参数名（`n_iterations` 数的是 sweep，`ftol` 比较 5 个 sweep 前的 loss，与 Newton 含义不同）。
+   当前 solver 不使用的参数若取非默认值则报错，不静默忽略；turnover 在第 5 期按 form 传参（Newton 设置放在 `[fit.newton]`）。
+3. **`design_cache="auto"` 为默认**，也可设 `True` / `False`。auto 在 float32 design（行 × 列 × 4 字节）不超过
+   `max_cache_gb`（默认 16）时缓存，否则 stream。用固定上限而不是空闲内存，结果不随机器状态变化，也不新增依赖。
+   所选模式记入 `fit_timing_` 与 metadata。缓存与 stream 只在 Hessian 精度上不同，gradient 都是 float64，收敛到同一最优点。
+
+待决：
+
+4. 第 4 期 Block 类是否做，或停在 `block_factor` 唯一入口。
+5. Log form 的标准误范围：只给 ramp 与 level 系数，还是包括 bias。
 6. Classifier 是否纳入 form 体系。
 7. 实施完成后，exploration 下的 `compare_turnover.py`、`fit_turnover_glm.py` 保留还是删除。
 
 ## 12. 实施记录
 
-**第 1 期**（branch `lpm-form-solver`，2026-10-12，未提交）：
+**第 1 期**（branch `lpm-form-solver`，2026-10-12）：
 
 - 新增 `forms.py`：`ModelForm`、`IdentityMSE`、`IdentityPoisson`、`resolve_form`、`form_of`；包内导出 `ModelForm`、`resolve_form`。
 - `LinearProductRegressorBase`：`form_` property；`block_factor` 为唯一的 block 求值入口，`forward`、`predict`、
@@ -211,4 +223,23 @@ categorical aggregates）逐位相同；98 个 `predict` / `leave_out` 数组相
 2 个失败在改动前已存在（classifier BCD 测试传入 DataFrame 而 `memorize_fit_args` 读取 `X.response`；GPU 测试缺少 `cupy`）。
 
 留给第 2 期：`regressor.py` 中 BCD block 更新内部的 3 处 loss 分支（interaction 更新、one-hot codes 初始化、regular 更新）
-与 4 处直接的 identity 计算，随 `block_step` 移入 form、循环移入 `BCDSolver`。
+与 4 处直接的 identity 计算，随 `block_step` 移入 form、循环移入 `BCDSolver`。第 1 期已提交（`fce4a13`）。
+
+**第 2 期**（同一 branch）：
+
+- `forms.py`：identity forms 增加 `block_step`（MSE 为 scaled OLS，含 `qr` / `use_svd` 变体；Poisson 为 identity IRLS 一步，
+  含 one-hot 分组求和）和能力声明 `grouped_one_hot`、`step_options`。代码逐行移入，计算不变。
+- 新增 `solvers.py`：`BCDSolver` 负责初始化、block 更新、归一化、interaction 水平转移、记录、收敛判断与最优轮恢复，
+  只接受带 `block_step` 的 identity form。BCD 只拟合 identity form，所以归一化（除以 block 均值）留在 solver；
+  form 的 `rescale` 到第 3 期随 log form 引入。solver 是 `fit` 内的局部对象，不留在模型上。
+- `LinearProductRegressorBCD.fit` 只做状态设置、输入校验和数据准备，迭代交给类属性 `bcd_solver`（子类可替换）；
+  `regressor.py` 从 706 行降到 245 行，不再有按 loss 的分支。
+- 加权的 QR / SVD 求解在迭代开始前报错（以前在第一个 block 更新时报，异常类型与信息相同）。
+- 测试：调用私有方法的测试改为指向 `BCDSolver` 与 `form.block_step`；dense 参照模型改为替换 solver；
+  新增 `test_solvers.py`（6 个）与 MSE `block_step` 测试。
+
+等价检查：与第 1 期快照逐位相同（385 个数组；快照在第 1 期代码上补充了 MSE SVD、合成数据上的 QR、加权 QR / SVD 报错，
+以及 turnover 数据上 QR 路径的既有错误）。LPM 与 turnover 测试 104 通过，2 个既有失败不变。
+
+已知问题（既有，未改）：`cache_qr_decomp=True` 求解的是 `X @ coef ≈ y / scalar / fixed` 的未加权问题，
+与 scaled OLS 不同；`fixed` 含 0 时 turnover 数据上 loss 变为 NaN，随后在收敛判断中报 `TypeError`。

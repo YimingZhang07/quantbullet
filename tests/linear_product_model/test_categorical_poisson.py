@@ -6,14 +6,19 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from quantbullet.linear_product_model import LinearProductRegressorBCD
+from quantbullet.linear_product_model import LinearProductRegressorBCD, resolve_form
 from quantbullet.linear_product_model._acceleration import one_hot_codes
 from quantbullet.linear_product_model.datacontainer import ProductModelDataContainer
+from quantbullet.linear_product_model.solvers import BCDSolver
+
+
+class DenseBCDSolver(BCDSolver):
+    def _init_one_hot_codes(self, data_blocks, params_blocks):
+        return {}
 
 
 class DenseReference(LinearProductRegressorBCD):
-    def _init_one_hot_codes(self, data_blocks, params_blocks):
-        return {}
+    bcd_solver = DenseBCDSolver
 
 
 @pytest.mark.parametrize('dtype', [np.float32, np.float64])
@@ -50,10 +55,9 @@ def test_grouped_poisson_matches_dense_irls_with_ridge(dtype, weighted, use_floo
         fixed[:2] = [-.2, 0.]
         coef[2:4] = [0., -.3]
     weights = np.array([1., 3., .5, 0., 2., 4., 1., .8, 2.]) if weighted else None
-    model = LinearProductRegressorBCD()
-    model.global_scalar_ = .01
-    dense = model._solve_block_poisson(X, fixed, y, weights, coef)
-    grouped = model._solve_one_hot_poisson(codes, fixed, y, weights, coef)
+    form = resolve_form('identity', 'poisson')
+    dense = form.block_step(X, y, .01, fixed, weights, coef)
+    grouped = form.block_step(X, y, .01, fixed, weights, coef, codes=codes)
     np.testing.assert_allclose(grouped, dense, rtol=1e-10, atol=1e-12)
     assert grouped[1] == 0.  # observed category with no events
     assert grouped[4] == 0.
@@ -116,10 +120,10 @@ def test_timing_resets_and_mse_frozen_and_interaction_blocks_stay_dense():
     blocks = data.get_expanded_array_dict(list(groups))
     model.loss_ = 'poisson'
     model.submodels_ = {'state': object()}
-    codes = model._init_one_hot_codes(blocks, {'state': np.ones(6), 'purpose': np.ones(3)})
+    codes = BCDSolver(model)._init_one_hot_codes(blocks, {'state': np.ones(6), 'purpose': np.ones(3)})
     assert set(codes) == {'purpose'}
     model.loss_ = 'mse'
-    assert model._init_one_hot_codes(blocks, {'purpose': np.ones(3)}) == {}
+    assert BCDSolver(model)._init_one_hot_codes(blocks, {'purpose': np.ones(3)}) == {}
 
     options = dict(feature_groups=groups, interactions={'age': 'purpose'}, weights=weights,
                    loss='poisson', early_stopping_rounds=None, ftol=None, verbose=0)
@@ -143,4 +147,4 @@ def test_regular_dropped_and_multihot_blocks_fall_back():
     blocks = {'dropped': np.array([[0., 0.], [1., 0.], [0., 1.]]),
               'multihot': np.array([[1., 1.], [1., 0.], [0., 1.]]),
               'numeric': np.array([[1., 1.], [1., 2.], [1., 3.]])}
-    assert model._init_one_hot_codes(blocks, {name: np.ones(2) for name in blocks}) == {}
+    assert BCDSolver(model)._init_one_hot_codes(blocks, {name: np.ones(2) for name in blocks}) == {}

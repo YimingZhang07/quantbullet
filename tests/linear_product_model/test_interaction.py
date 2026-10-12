@@ -15,6 +15,7 @@ from quantbullet.linear_product_model import (
 from quantbullet.preprocessing import FlatRampTransformer
 from quantbullet.linear_product_model.datacontainer import ProductModelDataContainer
 from quantbullet.linear_product_model.base import InteractionCoef
+from quantbullet.linear_product_model.solvers import BCDSolver
 from quantbullet.model.feature import DataType, Feature, FeatureRole, FeatureSpec
 from tests.artifacts import artifact_dir
 
@@ -46,7 +47,7 @@ def _scale_transfer_case(loss, weights, *, frozen_curve=False, frozen_by=False, 
     interaction_params = {'age': curves}
     params_blocks = {'purpose': by_coef}
     block_preds = {
-        'age': model._build_interaction_block_pred('age', basis, interaction_params, masks),
+        'age': BCDSolver(model)._build_interaction_block_pred('age', basis, interaction_params, masks),
         'purpose': by @ by_coef,
         'other': np.array([.001, .1, .02, .03]),
     }
@@ -69,16 +70,16 @@ def test_interaction_normalization_preserves_candidate_predictions(loss, weights
 
     model, data, blocks, curves, masks, params, y = raw
     # No level transfer means the fitted curves deliberately remain unnormalized.
-    model._step_interaction_group('age', data, blocks, curves, masks, y, weights)
+    BCDSolver(model)._step_interaction_group('age', data, blocks, curves, masks, y, weights)
     expected = _case_prediction(raw)
     raw_means = {cat: np.average(blocks['age'][mask],
                                 weights=None if weights is None else weights[mask])
                  for cat, mask in masks['age'].items() if isinstance(curves['age'][cat], np.ndarray)}
 
     model, data, blocks, curves, masks, params, y = normalized
-    columns = model._interaction_level_columns('age', data, masks, params)
+    columns = BCDSolver(model)._interaction_level_columns('age', data, masks, params)
     assert columns == {'P': 1, 'R': 0}
-    model._step_interaction_group(
+    BCDSolver(model)._step_interaction_group(
         'age', data, blocks, curves, masks, y, weights,
         params_blocks=params, interaction_level_columns={'age': columns})
     actual = _case_prediction(normalized)
@@ -95,7 +96,7 @@ def test_interaction_normalization_preserves_candidate_predictions(loss, weights
     expected_level_ratio = (1.2 * raw_means.get('R', 1.)) / (.8 * raw_means['P'])
     assert params['purpose'][0] / params['purpose'][1] == pytest.approx(expected_level_ratio)
     np.testing.assert_allclose(blocks['purpose'], data['purpose'] @ params['purpose'])
-    np.testing.assert_allclose(blocks['age'], model._build_interaction_block_pred(
+    np.testing.assert_allclose(blocks['age'], BCDSolver(model)._build_interaction_block_pred(
         'age', data['age'], curves, masks))
     if frozen_curve:
         np.testing.assert_allclose(blocks['age'][masks['age']['R']], [2., 3.])
@@ -107,9 +108,9 @@ def test_interaction_keeps_curve_scale_when_by_block_cannot_absorb_it(frozen_by,
     model, data, blocks, curves, masks, params, y = case
     old_coef = params['purpose'].copy()
     old_by_pred = blocks['purpose'].copy()
-    columns = model._interaction_level_columns('age', data, masks, params)
+    columns = BCDSolver(model)._interaction_level_columns('age', data, masks, params)
     assert columns is None
-    model._step_interaction_group(
+    BCDSolver(model)._step_interaction_group(
         'age', data, blocks, curves, masks, y, None,
         params_blocks=params, interaction_level_columns={'age': columns})
     np.testing.assert_array_equal(params['purpose'], old_coef)

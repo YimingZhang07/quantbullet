@@ -73,6 +73,25 @@ def test_form_formulas():
     np.testing.assert_array_equal(poisson.factor(X, coef), np.dot(X, coef))
 
 
+def test_mse_block_step_variants():
+    rng = np.random.default_rng(0)
+    X = np.column_stack([np.ones(50), rng.uniform(1., 2., 50)])
+    fixed, y, w = rng.uniform(.5, 1.5, 50), rng.normal(2., .1, 50), np.ones(50)
+    form = resolve_form("identity", "mse")
+    scaled = form.block_step(X, y, 2., fixed, None, None)
+    np.testing.assert_allclose(scaled, np.linalg.lstsq(2. * X * fixed[:, None], y, rcond=None)[0], rtol=1e-7)
+    np.testing.assert_allclose(form.block_step(X, y, 2., fixed, None, None, use_svd=True), scaled, rtol=1e-7)
+    qr = form.block_step(X, y, 2., fixed, None, None, qr=np.linalg.qr(X))
+    np.testing.assert_allclose(qr, np.linalg.lstsq(X, y / 2. / fixed, rcond=None)[0], rtol=1e-10)
+    for option in ({"qr": np.linalg.qr(X)}, {"use_svd": True}):
+        with pytest.raises(NotImplementedError, match="Weighted least squares"):
+            form.block_step(X, y, 2., fixed, w, None, **option)
+    with pytest.raises(ValueError, match="no grouped one-hot step"):
+        form.block_step(X, y, 2., fixed, None, None, codes=np.zeros(50, dtype=int))
+    assert form.step_options == ("qr", "use_svd") and not form.grouped_one_hot
+    assert resolve_form("identity", "poisson").grouped_one_hot
+
+
 def test_form_of_falls_back_to_the_identity_form_of_loss():
     assert form_of(SimpleNamespace(loss_="poisson")) is resolve_form("identity", "poisson")
     assert form_of(SimpleNamespace()) is resolve_form("identity", "mse")
