@@ -644,7 +644,9 @@ class NewtonSolver:
     """Joint Newton (IRLS) for log forms: all blocks at once, on an identifiable standardized design.
 
     Each pass accumulates the log-likelihood gradient (float64) and Hessian (float32 when the design
-    is cached) over row chunks; a step that raises the objective is halved. Frozen submodels enter as
+    is cached) over row chunks; a step that raises the objective is halved. If halving fails with a
+    float32 Hessian, the last point is re-evaluated with a float64 Hessian, which is kept from then on
+    (``convergence_info_['hessian']`` records it). Frozen submodels enter as
     an offset ``log(prediction)`` and must predict positive values. After the fit, coefficients are
     mapped back to each block's own basis and normalized like a BCD fit: blocks with a constant
     direction have weighted mean 1, interaction curves have mean 1 within each level (the level
@@ -714,7 +716,8 @@ class NewtonSolver:
         model.global_scalar_ = scalar
         model.convergence_info_ = {'reason': status, 'iteration': steps, 'current_loss': model.best_loss_,
                                    'best_iteration': len(accepted), 'best_loss': model.best_loss_,
-                                   'deviance': accepted[-1][1], 'solver': self.name}
+                                   'deviance': accepted[-1][1], 'solver': self.name,
+                                   'hessian': self.hessian_precision}
         if self.verbose > 0:
             print(f"Newton stopped ({status}) after {steps} steps; Poisson deviance {accepted[-1][1]:.6e}.")
         model._compute_block_means(data_blocks, X, weights)
@@ -764,6 +767,9 @@ class NewtonSolver:
         penalty = np.full(p, l2 * w_total)       # l2 on the scale of the summed log-likelihood
         penalty[0] = 0.
         accepted, step, t, steps, status = [], None, 1., 0, "max_iter"
+        # A cached design gives a float32 Hessian; it switches to float64 if it fails to give a descent step.
+        precise, reevaluate = design.cached is None, False
+        self.hessian_precision = "float64" if precise else "float32"
         while True:
             pass_started = time.perf_counter()
             deviance = loss = 0.
@@ -777,26 +783,35 @@ class NewtonSolver:
                 deviance += dev.sum()
                 loss += np.dot(w[rows], form.loss_terms(y[rows], mu))
                 gradient += grad_w @ Z                               # float64: sets the optimum
-                Zs = Z * np.sqrt(hess_w).astype(Z.dtype)[:, None]
-                hessian += Zs.T @ Zs                                 # float32 when cached: steers the step
+                Zh = Z.astype(np.float64) if precise else Z          # Hessian only steers the step
+                Zs = Zh * np.sqrt(hess_w).astype(Zh.dtype)[:, None]
+                hessian += Zs.T @ Zs
             model.fit_timing_['sweep_seconds'].append(time.perf_counter() - pass_started)
             deviance, loss = deviance / w_total, loss / w_total
             objective = deviance + l2 * (beta[1:] @ beta[1:])
-            if accepted and objective > accepted[-1][2]:
-                if t < 2 ** -10:
+            if reevaluate:                                           # same point, now with a float64 Hessian
+                reevaluate = False
+            elif accepted and objective > accepted[-1][2]:
+                if t >= 2 ** -10:
+                    t /= 2                                           # overshoot: halve the last step
+                    beta = accepted[-1][0] + t * step
+                    continue
+                if precise:
                     status = "line_search"
                     break
-                t /= 2                                               # overshoot: halve the last step
-                beta = accepted[-1][0] + t * step
+                precise, reevaluate = True, True
+                self.hessian_precision = "float32, then float64"
+                beta = accepted[-1][0].copy()
                 continue
-            accepted.append((beta.copy(), deviance, objective, loss))
-            if self.verbose > 0:
-                print(f"Newton step {steps}: deviance {deviance:.6e}" + (f", step size {t:g}" if steps else ""))
-            if len(accepted) > 1 and accepted[-2][2] - objective <= tol * accepted[-2][2]:
-                status = "converged"
-                break
-            if steps == max_iter:
-                break
+            else:
+                accepted.append((beta.copy(), deviance, objective, loss))
+                if self.verbose > 0:
+                    print(f"Newton step {steps}: deviance {deviance:.6e}" + (f", step size {t:g}" if steps else ""))
+                if len(accepted) > 1 and accepted[-2][2] - objective <= tol * accepted[-2][2]:
+                    status = "converged"
+                    break
+                if steps == max_iter:
+                    break
             system = hessian + np.diag(penalty)
             system[np.diag_indices(p)] += 1e-10 * np.trace(hessian) / p
             rhs = gradient - penalty * beta

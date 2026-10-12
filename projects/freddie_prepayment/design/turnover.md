@@ -26,12 +26,19 @@ pred_turnover = global_scalar × product(numeric blocks) × product(categorical 
 
 使用 `LinearProductRegressorBCD(loss="poisson")`。`c_age_fit` 按 `f_purpose` 各估一条 ramp，其余 block 是 main effects。
 每个 block 在 fit 中归一化，global scalar 表示整体 response level。
-默认最多 60 sweeps、10-round early stopping、ftol=1e-5，不缓存 QR。ftol 比较最近 5 个 sweep 的相对 loss 改进，低于 ftol 即停止；1e-8 实际从不触发。Early stopping 在当前 loss 不低于 10 个 sweep 前时停止。
+
+`[fit] block_link` 选择 block 形式。`identity`（默认）的 block 是基函数的线性组合，由 BCD 逐块拟合，下文的 sweep、ftol、
+one-hot 分组更新都指这一形式。`log` 的 block 是 `exp(线性组合)`，整体即 log-link Poisson GLM，由 Newton 对全部 block 联合拟合，
+设置在 `[fit.newton]`（见 [turnover_log.example.toml](../turnover_log.example.toml)）；同一 cohort、knots、weights 与 interaction，
+预测恒为正，归一化与 report 相同。两种形式的产物放在各自的 `output_root`；metadata 记录 `block_link`、`form`、`solver` 与传给 solver 的参数。
+两者的对比与实现设计见 [LPM vs GLM](../../../explorations/2026-10-12-lpm-vs-glm/report.md)。
+
+`identity` 默认最多 60 sweeps、10-round early stopping、ftol=1e-5，不缓存 QR。ftol 比较最近 5 个 sweep 的相对 loss 改进，低于 ftol 即停止；1e-8 实际从不触发。Early stopping 在当前 loss 不低于 10 个 sweep 前时停止。
 完整 one-hot 的普通 Poisson blocks 使用 category codes + grouped sums 更新，保留原 IRLS epsilon-floor 和 ridge=1e-8；
 其他 design matrices、numeric / interaction curves 和 MSE 路径仍使用原 solver。Codes 仅在当前 fit 中缓存，不写入 artifacts。
 `model.fit_timing_` 记录 setup、各 block 累计时间、每个 sweep 时间和总 fit 时间。
 Metadata 的 `timing_seconds` 分别记录 read_frame、model_data、toolkit、container、fit、predict、metrics 和 metadata，
-`actual_sweeps` 是实际执行轮数；`fit_seconds` 仍只计 `model.fit()`。Artifact write 和全流程总时间完成后打印，不回写 pickle。
+`actual_sweeps` 是实际执行轮数（log 形式为接受的 Newton 步数加初始点），`solver_passes` 是 solver 的数据遍历次数；`fit_seconds` 仍只计 `model.fit()`。Artifact write 和全流程总时间完成后打印，不回写 pickle。
 
 Prepared frame 保留 raw values。Fit 按 [fit](../fit_turnover.py) 的 `CLIP` 生成 `_fit` inputs：age、incentive、SATO、original FICO、original LTV、updated LTV、real original balance、balance factor 和 HPI ratio。改 clip 或 knots 不重写 frame。
 同一文件的 `KNOTS` 给出对应 FlatRamp knots。Implied-actual bin widths 在 [report](../report_turnover.py) 的 `IMPLIED_BIN_CONFIG`。
@@ -78,7 +85,7 @@ p = 当前 component；m = global scalar × 其他 components 的乘积
 ```
 
 该 diagnostic 的除法由现有 toolkit 处理；raw predictions 不裁剪。
-现有 solver 无 probability bounds，report 分别计数 nonfinite、negative、zero、above-one predictions。
+`identity` 形式没有 probability bounds，report 分别计数 nonfinite、negative、zero、above-one predictions；`log` 形式的预测恒为正，但不保证 < 1。
 若有负预测，严格 Poisson deviance 不定义，另列 solver 的 epsilon-floor deviance，并注明 fit 不是严格有效的 probability model。
 所有 diagnostics 为 in-sample；下一阶段再做时间验证、interaction review 和 refinance component。
 

@@ -6,6 +6,7 @@ output_root = "${FREDDIE_DATA_ROOT}/models/turnover_v1"
 incentive_max = -0.5
 
 [fit]
+block_link = "identity"   # BCD; see turnover_log.example.toml for the log-link GLM
 n_iterations = 60
 early_stopping_rounds = 10
 ftol = 1e-5

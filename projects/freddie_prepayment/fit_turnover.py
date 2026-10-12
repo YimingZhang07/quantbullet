@@ -86,6 +86,14 @@ def make_container(data: pd.DataFrame, toolkit: LinearProductModelToolkit) -> Pr
                                      feature_groups=toolkit.feature_groups, as_float32=True)
 
 
+def solver_arguments(config: Config) -> dict:
+    """``fit`` arguments of the solver behind ``config.block_link``; the other solver's arguments stay at defaults."""
+    if config.block_link == "log":
+        return {"solver_options": dict(config.newton)}
+    return {"init_params": None, "n_iterations": config.n_iterations,
+            "early_stopping_rounds": config.early_stopping_rounds, "ftol": config.ftol, "cache_qr_decomp": False}
+
+
 def prediction_metrics(y, pred, weights) -> dict:
     y, pred, weights = (np.asarray(value, dtype=float) for value in (y, pred, weights))
     finite = np.isfinite(pred)
@@ -135,9 +143,8 @@ def fit(config: Config, *, smoke_rows: int | None = None) -> dict:
     print(f"[fit] {container.shape[1]} expanded columns; float32 block arrays", flush=True)
     model = LinearProductRegressorBCD()
     started = time.perf_counter()
-    model.fit(container, feature_groups=toolkit.feature_groups, interactions=INTERACTIONS, init_params=None,
-              n_iterations=config.n_iterations, early_stopping_rounds=config.early_stopping_rounds,
-              ftol=config.ftol, cache_qr_decomp=False, loss="poisson", weights=data["weight"].to_numpy())
+    model.fit(container, feature_groups=toolkit.feature_groups, interactions=INTERACTIONS, loss="poisson",
+              weights=data["weight"].to_numpy(), block_link=config.block_link, **solver_arguments(config))
     seconds = time.perf_counter() - started
     timings["fit"] = seconds
     started = time.perf_counter()
@@ -148,7 +155,9 @@ def fit(config: Config, *, smoke_rows: int | None = None) -> dict:
     timings["metrics"] = time.perf_counter() - started
     started = time.perf_counter()
     meta = {"rows": frame.height, "expanded_columns": container.shape[1], "fit_seconds": seconds,
-            "loss": "poisson", "weight_source": "c_prev_balance", "target": TARGET,
+            "loss": "poisson", "block_link": config.block_link, "form": model.form_.name,
+            "solver": model.solver_name_, "solver_arguments": solver_arguments(config),
+            "weight_source": "c_prev_balance", "target": TARGET,
             "clips": {name: [lower, upper] for name, (lower, upper) in CLIP.items()},
             "clip_counts": {name: int(((frame[name] < lower) | (frame[name] > upper)).sum())
                             for name, (lower, upper) in CLIP.items()},
@@ -156,11 +165,10 @@ def fit(config: Config, *, smoke_rows: int | None = None) -> dict:
             "categorical": list(CATEGORICAL), "model_inputs": list(MODEL_INPUTS), "interactions": dict(INTERACTIONS),
             "categories": {name: toolkit.preprocess_config[name].categories_[0].tolist() for name in CATEGORICAL},
             "incentive_max": config.incentive_max,
-            "n_iterations": config.n_iterations, "early_stopping_rounds": config.early_stopping_rounds,
-            "ftol": config.ftol, "smoke_rows": smoke_rows, "frame_sha256": file_sha256(source),
+            "smoke_rows": smoke_rows, "frame_sha256": file_sha256(source),
             "global_scalar": float(model.global_scalar_), "best_loss": float(model.best_loss_),
             "best_iteration": int(model.best_iteration_) + 1, "metrics": metrics,
-            "actual_sweeps": len(model.loss_history_)}
+            "actual_sweeps": len(model.loss_history_), "solver_passes": len(model.fit_timing_["sweep_seconds"])}
     predictions = frame.select(*KEYS).with_columns(pl.Series("pred_turnover", pred))
     timings["metadata"] = time.perf_counter() - started
     meta["timing_seconds"] = timings
@@ -176,7 +184,8 @@ def fit(config: Config, *, smoke_rows: int | None = None) -> dict:
     gc.collect()
     total_seconds = time.perf_counter() - total_started
     print(f"[fit] timings(s)={timings}; artifact_write={artifact_seconds:.3f}; "
-          f"total={total_seconds:.3f}; sweeps={meta['actual_sweeps']}", flush=True)
+          f"total={total_seconds:.3f}; form={meta['form']}; solver={meta['solver']}; "
+          f"iterations={meta['actual_sweeps']}; passes={meta['solver_passes']}", flush=True)
     print(f"[fit] block seconds={model.fit_timing_['block_seconds']}", flush=True)
     print(f"[fit] completed in {seconds:.1f}s; metrics={metrics}", flush=True)
     return meta

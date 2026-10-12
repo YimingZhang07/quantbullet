@@ -201,6 +201,8 @@ def test_design_cache_modes_agree():
     np.testing.assert_allclose(cached.predict(data), streamed.predict(data), rtol=1e-6)
     assert cached.fit_timing_["design_cache"] == "float32"
     assert streamed.fit_timing_["design_cache"] == automatic.fit_timing_["design_cache"] == "stream"
+    assert cached.convergence_info_["hessian"] in ("float32", "float32, then float64")
+    assert streamed.convergence_info_["hessian"] == "float64"
 
 
 def test_fit_arguments_are_checked_against_the_solver_before_the_model_changes():

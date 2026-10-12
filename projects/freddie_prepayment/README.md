@@ -18,7 +18,8 @@ Freddie 原始 ZIP 需手动放到 `$FREDDIE_DATA_ROOT/raw/full_set_standard_his
 | --- | --- |
 | [sample_panel.example.toml](sample_panel.example.toml) | 抽样规格：2010Q1–2026Q1 的 30 年 FRM，800k loans，输出 `samples/prepayment_800k` |
 | [prepare_panel.example.toml](prepare_panel.example.toml) | sampled panel、macro 和 prepared panel 目录 |
-| [turnover.example.toml](turnover.example.toml) | 输入 panel、turnover 输出目录、cohort 与 fit 参数 |
+| [turnover.example.toml](turnover.example.toml) | 输入 panel、turnover 输出目录、cohort 与 fit 参数（`block_link = "identity"`，BCD） |
+| [turnover_log.example.toml](turnover_log.example.toml) | 同上，`block_link = "log"`：log-link Poisson GLM（Newton），设置在 `[fit.newton]`，输出到独立目录 |
 
 三份 config 必须首尾相接：panel 的 `sample_root` 等于 sample 的 `output_root`，turnover 的 `panel_path` 是 panel `output_root` 下的 `panel.parquet`。`refresh` 运行前检查，不一致时不执行任何 stage。
 
@@ -47,6 +48,7 @@ Freddie 原始 ZIP 需手动放到 `$FREDDIE_DATA_ROOT/raw/full_set_standard_his
 | --- | --- |
 | report 的 plots、bins 或 layout | `--from report` |
 | clip、knots 或其它 fit 参数 | `--from fit` |
+| 另一种模型形式（`block_link`） | 用对应的 turnover config；它的输出目录第一次运行 `--from frame`，之后 `--from fit` |
 | cohort、target、labels 或进入 frame 的 fields | `--from frame` |
 | 上游 feature 定义或列名 | `--from panel`；旧 panel、frame 和 saved model 不自动转换 |
 | macro 数据更新 | `--from macro --to macro`，再 `--from panel` |

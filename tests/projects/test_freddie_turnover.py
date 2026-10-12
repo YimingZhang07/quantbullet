@@ -118,6 +118,8 @@ def test_fit_roundtrip_alignment_and_report_independence(synthetic_config,monkey
     assert stats["rows"]==1800
     meta=fit(config)
     assert meta["rows"]==1800 and meta["interactions"]=={"c_age_fit":"f_purpose"}
+    assert (meta["block_link"],meta["form"],meta["solver"])==("identity","identity/poisson","bcd")
+    assert meta["solver_arguments"]["n_iterations"]==6 and "solver_options" not in meta["solver_arguments"]
     assert "c_hpi_ratio_fit" in meta["model_inputs"]
     assert "c_hpi_growth_fit" not in meta["model_inputs"]
     assert meta["clips"]["c_hpi_ratio"] == [.8, 2.]
@@ -184,6 +186,41 @@ def test_fit_roundtrip_alignment_and_report_independence(synthetic_config,monkey
     pl.read_parquet(source).with_columns((pl.col("weight")*2).alias("weight")).write_parquet(source)
     with pytest.raises(ValueError,match="frame changed"):
         report_turnover.load_artifacts(config)
+
+
+def test_log_link_fit_and_report(synthetic_config,monkeypatch):
+    config=replace(synthetic_config,block_link="log",n_iterations=60,newton={"l2":1e-8})
+    prepare(config)
+    meta=fit(config)
+    assert (meta["block_link"],meta["form"],meta["solver"])==("log","log/poisson","newton")
+    assert meta["solver_arguments"]=={"solver_options":{"l2":1e-8}}
+    assert meta["metrics"]["prediction_range"]["negative"]==meta["metrics"]["prediction_range"]["zero"]==0
+    bundle,frame=report_turnover.load_artifacts(config)
+    model=bundle["model"]
+    assert model.form_.name=="log/poisson" and model.convergence_info_["reason"]=="converged"
+    assert meta["solver_passes"]==len(model.fit_timing_["sweep_seconds"])
+    assert meta["actual_sweeps"]==len(model.loss_history_)
+    monkeypatch.setattr(report_turnover,"MIN_COUNT",5)
+    monkeypatch.setattr(report_turnover,"MIN_COUNT_FACET",2)
+    report_turnover.report(config)
+    assert (config.output_root/"turnover_report.pdf").stat().st_size>10000
+
+
+def test_config_block_link_settings(tmp_path):
+    base=Config(tmp_path/"panel.parquet",tmp_path/"turnover")
+    assert base.block_link=="identity" and base.newton=={}
+    log=replace(base,block_link="log",newton={"max_iter":20})
+    with pytest.raises(ValueError,match="n_iterations apply to block_link = 'identity'"):
+        replace(log,n_iterations=6)
+    with pytest.raises(ValueError,match=r"\[fit.newton\] settings apply to block_link = 'log'"):
+        replace(base,newton={"max_iter":20})
+    with pytest.raises(ValueError,match="block_link must be"):
+        replace(base,block_link="logit")
+    path=tmp_path/"log.toml"
+    path.write_text('[data]\npanel_path="panel.parquet"\noutput_root="model"\n'
+                    '[fit]\nblock_link="log"\n[fit.newton]\nmax_iter=20\n')
+    config=read_config(path)
+    assert config.block_link=="log" and config.newton=={"max_iter":20}
 
 
 def test_failed_fit_preserves_artifacts(synthetic_config,monkeypatch):

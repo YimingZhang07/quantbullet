@@ -129,8 +129,10 @@ def report(config: Config) -> dict:
         pdf.add_body("IN-SAMPLE ONLY. Negative-incentive full-prepayment baseline, not directly observed moving-only turnover. Cohort concentrated in 2022 onward; no train/test split.")
         pdf.add_kv_line({"Observations": f"{meta['rows']:,}", "Loans": f"{frame['loan_identifier'].n_unique():,}",
                          "Events": f"{frame[TARGET].sum():,.0f}", "Expanded columns": meta["expanded_columns"]})
-        pdf.add_kv_line({"Loss": meta["loss"], "Fit seconds": f"{meta['fit_seconds']:.1f}",
-                         "Best iteration": meta["best_iteration"], "Global scalar": f"{meta['global_scalar']:.6f}"})
+        # Runs saved before forms existed are identity BCD fits.
+        pdf.add_kv_line({"Form": meta.get("form", f"identity/{meta['loss']}"), "Solver": meta.get("solver", "bcd"),
+                         "Fit seconds": f"{meta['fit_seconds']:.1f}", "Best iteration": meta["best_iteration"],
+                         "Global scalar": f"{meta['global_scalar']:.6f}"})
         for kind in ("balance_weighted", "equal_weight"):
             metric = meta["metrics"].get(kind, {})
             ratio = metric.get("actual_over_expected")

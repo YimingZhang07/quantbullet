@@ -271,3 +271,21 @@ categorical aggregates）逐位相同；98 个 `predict` / `leave_out` 数组相
   预测与 exploration GLM 预测的相对差 9.7e-15；所有 block 均值为 1；fit 262s（其中建 design 与缓存 51s），LPM 为 371–374s。
 - `loss_history_` 沿用 identity Poisson 的 floor 公式，便于与 BCD 比较；对 y = 0 的行它与精确 deviance 相差约 8e-8（相对），
   精确值在 `convergence_info_['deviance']`。
+
+第 3 期已提交（`231eabf`）。
+
+**第 5 期，turnover 接入**（同一 branch，未提交）：
+
+- `config.py`：`[fit] block_link`（默认 `identity`）与 `[fit.newton]`（Newton 的 `solver_options`）。`log` 时 BCD 设置
+  （`n_iterations`、`early_stopping_rounds`、`ftol`）若不是默认值则报错；`identity` 时出现 `[fit.newton]` 则报错。
+- `fit_turnover.py`：`solver_arguments(config)` 只给出所选 solver 的参数；metadata 记录 `block_link`、`form`、`solver`、
+  实际传入的 `solver_arguments` 和 `solver_passes`（取代原来分开的 `n_iterations`、`early_stopping_rounds`、`ftol` 三项）。
+- `report_turnover.py`：Fit summary 显示 Form 与 Solver；没有这些字段的旧 metadata 按 `identity/poisson`、`bcd` 显示。
+- 新增 `turnover_log.example.toml`：输出到独立目录 `models/turnover_v1_log`，首次运行从 `frame` 开始；README 与
+  `design/turnover.md` 相应补充。
+- `NewtonSolver` 修正：缓存 design 时 Hessian 为 float32，在条件较差的小样本上（1,800 行、104 个事件、97 列）step halving
+  会失败并停在离最优点 3.5e-5（相对）处。现在 halving 失败时用 float64 Hessian 重新评估上一个接受点，此后保持 float64，
+  `convergence_info_['hessian']` 记录所用精度；该样本随后收敛到与 float64 相同的最优点。turnover 全量从未触发 halving，结果不变。
+- 测试：turnover 的 log 形式 fit + report 往返、config 校验；LPM 与 turnover 测试 119 通过，2 个既有失败不变。
+
+第 5 期其余项：log form 标准误（待决问题 5 与权重语义，见第 7 节第 3 项）、one-hot 结构化 Hessian、可选 `IdentityBernoulli`。
