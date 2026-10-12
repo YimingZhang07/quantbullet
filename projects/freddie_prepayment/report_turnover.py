@@ -54,6 +54,17 @@ CURRENT_BALANCE_LABELS = (
       for low, high in zip(CURRENT_BALANCE_BREAKS, CURRENT_BALANCE_BREAKS[1:])),
     f">{compact_number(CURRENT_BALANCE_BREAKS[-1])}",
 )
+# Raw incentive in percentage points, right-closed like the balance buckets.
+INCENTIVE_BREAKS = (-3, -2, -1)
+INCENTIVE_LABELS = (
+    f"≤{INCENTIVE_BREAKS[0]}",
+    *(f"{low} to {high}" for low, high in zip(INCENTIVE_BREAKS, INCENTIVE_BREAKS[1:])),
+    f">{INCENTIVE_BREAKS[-1]}",
+)
+FACETS = (("purpose", "f_purpose", "Purpose"), ("current balance", "current_balance_bucket", "Balance"))
+# Age bins mix vintages, and the last reporting month caps each vintage's age; these separate the composition.
+AGE_FACETS = (*FACETS, ("vintage year", "vintage_year", "Vintage"),
+              ("incentive bucket", "incentive_bucket", "Incentive (pp)"))
 # Categorical features with too many levels for a grid column get a full-width row.
 WIDE_CATEGORICAL = ("f_state",)
 
@@ -162,6 +173,9 @@ def report(config: Config) -> dict:
             *(pl.Series(name, model_data[name].to_numpy()) for name in FIT_NUMERIC),
             pl.col("c_prev_balance").cut(list(CURRENT_BALANCE_BREAKS), labels=list(CURRENT_BALANCE_LABELS))
             .cast(pl.Enum(CURRENT_BALANCE_LABELS)).alias("current_balance_bucket"),
+            pl.col("vintage").str.slice(0, 4).alias("vintage_year"),
+            pl.col("c_incentive").cut(list(INCENTIVE_BREAKS), labels=list(INCENTIVE_LABELS))
+            .cast(pl.Enum(INCENTIVE_LABELS)).alias("incentive_bucket"),
         )
         del container, model_data, weights
         gc.collect()
@@ -172,19 +186,17 @@ def report(config: Config) -> dict:
         )
         chart("6. Reporting month", lambda w, h: diagnostics.factor_date_plot(
             min_count=MIN_COUNT, figsize=(w, h), x_label=MORTGAGE_COLUMNS.factor_dt, title=None)[0], height=half_page)
-        for number, name, role, role_plot, x_label in (
-            (7, "Incentive", "incentive", diagnostics.incentive_plot, MORTGAGE_COLUMNS.incentive),
-            (8, "Age", "age", diagnostics.age_plot, MORTGAGE_COLUMNS.age),
+        for number, name, role, role_plot, x_label, facets in (
+            (7, "Incentive", "incentive", diagnostics.incentive_plot, MORTGAGE_COLUMNS.incentive, FACETS),
+            (8, "Age", "age", diagnostics.age_plot, MORTGAGE_COLUMNS.age, AGE_FACETS),
         ):
             pdf.add_page_break()
             pdf.add_heading(f"{number}. {name}", level=1)
             chart(f"{number}a. Overall", lambda w, h, role_plot=role_plot, x_label=x_label: role_plot(
                 min_count=MIN_COUNT, figsize=(w, h), x_label=x_label, title=None)[0],
                 height=frame_h / 2, level=2, new_page=False)
-            for title, facet, facet_label in (
-                (f"{number}b. By purpose", "f_purpose", "Purpose"),
-                (f"{number}c. By current balance", "current_balance_bucket", "Balance"),
-            ):
+            for letter, (what, facet, facet_label) in zip("bcde", facets):
+                title = f"{number}{letter}. By {what}"
                 pdf.add_figure_grid(panels(title, lambda role=role, facet=facet, facet_label=facet_label, x_label=x_label:
                     diagnostics.facet_panels(role, facet, facet_label=facet_label, min_count=MIN_COUNT_FACET,
                                              n_cols=3, x_label=x_label, y_scale='shared',
