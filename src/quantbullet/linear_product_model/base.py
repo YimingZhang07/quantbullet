@@ -20,6 +20,8 @@ class FitMetadata:
     mean_y             : float
     ftol               : float | None = None
     cache_qr_decomp    : bool  | None = None
+    block_link         : str   | None = None
+    solver             : str   | None = None   # set by fit once the solver has run
 
 @dataclass
 class InteractionCoef:
@@ -47,7 +49,8 @@ def memorize_fit_args(func):
             offset_y    = kwargs.get('offset_y', None),
             mean_y      = np.mean( X.response ),
             ftol        = kwargs.get('ftol', None),
-            cache_qr_decomp = kwargs.get('cache_qr_decomp', False)
+            cache_qr_decomp = kwargs.get('cache_qr_decomp', False),
+            block_link  = kwargs.get('block_link', 'identity'),
         )
         return func( self, X, *args, **kwargs )
     return wrapper
@@ -420,8 +423,11 @@ class LinearProductRegressorBase(LinearProductModelBase):
 
     @property
     def form_(self):
-        """Block link and loss (``forms.ModelForm``); derived from ``loss_``, so older pickles need nothing stored."""
-        return resolve_form("identity", getattr(self, "loss_", "mse"))
+        """Block link and loss (``forms.ModelForm``), derived from ``block_link_`` and ``loss_``.
+
+        Nothing is stored, so models saved before forms existed read as the identity link.
+        """
+        return resolve_form(getattr(self, "block_link_", "identity"), getattr(self, "loss_", "mse"))
 
     def block_factor(self, group, X_block, cat_series=None, coef=None):
         """Multiplicative factor of one feature group: the single place a block is evaluated.
@@ -476,7 +482,12 @@ class LinearProductRegressorBase(LinearProductModelBase):
         return self.block_factor(group, X_block, cat_series=cat_series)
 
     def calculate_feature_group_se( self, feature_group, X, y ):
-        """Calculate the standard error of the coefficients for a specific feature group."""
+        """Calculate the standard error of the coefficients for a specific feature group.
+
+        Uses the OLS formula with the other groups fixed, so it applies to identity blocks only.
+        """
+        if self.form_.link != "identity":
+            raise NotImplementedError(f"Standard errors are not implemented for the {self.form_.name} form.")
         fixed_blocks_preds = self.leave_out_feature_group_predict(group_to_exclude=feature_group, X=X)
         X_block_coef = self.coef_[feature_group]
         X_block = X[self.feature_groups_[feature_group]].values

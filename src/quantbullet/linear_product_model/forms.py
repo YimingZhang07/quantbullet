@@ -5,14 +5,15 @@ how a block's coefficients become its multiplicative factor, the loss tracked du
 FOC-consistent implied actual used by diagnostics -- and nothing about iteration. Models, solvers and
 the toolkit ask for a form instead of branching on the loss name.
 
-Only the combinations registered in ``resolve_form`` exist; any other one is an error.
-
-Solver capabilities are declared by the forms that have them: ``block_step`` (with ``grouped_one_hot``
-and ``step_options``) is what ``solvers.BCDSolver`` needs.
+Only the combinations registered in ``resolve_form`` exist; any other one is an error. Each form names
+the solver that fits it (``default_solver``), and solver capabilities are declared by the forms that
+have them: ``block_step`` (with ``grouped_one_hot`` and ``step_options``) is what ``solvers.BCDSolver``
+needs; ``newton_terms`` and ``rescale`` are what ``solvers.NewtonSolver`` needs.
 """
 from abc import ABC, abstractmethod
 
 import numpy as np
+from scipy.special import xlogy
 
 from ._acceleration import ols_normal_equation, ols_normal_equation_scaled
 
@@ -23,6 +24,7 @@ class ModelForm(ABC):
     link: str
     loss_name: str
     loss_label: str
+    default_solver: str
 
     @property
     def name(self) -> str:
@@ -33,8 +35,15 @@ class ModelForm(ABC):
         """Multiplicative factor of a block with design ``X`` and coefficient vector ``coef``."""
 
     @abstractmethod
+    def loss_terms(self, y, y_hat):
+        """Per-row loss; ``loss`` is its (optionally weighted) mean."""
+
     def loss(self, y, y_hat, weights=None):
         """Mean (optionally weighted) loss, the value recorded in ``loss_history_``."""
+        per_obs = self.loss_terms(y, y_hat)
+        if weights is not None:
+            return np.average(per_obs, weights=weights)
+        return np.mean(per_obs)
 
     @abstractmethod
     def implied_actual_terms(self, y, m, p, w):
@@ -49,14 +58,43 @@ class ModelForm(ABC):
         return f"{type(self).__name__}()"
 
 
+# ----------------------------------------------------------------------
+# Losses
+# ----------------------------------------------------------------------
+
+class _MSELoss:
+    loss_name = "mse"
+    loss_label = "MSE Loss"
+
+    def loss_terms(self, y, y_hat):
+        return (y - y_hat) ** 2
+
+
+class _PoissonLoss:
+    """Poisson deviance per row, with predictions floored at 1e-10 so it is defined for any factor."""
+
+    loss_name = "poisson"
+    loss_label = "Poisson deviance"
+
+    def loss_terms(self, y, y_hat):
+        y_safe = np.maximum(y, 1e-10)
+        yhat_safe = np.maximum(y_hat, 1e-10)
+        return 2 * (y_safe * np.log(y_safe / yhat_safe) - (y - y_hat))
+
+
+# ----------------------------------------------------------------------
+# Identity link: blocks fitted one at a time by BCD
+# ----------------------------------------------------------------------
+
 class IdentityForm(ModelForm):
     """Block factor ``X @ coef``: each block is linear on the multiplier scale.
 
-    Identity forms can be fitted block by block: ``block_step`` returns a block's new coefficients
+    Identity forms are fitted block by block: ``block_step`` returns a block's new coefficients
     with the other blocks fixed, where the full prediction is ``scalar · fixed · (X @ coef)``.
     """
 
     link = "identity"
+    default_solver = "bcd"
     grouped_one_hot = False   # whether block_step takes the category codes of a full one-hot block
     step_options = ()         # optional block_step solve variants this form accepts
 
@@ -68,16 +106,8 @@ class IdentityForm(ModelForm):
         """New coefficients of one block given the global ``scalar`` and the other blocks' product ``fixed``."""
 
 
-class IdentityMSE(IdentityForm):
-    loss_name = "mse"
-    loss_label = "MSE Loss"
+class IdentityMSE(_MSELoss, IdentityForm):
     step_options = ("qr", "use_svd")
-
-    def loss(self, y, y_hat, weights=None):
-        per_obs = (y - y_hat) ** 2
-        if weights is not None:
-            return np.average(per_obs, weights=weights)
-        return np.mean(per_obs)
 
     def implied_actual_terms(self, y, m, p, w):
         """MSE normal equations: ``sum(w·m·y) / sum(w·m²)``."""
@@ -103,19 +133,8 @@ class IdentityMSE(IdentityForm):
         return ols_normal_equation_scaled(X, y, scalar * fixed, weights=w)
 
 
-class IdentityPoisson(IdentityForm):
-    """Poisson deviance; factors are not bounded, so the loss floors predictions at 1e-10."""
-
-    loss_name = "poisson"
-    loss_label = "Poisson deviance"
-
-    def loss(self, y, y_hat, weights=None):
-        y_safe = np.maximum(y, 1e-10)
-        yhat_safe = np.maximum(y_hat, 1e-10)
-        per_obs = 2 * (y_safe * np.log(y_safe / yhat_safe) - (y - y_hat))
-        if weights is not None:
-            return np.average(per_obs, weights=weights)
-        return np.mean(per_obs)
+class IdentityPoisson(_PoissonLoss, IdentityForm):
+    """Identity blocks are not bounded below; the loss floors predictions at 1e-10."""
 
     grouped_one_hot = True
 
@@ -142,7 +161,49 @@ class IdentityPoisson(IdentityForm):
         return ols_normal_equation(X, y / m, weights=w * m / p)
 
 
-_FORMS = {(form.link, form.loss_name): form for form in (IdentityMSE(), IdentityPoisson())}
+# ----------------------------------------------------------------------
+# Log link: all blocks fitted jointly by Newton
+# ----------------------------------------------------------------------
+
+class LogForm(ModelForm):
+    """Block factor ``exp(X @ coef)``: blocks add on the log scale, so the model is a log-link GLM.
+
+    Factors are always positive. A block is rescaled to mean 1 by shifting its coefficients along
+    a constant direction ``c`` with ``X @ c = 1`` (a bias column, or all levels of a full one-hot block).
+    """
+
+    link = "log"
+    default_solver = "newton"
+
+    def factor(self, X, coef):
+        return np.exp(np.dot(X, coef))
+
+    def rescale(self, coef, mean, constant):
+        """Coefficients whose factor is this one divided by ``mean``."""
+        return coef - np.log(mean) * constant
+
+    @abstractmethod
+    def newton_terms(self, eta, y, w):
+        """Per-row ``(mu, deviance, gradient weight, Hessian weight)`` at linear predictor ``eta``.
+
+        For design ``Z`` the gradient of the log-likelihood is ``gradient_weight @ Z`` and its
+        negative Hessian ``Z.T @ diag(hessian_weight) @ Z``; the deviance rows sum to the objective.
+        """
+
+
+class LogPoisson(_PoissonLoss, LogForm):
+    """Weighted Poisson likelihood with a log link."""
+
+    def implied_actual_terms(self, y, m, p, w):
+        """Poisson deviance FOC for a log block: ``sum(w·y) / sum(w·m)``."""
+        return w * y, w * m
+
+    def newton_terms(self, eta, y, w):
+        mu = np.exp(eta)
+        return mu, w * 2 * (xlogy(y, y) - y * eta - y + mu), w * (y - mu), w * mu
+
+
+_FORMS = {(form.link, form.loss_name): form for form in (IdentityMSE(), IdentityPoisson(), LogPoisson())}
 
 
 def resolve_form(link: str, loss: str) -> ModelForm:

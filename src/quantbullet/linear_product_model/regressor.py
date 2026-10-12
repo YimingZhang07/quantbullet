@@ -1,3 +1,4 @@
+import inspect
 import numpy as np
 import pandas as pd
 import time
@@ -8,12 +9,20 @@ from scipy.optimize import least_squares
 from .base import LinearProductModelBCD, LinearProductRegressorBase, InteractionCoef, memorize_fit_args
 from .datacontainer import ProductModelDataContainer
 from .forms import resolve_form
-from .solvers import BCDSolver
+from .solvers import BCDSolver, NewtonSolver
+
+
+def _is_default(value, default):
+    """Whether a ``fit`` argument kept its default; an empty dict counts as ``None``."""
+    if default is None:
+        return value is None or (isinstance(value, dict) and not value)
+    return not isinstance(value, np.ndarray) and value == default
 
 
 class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelBCD ):
-    # Solver that ``fit`` hands the iteration to; a subclass may swap in a variant.
+    # Solvers ``fit`` hands the iteration to, chosen by the form's ``default_solver``; a subclass may swap in variants.
     bcd_solver = BCDSolver
+    newton_solver = NewtonSolver
 
     def __init__(self):
         LinearProductRegressorBase.__init__(self)
@@ -57,22 +66,46 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
     # fit (public entry point)
     # ------------------------------------------------------------------
 
+    def _solver_class(self, form):
+        return {"bcd": self.bcd_solver, "newton": self.newton_solver}[form.default_solver]
+
     @memorize_fit_args
     def fit( self, X: ProductModelDataContainer, feature_groups: Dict, submodels: Dict=None,
              interactions: Dict=None, interaction_submodels: Dict=None,
              init_params=None, early_stopping_rounds=5, n_iterations=20, force_rounds=5, verbose=1, ftol=1e-5,
-             cache_qr_decomp=False, offset_y=None, use_svd=False, weights=None, loss: str = 'mse' ):
+             cache_qr_decomp=False, offset_y=None, use_svd=False, weights=None, loss: str = 'mse',
+             block_link: str = 'identity', solver_options: Dict = None ):
+        """Fit the model. ``loss`` and ``block_link`` select the form, and the form selects the solver.
 
+        ``block_link='identity'`` (default) fits blocks ``X_k @ beta_k`` by BCD, configured by
+        ``init_params``, ``interaction_submodels``, ``n_iterations``, ``early_stopping_rounds``,
+        ``force_rounds``, ``ftol``, ``cache_qr_decomp`` and ``use_svd``. ``block_link='log'`` fits
+        blocks ``exp(X_k @ beta_k)`` jointly by Newton (Poisson loss), configured by ``solver_options``
+        (see ``solvers.NewtonSolver``). A solver argument the chosen solver does not use must keep its
+        default.
+        """
         fit_started = time.perf_counter()
-        # ---- 1) setup model state ----
-        resolve_form("identity", loss)  # rejects unsupported losses before the model is reset
-        self.loss_ = loss
+        # ---- 1) choose the form and its solver; reject what they do not support before the model is reset ----
+        form = resolve_form(block_link, loss)
+        solver_class = self._solver_class(form)
+        arguments = dict(init_params=init_params, interaction_submodels=interaction_submodels,
+                         n_iterations=n_iterations, early_stopping_rounds=early_stopping_rounds,
+                         force_rounds=force_rounds, ftol=ftol, cache_qr_decomp=cache_qr_decomp, use_svd=use_svd,
+                         solver_options=solver_options)
+        unused = [name for name, value in arguments.items()
+                  if name not in solver_class.FIT_ARGUMENTS and not _is_default(value, _FIT_DEFAULTS[name])]
+        if unused:
+            raise ValueError(f"{', '.join(unused)} do not apply to the {solver_class.name} solver "
+                             f"of form {form.name}")
+        solver = solver_class(self, form, verbose=verbose,
+                              **{name: arguments[name] for name in solver_class.FIT_ARGUMENTS})
+
+        # ---- 2) setup model state ----
+        self.loss_, self.block_link_ = loss, block_link
         self._reset_history( cache_qr_decomp=cache_qr_decomp )
         self.feature_groups_ = feature_groups
         self.submodels_ = submodels or {}
         self.interactions_ = interactions or {}
-        self.fit_timing_ = {'setup_seconds': 0., 'block_seconds': {group: 0. for group in feature_groups},
-                            'sweep_seconds': [], 'total_seconds': 0.}
 
         for parent, cat_var in self.interactions_.items():
             if cat_var not in feature_groups:
@@ -81,7 +114,7 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
                     f"as a separate categorical block (required for '{parent}' interaction)."
                 )
 
-        # ---- 2) validate inputs and build canonical arrays ----
+        # ---- 3) validate inputs and build canonical arrays ----
         data_blocks = X.get_expanded_array_dict( list( feature_groups.keys() ) )
 
         if weights is not None:
@@ -96,11 +129,9 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
             self.offset_y = offset_y
             y = y + offset_y
 
-        # ---- 3) iterate ----
-        solver = self.bcd_solver(
-            self, n_iterations=n_iterations, early_stopping_rounds=early_stopping_rounds, force_rounds=force_rounds,
-            ftol=ftol, cache_qr_decomp=cache_qr_decomp, use_svd=use_svd, verbose=verbose)
-        solver.run(X, data_blocks, y, weights, init_params, interaction_submodels or {}, started=fit_started)
+        # ---- 4) iterate ----
+        solver.run(X, data_blocks, y, weights, started=fit_started)
+        self.solver_name_ = self.fit_metadata_.solver = solver.name
         return self
 
     # ------------------------------------------------------------------
@@ -166,6 +197,11 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
             result *= self.block_factor(group, get_block(group), cat_series=self._cat_series(coef, orig))
 
         return result
+
+
+# Defaults of ``fit``'s solver arguments, read from its signature so the two cannot drift apart.
+_FIT_DEFAULTS = {name: parameter.default
+                 for name, parameter in inspect.signature(LinearProductRegressorBCD.fit).parameters.items()}
 
 
 class LinearProductRegressorScipy(LinearProductRegressorBase):

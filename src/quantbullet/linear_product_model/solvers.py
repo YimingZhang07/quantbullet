@@ -1,13 +1,17 @@
 """Solvers for the linear product model.
 
-A solver owns the iteration of a fit and none of the formulas: block updates come from the model's
-form (``forms.ModelForm``), and the fitted state is written to the model the solver was built for --
-``coef_``, ``global_scalar_``, the histories, ``best_*``, ``convergence_info_`` and the timings in
-``fit_timing_`` (created by ``fit``). A solver keeps no per-row data after ``run``.
+A solver owns the iteration of a fit and none of the formulas: updates come from the model's form
+(``forms.ModelForm``), and the fitted state is written to the model the solver was built for --
+``coef_``, ``global_scalar_``, the histories, ``best_*``, ``convergence_info_`` and ``fit_timing_``.
+``FIT_ARGUMENTS`` lists the ``fit`` arguments a solver takes; ``fit`` passes those and rejects any
+other solver argument given a non-default value. A solver keeps no per-row data after ``run``.
 """
 import time
+import warnings
+from dataclasses import dataclass
 
 import numpy as np
+from scipy.linalg import cho_factor, cho_solve
 
 from .base import InteractionCoef
 from .utils import init_betas_by_response_mean
@@ -25,13 +29,17 @@ class BCDSolver:
     """
 
     name = "bcd"
+    FIT_ARGUMENTS = ("init_params", "interaction_submodels", "n_iterations", "early_stopping_rounds",
+                     "force_rounds", "ftol", "cache_qr_decomp", "use_svd")
 
-    def __init__(self, model, *, n_iterations=20, early_stopping_rounds=5, force_rounds=5, ftol=1e-5,
-                 cache_qr_decomp=False, use_svd=False, verbose=1):
-        form = model.form_
+    def __init__(self, model, form=None, *, init_params=None, interaction_submodels=None, n_iterations=20,
+                 early_stopping_rounds=5, force_rounds=5, ftol=1e-5, cache_qr_decomp=False, use_svd=False,
+                 verbose=1):
+        form = form if form is not None else model.form_
         if form.link != "identity" or not hasattr(form, "block_step"):
             raise ValueError(f"BCD needs an identity form with block_step; got {form.name}")
         self.model, self.form = model, form
+        self.init_params, self.interaction_submodels = init_params, interaction_submodels or {}
         self.n_iterations, self.early_stopping_rounds = n_iterations, early_stopping_rounds
         self.force_rounds, self.ftol, self.verbose = force_rounds, ftol, verbose
         self.cache_qr_decomp, self.use_svd = cache_qr_decomp, use_svd
@@ -40,10 +48,13 @@ class BCDSolver:
     # run
     # ------------------------------------------------------------------
 
-    def run(self, X, data_blocks, y, weights, init_params, interaction_submodels, started):
+    def run(self, X, data_blocks, y, weights, started):
         """Fit ``self.model`` on container ``X``; ``started`` is when ``fit`` began, for ``setup_seconds``."""
         model = self.model
         feature_groups = model.feature_groups_
+        init_params, interaction_submodels = self.init_params, self.interaction_submodels
+        model.fit_timing_ = {'setup_seconds': 0., 'block_seconds': {group: 0. for group in feature_groups},
+                             'sweep_seconds': [], 'total_seconds': 0.}
         self._check_step_options(weights)
 
         # ---- initialize global level and block-level states ----
@@ -487,3 +498,374 @@ class BCDSolver:
                 by=model.interactions_[parent],
                 categories=dict(cat_coefs),
             )
+
+
+# ----------------------------------------------------------------------
+# Newton for log forms
+# ----------------------------------------------------------------------
+
+@dataclass
+class _Part:
+    """One trainable block in the Newton design."""
+    group: str
+    kind: str                       # "numeric", "categorical" or "interaction"
+    n_block_columns: int
+    columns: np.ndarray             # block columns expanded into the design
+    constant: int | None = None     # block column that is identically 1, when there is one
+    by: str | None = None           # interaction: full one-hot block whose levels split the curve
+    reference: int | None = None    # categorical: level left out of the design
+    keep: np.ndarray = None         # expanded columns kept (varying, not the reference)
+    mean: np.ndarray = None
+    std: np.ndarray = None
+    beta: slice = None              # position in the coefficient vector; 0 is the intercept
+
+
+def _constant_column(X, chunk_rows):
+    """Index of the first column of ``X`` that is identically 1, or ``None``."""
+    candidates = np.ones(X.shape[1], dtype=bool)
+    for start in range(0, X.shape[0], chunk_rows):
+        candidates &= np.all(X[start:start + chunk_rows] == 1, axis=0)
+        if not candidates.any():
+            return None
+    return int(np.flatnonzero(candidates)[0])
+
+
+def _without(n_columns, column):
+    """``0..n_columns-1`` without ``column`` (all of them when ``column`` is None)."""
+    columns = np.arange(n_columns)
+    return columns if column is None else np.delete(columns, column)
+
+
+class _LogDesign:
+    """Identifiable, standardized design of a log form, assembled chunk by chunk from the model's blocks.
+
+    Numeric blocks lose their constant column (one global intercept), categorical blocks their
+    largest-weight level, and an interaction block becomes its non-constant columns times the full
+    one-hot ``by`` block. Frozen submodels stay out of the design and enter as an offset.
+    """
+
+    def __init__(self, model, data_blocks, orig, w, chunk_rows):
+        self.chunk_rows, self.cached = chunk_rows, None
+        self.parts, self.frozen, self.codes, self.levels = [], [], {}, {}
+        for group in model.feature_groups_:
+            X = data_blocks[group]
+            if group in model.submodels_:
+                self.frozen.append(group)
+                continue
+            if group in model.interactions_:
+                by = model.interactions_[group]
+                self._check_interaction(group, by, model, data_blocks, orig)
+                constant = _constant_column(X, chunk_rows)
+                self.parts.append(_Part(group, "interaction", X.shape[1], _without(X.shape[1], constant),
+                                        constant, by=by))
+                continue
+            codes = self.codes[group] if group in self.codes else one_hot_codes(X)
+            if codes is not None:
+                self.codes[group] = codes
+                reference = int(np.argmax(np.bincount(codes, weights=w, minlength=X.shape[1])))
+                self.parts.append(_Part(group, "categorical", X.shape[1], np.arange(X.shape[1]),
+                                        reference=reference))
+                continue
+            constant = _constant_column(X, chunk_rows)
+            self.parts.append(_Part(group, "numeric", X.shape[1], _without(X.shape[1], constant), constant))
+        self._standardize(data_blocks, len(w))
+
+    def _check_interaction(self, group, by, model, data_blocks, orig):
+        """The ``by`` block must be a trainable full one-hot block whose columns match the labels in ``orig``."""
+        codes = one_hot_codes(data_blocks[by]) if by not in model.submodels_ else None
+        if codes is None:
+            raise NotImplementedError(
+                f"Newton fits interaction '{group}' only when its by-block '{by}' is a trainable full one-hot block")
+        labels = orig[by]
+        if labels.isna().any():
+            raise ValueError(f"Interaction by-variable '{by}' has missing values")
+        levels = {}
+        for label in sorted(labels.unique(), key=str):
+            columns = np.unique(codes[(labels == label).values])
+            if len(columns) != 1:
+                raise ValueError(f"Rows with {by}={label!r} do not map to one column of block '{by}'")
+            levels[label] = int(columns[0])
+        self.codes[by], self.levels[group] = codes, levels
+
+    def chunks(self, n):
+        for start in range(0, n, self.chunk_rows):
+            yield slice(start, min(start + self.chunk_rows, n))
+
+    def _expand(self, part, blocks, rows):
+        X = blocks[part.group][rows]
+        if part.kind == "categorical":
+            return X
+        if part.kind == "numeric":
+            return X[:, part.columns]
+        by = blocks[part.by][rows]
+        return (X[:, part.columns, None] * by[:, None, :]).reshape(len(X), -1)   # column-major in levels
+
+    def _standardize(self, blocks, n):
+        sums, squares = {}, {}
+        for rows in self.chunks(n):
+            for part in self.parts:
+                raw = self._expand(part, blocks, rows).astype(np.float64)
+                sums[part.group] = sums.get(part.group, 0.) + raw.sum(axis=0)
+                squares[part.group] = squares.get(part.group, 0.) + np.einsum("ij,ij->j", raw, raw)
+        start = 1
+        for part in self.parts:
+            mean = sums[part.group] / n
+            std = np.sqrt(np.maximum(squares[part.group] / n - mean ** 2, 0.))
+            keep = std > 1e-12 * np.maximum(1., np.abs(mean))     # absent levels and constant pieces drop out
+            if part.reference is not None:
+                keep[part.reference] = False
+            part.keep = np.flatnonzero(keep)
+            part.mean, part.std = mean[part.keep], std[part.keep]
+            part.beta = slice(start, start + len(part.keep))
+            start += len(part.keep)
+        self.n_columns = start
+
+    def part_matrix(self, part, blocks, rows):
+        return (self._expand(part, blocks, rows)[:, part.keep] - part.mean) / part.std
+
+    def matrix(self, blocks, rows, dtype=np.float64):
+        Z = np.empty((rows.stop - rows.start, self.n_columns), dtype=dtype)
+        Z[:, 0] = 1.
+        for part in self.parts:
+            Z[:, part.beta] = self.part_matrix(part, blocks, rows)
+        return Z
+
+    def cache(self, blocks, n):
+        """Hold the design in float32 so Newton passes do not rebuild it."""
+        self.cached = np.empty((n, self.n_columns), dtype=np.float32)
+        for rows in self.chunks(n):
+            self.cached[rows] = self.matrix(blocks, rows, dtype=np.float32)
+
+    def rows(self, blocks, rows):
+        return self.cached[rows] if self.cached is not None else self.matrix(blocks, rows)
+
+
+class NewtonSolver:
+    """Joint Newton (IRLS) for log forms: all blocks at once, on an identifiable standardized design.
+
+    Each pass accumulates the log-likelihood gradient (float64) and Hessian (float32 when the design
+    is cached) over row chunks; a step that raises the objective is halved. Frozen submodels enter as
+    an offset ``log(prediction)`` and must predict positive values. After the fit, coefficients are
+    mapped back to each block's own basis and normalized like a BCD fit: blocks with a constant
+    direction have weighted mean 1, interaction curves have mean 1 within each level (the level
+    moves to the ``by`` block), and ``global_scalar_`` carries the intercept and the means.
+
+    ``solver_options``: ``max_iter`` (Newton steps), ``tol`` (relative objective decrease that stops),
+    ``l2`` (ridge on the standardized coefficients, intercept excluded; a small value keeps levels
+    without events finite), ``chunk_rows``, ``design_cache`` (``"auto"``, ``True`` or ``False``) and
+    ``max_cache_gb`` (the float32 design is cached under ``"auto"`` when it fits).
+    """
+
+    name = "newton"
+    FIT_ARGUMENTS = ("solver_options",)
+    OPTIONS = {"max_iter": 50, "tol": 1e-10, "l2": 0., "chunk_rows": 500_000,
+               "design_cache": "auto", "max_cache_gb": 16.}
+
+    def __init__(self, model, form=None, *, solver_options=None, verbose=1):
+        form = form if form is not None else model.form_
+        if not hasattr(form, "newton_terms"):
+            raise ValueError(f"Newton needs a form with newton_terms; got {form.name}")
+        options = dict(solver_options or {})
+        unknown = sorted(set(options) - set(self.OPTIONS))
+        if unknown:
+            raise ValueError(f"Unknown solver_options {unknown}; the Newton solver takes {sorted(self.OPTIONS)}")
+        if options.get("design_cache", "auto") not in ("auto", True, False):
+            raise ValueError("design_cache must be 'auto', True or False")
+        self.model, self.form, self.verbose = model, form, verbose
+        self.options = {**self.OPTIONS, **options}
+
+    # ------------------------------------------------------------------
+    # run
+    # ------------------------------------------------------------------
+
+    def run(self, X, data_blocks, y, weights, started):
+        """Fit ``self.model`` on container ``X``; ``started`` is when ``fit`` began, for ``setup_seconds``."""
+        model, options = self.model, self.options
+        y = np.asarray(y, dtype=float)
+        w = np.ones(len(y)) if weights is None else np.asarray(weights, dtype=float)
+        design = _LogDesign(model, data_blocks, X.orig, w, options["chunk_rows"])
+        offset = self._offset(design, data_blocks, len(y))
+        self._warn_levels_without_events(design, y, w)
+        size_gb = len(y) * design.n_columns * 4 / 1e9
+        cache = options["design_cache"] if options["design_cache"] != "auto" else size_gb <= options["max_cache_gb"]
+        if cache:
+            design.cache(data_blocks, len(y))
+        model.fit_timing_ = {'setup_seconds': time.perf_counter() - started, 'block_seconds': {},
+                             'sweep_seconds': [], 'total_seconds': 0.,
+                             'design_cache': 'float32' if cache else 'stream', 'design_columns': design.n_columns}
+        if self.verbose > 0:
+            mode = "cached float32 design" if cache else "design rebuilt each pass"
+            print(f"Newton: {design.n_columns} design columns, {mode} ({size_gb:.1f} GB)")
+
+        accepted, status, steps = self._iterate(design, data_blocks, y, w, offset)
+        design.cached = None
+
+        history = [self._block_coefficients(design, beta, data_blocks, w) for beta, *_ in accepted]
+        params, curves, scalar = history[-1]
+        model.coef_history_ = [h[0] for h in history]
+        model.interaction_params_history_ = [h[1] for h in history]
+        model.global_scalar_history_ = [h[2] for h in history]
+        model.global_scalar_step_history_ = [(step, 'newton', h[2]) for step, h in enumerate(history)]
+        model.loss_history_ = [loss for *_, loss in accepted]
+        model.best_loss_, model.best_iteration_ = model.loss_history_[-1], len(accepted) - 1
+        model.best_params_, model.best_interaction_params_ = params, curves
+        model.coef_ = {group: InteractionCoef(by=model.interactions_[group], categories=curves[group])
+                       if group in curves else params[group] for group in model.feature_groups_}
+        model.global_scalar_ = scalar
+        model.convergence_info_ = {'reason': status, 'iteration': steps, 'current_loss': model.best_loss_,
+                                   'best_iteration': len(accepted), 'best_loss': model.best_loss_,
+                                   'deviance': accepted[-1][1], 'solver': self.name}
+        if self.verbose > 0:
+            print(f"Newton stopped ({status}) after {steps} steps; Poisson deviance {accepted[-1][1]:.6e}.")
+        model._compute_block_means(data_blocks, X, weights)
+        model.fit_timing_['total_seconds'] = time.perf_counter() - started
+
+    # ------------------------------------------------------------------
+    # pieces
+    # ------------------------------------------------------------------
+
+    def _offset(self, design, blocks, n):
+        """``log`` of the frozen submodels' product, or ``None`` without frozen blocks."""
+        if not design.frozen:
+            return None
+        offset = np.zeros(n)
+        for group in design.frozen:
+            prediction = np.asarray(self.model.submodels_[group].predict(blocks[group]), dtype=float)
+            if not (np.all(np.isfinite(prediction)) and np.all(prediction > 0)):
+                raise ValueError(f"Frozen submodel '{group}' must predict finite positive values for a log form")
+            offset += np.log(prediction)
+        return offset
+
+    def _warn_levels_without_events(self, design, y, w):
+        if self.options["l2"]:
+            return
+        empty = []
+        for part in design.parts:
+            if part.kind == "categorical":
+                codes = design.codes[part.group]
+                weight = np.bincount(codes, weights=w, minlength=part.n_block_columns)
+                events = np.bincount(codes, weights=w * y, minlength=part.n_block_columns)
+                empty += [f"{part.group}[{level}]" for level in np.flatnonzero((weight > 0) & (events == 0))]
+        if empty:
+            warnings.warn("Levels without events have a maximum-likelihood factor of 0 and slow Newton down: "
+                          f"{empty}; solver_options={{'l2': 1e-8}} keeps them finite.", stacklevel=4)
+
+    def _iterate(self, design, blocks, y, w, offset):
+        """Newton steps with step halving; returns the accepted ``(beta, deviance, objective, loss)`` and status."""
+        model, form = self.model, self.form
+        max_iter, tol, l2 = self.options["max_iter"], self.options["tol"], self.options["l2"]
+        n, p = len(y), design.n_columns
+        w_total = w.sum()
+        beta = np.zeros(p)
+        level = np.average(y, weights=w)
+        if offset is not None:
+            level /= np.average(np.exp(offset), weights=w)
+        beta[0] = np.log(level)
+        penalty = np.full(p, l2 * w_total)       # l2 on the scale of the summed log-likelihood
+        penalty[0] = 0.
+        accepted, step, t, steps, status = [], None, 1., 0, "max_iter"
+        while True:
+            pass_started = time.perf_counter()
+            deviance = loss = 0.
+            gradient, hessian = np.zeros(p), np.zeros((p, p))
+            for rows in design.chunks(n):
+                Z = design.rows(blocks, rows)
+                eta = Z @ beta
+                if offset is not None:
+                    eta += offset[rows]
+                mu, dev, grad_w, hess_w = form.newton_terms(eta, y[rows], w[rows])
+                deviance += dev.sum()
+                loss += np.dot(w[rows], form.loss_terms(y[rows], mu))
+                gradient += grad_w @ Z                               # float64: sets the optimum
+                Zs = Z * np.sqrt(hess_w).astype(Z.dtype)[:, None]
+                hessian += Zs.T @ Zs                                 # float32 when cached: steers the step
+            model.fit_timing_['sweep_seconds'].append(time.perf_counter() - pass_started)
+            deviance, loss = deviance / w_total, loss / w_total
+            objective = deviance + l2 * (beta[1:] @ beta[1:])
+            if accepted and objective > accepted[-1][2]:
+                if t < 2 ** -10:
+                    status = "line_search"
+                    break
+                t /= 2                                               # overshoot: halve the last step
+                beta = accepted[-1][0] + t * step
+                continue
+            accepted.append((beta.copy(), deviance, objective, loss))
+            if self.verbose > 0:
+                print(f"Newton step {steps}: deviance {deviance:.6e}" + (f", step size {t:g}" if steps else ""))
+            if len(accepted) > 1 and accepted[-2][2] - objective <= tol * accepted[-2][2]:
+                status = "converged"
+                break
+            if steps == max_iter:
+                break
+            system = hessian + np.diag(penalty)
+            system[np.diag_indices(p)] += 1e-10 * np.trace(hessian) / p
+            rhs = gradient - penalty * beta
+            try:
+                step = cho_solve(cho_factor(system), rhs)
+            except np.linalg.LinAlgError:                           # singular, e.g. levels without events
+                step = np.linalg.lstsq(system, rhs, rcond=None)[0]
+            t, steps = 1., steps + 1
+            beta = accepted[-1][0] + step
+        return accepted, status, steps
+
+    def _block_coefficients(self, design, beta, blocks, w):
+        """Map design coefficients to each block's basis, normalized like a BCD fit.
+
+        Returns ``(params, curves, global_scalar)``: coefficient vectors for regular blocks (NaN
+        placeholders for frozen ones), ``{group: {label: coef}}`` for interaction curves, and the
+        scalar carrying the intercept and every block mean.
+        """
+        form = self.form
+        log_scalar = float(beta[0])
+        params = {group: np.full(blocks[group].shape[1], np.nan) for group in design.frozen}
+        curves, level_shifts, linear = {}, {}, {}
+        for part in design.parts:
+            slope = np.zeros(len(part.columns) * (blocks[part.by].shape[1] if part.by else 1))
+            slope[part.keep] = beta[part.beta] / part.std
+            linear[part.group] = (slope, -float(beta[part.beta] @ (part.mean / part.std)))
+
+        for part in design.parts:
+            if part.kind == "categorical":
+                continue
+            slope, intercept = linear[part.group]
+            X = blocks[part.group]
+            constant = None
+            if part.constant is None:
+                log_scalar += intercept
+            else:
+                constant = np.eye(part.n_block_columns)[part.constant]
+            if part.kind == "numeric":
+                coef = np.zeros(part.n_block_columns)
+                coef[part.columns] = slope
+                if constant is not None:
+                    coef[part.constant] += intercept
+                    mean = np.average(form.factor(X, coef), weights=w)
+                    coef = form.rescale(coef, mean, constant)
+                    log_scalar += np.log(mean)
+                params[part.group] = coef
+                continue
+            slopes = slope.reshape(len(part.columns), -1)
+            shifts = np.zeros(slopes.shape[1])
+            curves[part.group] = {}
+            for label, column in design.levels[part.group].items():
+                coef = np.zeros(part.n_block_columns)
+                coef[part.columns] = slopes[:, column]
+                if constant is not None:
+                    coef[part.constant] += intercept
+                    rows = design.codes[part.by] == column
+                    mean = np.average(form.factor(X[rows], coef), weights=w[rows])
+                    coef = form.rescale(coef, mean, constant)
+                    shifts[column] = np.log(mean)
+                curves[part.group][label] = coef
+            level_shifts[part.by] = level_shifts.get(part.by, 0.) + shifts
+
+        for part in design.parts:
+            if part.kind != "categorical":
+                continue
+            slope, intercept = linear[part.group]
+            coef = slope + intercept + level_shifts.get(part.group, 0.)
+            share = np.bincount(design.codes[part.group], weights=w, minlength=part.n_block_columns) / w.sum()
+            mean = float(share @ form.factor(np.eye(part.n_block_columns), coef))
+            params[part.group] = form.rescale(coef, mean, np.ones(part.n_block_columns))
+            log_scalar += np.log(mean)
+        return params, curves, float(np.exp(log_scalar))

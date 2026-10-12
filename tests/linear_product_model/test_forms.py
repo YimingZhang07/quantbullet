@@ -9,7 +9,7 @@ import pytest
 from quantbullet.linear_product_model import (InteractionCoef, LinearProductModelToolkit, LinearProductRegressorBCD,
                                               ModelForm, resolve_form)
 from quantbullet.linear_product_model.datacontainer import ProductModelDataContainer
-from quantbullet.linear_product_model.forms import IdentityMSE, IdentityPoisson, form_of
+from quantbullet.linear_product_model.forms import IdentityMSE, IdentityPoisson, LogPoisson, form_of
 
 
 class FrozenCurve:
@@ -46,11 +46,32 @@ def fitted(loss, submodel=False):
 def test_registry_resolves_supported_forms_and_rejects_others():
     assert isinstance(resolve_form("identity", "mse"), IdentityMSE)
     assert isinstance(resolve_form("identity", "poisson"), IdentityPoisson)
+    assert isinstance(resolve_form("log", "poisson"), LogPoisson)
     assert resolve_form("identity", "poisson").name == "identity/poisson"
-    for link, loss in (("log", "poisson"), ("log", "mse"), ("identity", "huber")):
+    assert [resolve_form(*key).default_solver for key in (("identity", "mse"), ("log", "poisson"))] == ["bcd", "newton"]
+    for link, loss in (("log", "mse"), ("identity", "huber")):
         with pytest.raises(ValueError, match=f"Unsupported model form {link}/{loss}; "
-                                             "supported: identity/mse, identity/poisson"):
+                                             "supported: identity/mse, identity/poisson, log/poisson"):
             resolve_form(link, loss)
+
+
+def test_log_poisson_formulas():
+    log, identity = resolve_form("log", "poisson"), resolve_form("identity", "poisson")
+    y, w, m = np.array([0., 1., 3.]), np.array([1., 2., .5]), np.array([.2, .4, .3])
+    eta = np.array([-1., 0., 1.])
+    X, coef = np.array([[1., 2.], [1., 0.], [1., -1.]]), np.array([.1, .3])
+    np.testing.assert_allclose(log.factor(X, coef), np.exp(X @ coef))
+    np.testing.assert_allclose(log.factor(X, log.rescale(coef, 2., np.array([1., 0.]))), np.exp(X @ coef) / 2.)
+    np.testing.assert_array_equal(log.loss_terms(y, np.exp(eta)), identity.loss_terms(y, np.exp(eta)))
+    numer, denom = log.implied_actual_terms(y, m, np.exp(eta), w)
+    np.testing.assert_allclose(numer, w * y)
+    np.testing.assert_allclose(denom, w * m)
+    mu, deviance, gradient, hessian = log.newton_terms(eta, y, w)
+    np.testing.assert_allclose(mu, np.exp(eta))
+    np.testing.assert_allclose(gradient, w * (y - mu))
+    np.testing.assert_allclose(hessian, w * mu)
+    expected = w * 2 * (np.where(y > 0, y * np.log(np.where(y > 0, y, 1.) / mu), 0.) - (y - mu))
+    np.testing.assert_allclose(deviance, expected)
 
 
 def test_form_formulas():

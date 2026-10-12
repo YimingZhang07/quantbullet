@@ -243,3 +243,31 @@ categorical aggregates）逐位相同；98 个 `predict` / `leave_out` 数组相
 
 已知问题（既有，未改）：`cache_qr_decomp=True` 求解的是 `X @ coef ≈ y / scalar / fixed` 的未加权问题，
 与 scaled OLS 不同；`fixed` 含 0 时 turnover 数据上 loss 变为 NaN，随后在收敛判断中报 `TypeError`。
+
+第 2 期已提交（`eb2fbaf`）。
+
+**第 3 期**（同一 branch，未提交）：
+
+- `forms.py`：loss 改为逐行 `loss_terms` 加共用的加权平均（identity 结果逐位不变）；新增 `LogForm`（factor 为 `exp(X @ coef)`，
+  `rescale` 沿常数方向平移）与 `LogPoisson`（`newton_terms`，implied actual 为 `sum(w·y) / sum(w·m)`）；registry 增加 `log/poisson`；
+  每个 form 声明 `default_solver`。
+- `solvers.py`：新增 `NewtonSolver` 与内部的 `_LogDesign`。design 由模型的 blocks 推出：完整 one-hot block 作类别（去掉余额最大的 level），
+  其他 block 去掉全 1 列（若有）；interaction 要求 by block 是可训练的完整 one-hot block；frozen submodel 作为 offset `log(prediction)`，
+  预测须为正。拟合后还原到各 block 的基并归一：有常数方向的 block 均值为 1，interaction 曲线在各 level 内均值为 1、水平移入 by block，
+  没有常数方向的 block 保持原尺度（`block_means_` 记录其均值）。`loss_history_`、`global_scalar_history_`、`coef_history_` 按 Newton 步记录；
+  `fit_timing_` 增加 `design_cache`、`design_columns`，`sweep_seconds` 为每次 pass 的时间。
+- `fit`：新增 `block_link`、`solver_options`。按 form 的 `default_solver` 选 solver（类属性 `bcd_solver` / `newton_solver`）；
+  每个 solver 用 `FIT_ARGUMENTS` 声明自己使用的 `fit` 参数，其他 solver 参数若取非默认值，在模型重置前报错（默认值从 `fit` 签名读取）。
+  `fit_timing_` 改由 solver 建立。新属性 `block_link_`、`solver_name_`；`FitMetadata` 增加 `block_link`、`solver`。
+- `calculate_feature_group_se` 对非 identity form 报 `NotImplementedError`。
+- 暂不支持：log form 的 `interaction_submodels`（报错）、标准误、one-hot 结构化 Hessian。
+- 测试：13 个新测试，包括与 sklearn 对照（含加权与 interaction）、frozen offset、全类别模型下两种 form 一致、optimum 处 implied actual
+  等于 level factor、缓存与 stream 一致、参数检查、pickle、无事件 level 的警告。
+
+验收：
+
+- identity 路径与第 1 期快照逐位相同（385 个数组）；LPM 与 turnover 测试 117 通过，2 个既有失败不变。
+- turnover 全量（17,042,421 行，156 列）`block_link="log"`：7 步收敛，余额加权 deviance 0.04097777197753082，与 exploration 相同；
+  预测与 exploration GLM 预测的相对差 9.7e-15；所有 block 均值为 1；fit 262s（其中建 design 与缓存 51s），LPM 为 371–374s。
+- `loss_history_` 沿用 identity Poisson 的 floor 公式，便于与 BCD 比较；对 y = 0 的行它与精确 deviance 相差约 8e-8（相对），
+  精确值在 `convergence_info_['deviance']`。
