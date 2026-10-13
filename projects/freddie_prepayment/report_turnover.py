@@ -11,6 +11,7 @@ matplotlib.use("Agg")
 
 import polars as pl
 
+from quantbullet.linear_product_model.forms import resolve_form
 from quantbullet.linear_product_model.mortgage_diagnostics import MortgageColnames, MortgageDiagnostics
 from quantbullet.plot.formatter import compact_number
 from quantbullet.plot.binned_means import PRINT_BINNED_MEANS_STYLE
@@ -130,7 +131,8 @@ def report(config: Config) -> dict:
         pdf.add_kv_line({"Observations": f"{meta['rows']:,}", "Loans": f"{frame['loan_identifier'].n_unique():,}",
                          "Events": f"{frame[TARGET].sum():,.0f}", "Expanded columns": meta["expanded_columns"]})
         # Runs saved before forms existed are identity BCD fits.
-        pdf.add_kv_line({"Form": meta.get("form", f"identity/{meta['loss']}"), "Solver": meta.get("solver", "bcd"),
+        form = resolve_form(*meta.get("form", f"identity/{meta['loss']}").split("/"))
+        pdf.add_kv_line({"Form": form.label, "Solver": meta.get("solver", "bcd"),
                          "Fit seconds": f"{meta['fit_seconds']:.1f}", "Best iteration": meta["best_iteration"],
                          "Global scalar": f"{meta['global_scalar']:.6f}"})
         for kind in ("balance_weighted", "equal_weight"):

@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from quantbullet.linear_product_model import LinearProductRegressorBCD, resolve_form
+from quantbullet.linear_product_model import LinearProductRegressor, resolve_form
 from quantbullet.linear_product_model._acceleration import one_hot_codes
 from quantbullet.linear_product_model.datacontainer import ProductModelDataContainer
 from quantbullet.linear_product_model.solvers import BCDSolver
@@ -17,7 +17,7 @@ class DenseBCDSolver(BCDSolver):
         return {}
 
 
-class DenseReference(LinearProductRegressorBCD):
+class DenseReference(LinearProductRegressor):
     bcd_solver = DenseBCDSolver
 
 
@@ -94,7 +94,7 @@ def test_full_fit_matches_dense_with_age_purpose_and_pickle(dtype, weighted):
     options = dict(feature_groups=groups, interactions={'age': 'purpose'}, loss='poisson',
                    weights=weights, n_iterations=8, early_stopping_rounds=None, ftol=None, verbose=0)
     dense = DenseReference().fit(data, **options)
-    fast = LinearProductRegressorBCD().fit(data, **options)
+    fast = LinearProductRegressor().fit(data, **options)
     tolerance = dict(rtol=1e-5, atol=1e-7) if dtype == np.float32 else dict(rtol=1e-10, atol=1e-12)
     np.testing.assert_allclose(fast.predict(data), dense.predict(data), **tolerance)
     np.testing.assert_allclose(fast.loss_history_, dense.loss_history_, **tolerance)
@@ -106,7 +106,7 @@ def test_full_fit_matches_dense_with_age_purpose_and_pickle(dtype, weighted):
                 np.testing.assert_allclose(fast.coef_[group].categories[category],
                                            dense.coef_[group].categories[category], **tolerance)
         else:
-            np.testing.assert_allclose(fast.normalized_coef_[group], dense.normalized_coef_[group], **tolerance)
+            np.testing.assert_allclose(fast.coef_[group], dense.coef_[group], **tolerance)
     restored = pickle.loads(pickle.dumps(fast))
     np.testing.assert_array_equal(restored.predict(data), fast.predict(data))
     assert restored.fit_timing_ == fast.fit_timing_
@@ -116,7 +116,7 @@ def test_full_fit_matches_dense_with_age_purpose_and_pickle(dtype, weighted):
 
 def test_timing_resets_and_mse_frozen_and_interaction_blocks_stay_dense():
     data, groups, weights = make_fit_data()
-    model = LinearProductRegressorBCD()
+    model = LinearProductRegressor()
     blocks = data.get_expanded_array_dict(list(groups))
     model.loss_ = 'poisson'
     model.submodels_ = {'state': object()}
@@ -141,7 +141,7 @@ def test_timing_resets_and_mse_frozen_and_interaction_blocks_stay_dense():
 
 
 def test_regular_dropped_and_multihot_blocks_fall_back():
-    model = LinearProductRegressorBCD()
+    model = LinearProductRegressor()
     model.loss_ = 'poisson'
     model.submodels_ = {}
     blocks = {'dropped': np.array([[0., 0.], [1., 0.], [0., 1.]]),

@@ -52,19 +52,13 @@ def memorize_fit_args(func):
         return func( self, X, *args, **kwargs )
     return wrapper
 
-class LinearProductModelBCD(ABC):
-    """Mixin for models fitted via Block Coordinate Descent (BCD).
+class IterativeFitMixin(ABC):
+    """Fit history shared by the iterative solvers (BCD sweeps or Newton steps).
 
-    Tracks optimisation history and provides normalised coefficient views.
-
-    BCD-specific coefficient views (all derived from ``coef_``):
-
-    - ``bias_one_coef_`` : each group's coefficients divided by its first
-      element (the intercept/bias term), so the first coefficient is always 1.
-    - ``normalized_coef_`` : each group's coefficients divided by its
-      training-data block mean, making groups comparable in scale.
-    - ``bias_one_coef_dict`` / ``normalized_coef_dict`` : named-dict versions
-      of the above (``{group: {feature_name: value}}``).
+    Holds ``loss_history_``, ``coef_history_``, ``interaction_params_history_``,
+    ``global_scalar_history_``, ``global_scalar_step_history_``, the ``best_*`` state,
+    ``block_means_`` and ``convergence_info_``; ``_reset_history`` clears them before a fit.
+    Fitted blocks are already normalized to mean 1, so ``coef_`` is the coefficient view.
     """
 
     def __init__(self):
@@ -90,55 +84,6 @@ class LinearProductModelBCD(ABC):
     @abstractmethod
     def loss_function(self, y_hat, y, weights=None):
         pass
-    
-    @property
-    def bias_one_coef_dict(self):
-        """Return bias-one normalized coefficients grouped by feature group."""
-        return self._coef_to_coef_dict(self.bias_one_coef_)
-    
-    @property
-    def normalized_coef_dict(self):
-        """Return block-mean normalized coefficients grouped by feature group."""
-        return self._coef_to_coef_dict(self.normalized_coef_)
-    
-    def _coef_to_coef_dict(self, coef):
-        """Convert coef_ dict to a nested dictionary with feature names.
-
-        Interaction groups (InteractionCoef) are skipped -- they don't have a
-        single coefficient vector that maps 1-to-1 to expanded feature names.
-        """
-        if self.feature_groups_ is None:
-            raise ValueError("feature_groups_ is not set.")
-        coef_dict = {}
-        for group, features in self.feature_groups_.items():
-            group_coef = coef.get(group)
-            if group_coef is None or isinstance(group_coef, InteractionCoef):
-                continue
-            coef_dict[group] = {features[i]: group_coef[i] for i in range(len(features))}
-        return coef_dict
-    
-    @property
-    def bias_one_coef_(self):
-        if self.coef_ is None:
-            raise ValueError("Model not fitted yet. Please call fit() first.")
-        bias_one_coef = {}
-        for group, coef in self.coef_.items():
-            if isinstance(coef, InteractionCoef):
-                continue
-            bias_one_coef[group] = coef / coef[0]
-        return bias_one_coef
-    
-    @property
-    def normalized_coef_(self):
-        if self.coef_ is None:
-            raise ValueError("Model not fitted yet. Please call fit() first.")
-        normalized_coef = {}
-        for group, coef in self.coef_.items():
-            if isinstance(coef, InteractionCoef):
-                continue
-            block_mean = self.block_means_.get(group)
-            normalized_coef[group] = coef / block_mean
-        return normalized_coef
 
 
 class LinearProductModelBase(ABC):

@@ -9,7 +9,7 @@ import pytest
 from sklearn.preprocessing import OneHotEncoder
 
 from quantbullet.linear_product_model import (
-    LinearProductRegressorBCD,
+    LinearProductRegressor,
     LinearProductModelToolkit,
 )
 from quantbullet.preprocessing import FlatRampTransformer
@@ -27,7 +27,7 @@ class _FrozenAgeCurve:
 
 def _scale_transfer_case(loss, weights, *, frozen_curve=False, frozen_by=False, dropped_by=False):
     """Two independently fitted curves, with category order opposite column order."""
-    model = LinearProductRegressorBCD()
+    model = LinearProductRegressor()
     model.loss_ = loss
     model.interactions_ = {'age': 'purpose'}
     model.global_scalar_ = 1.0
@@ -179,7 +179,7 @@ class TestInteraction(unittest.TestCase):
             df, expanded_df, response=df['y'], feature_groups=tk.feature_groups,
         )
 
-        model = LinearProductRegressorBCD()
+        model = LinearProductRegressor()
         model.fit(
             dcontainer,
             feature_groups=tk.feature_groups,
@@ -236,7 +236,7 @@ class TestInteraction(unittest.TestCase):
             df, expanded_df, response=df['y'], feature_groups=tk.feature_groups,
         )
 
-        model = LinearProductRegressorBCD()
+        model = LinearProductRegressor()
         model.fit(
             dcontainer,
             feature_groups=tk.feature_groups,

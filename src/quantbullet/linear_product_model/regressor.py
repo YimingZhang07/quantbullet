@@ -6,7 +6,7 @@ import time
 from typing import Dict
 from scipy.optimize import least_squares
 
-from .base import LinearProductModelBCD, LinearProductRegressorBase, InteractionCoef, memorize_fit_args
+from .base import IterativeFitMixin, LinearProductRegressorBase, InteractionCoef, memorize_fit_args
 from .datacontainer import ProductModelDataContainer
 from .forms import resolve_form
 from .solvers import BCDSolver, NewtonSolver
@@ -19,14 +19,22 @@ def _is_default(value, default):
     return not isinstance(value, np.ndarray) and value == default
 
 
-class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelBCD ):
+class LinearProductRegressor( LinearProductRegressorBase, IterativeFitMixin ):
+    """Multiplicative factor model ``y_hat = global_scalar * prod_k f_k``, one factor per feature group.
+
+    ``fit(block_link=...)`` chooses the factor form: ``"identity"`` gives linear factors
+    ``f_k = X_k @ beta_k`` (fitted block by block with BCD), ``"log"`` gives log-linear factors
+    ``f_k = exp(X_k @ beta_k)`` (a log-link GLM, fitted jointly with Newton). Either way the fitted
+    blocks are normalized to mean 1 and read the same way by ``predict``, the toolkit and reports.
+    """
+
     # Solvers ``fit`` hands the iteration to, chosen by the form's ``default_solver``; a subclass may swap in variants.
     bcd_solver = BCDSolver
     newton_solver = NewtonSolver
 
     def __init__(self):
         LinearProductRegressorBase.__init__(self)
-        LinearProductModelBCD.__init__(self)
+        IterativeFitMixin.__init__(self)
         self.interactions_ = {}
 
     def loss_function(self, y_hat, y, weights=None):
@@ -203,7 +211,10 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
 
 # Defaults of ``fit``'s solver arguments, read from its signature so the two cannot drift apart.
 _FIT_DEFAULTS = {name: parameter.default
-                 for name, parameter in inspect.signature(LinearProductRegressorBCD.fit).parameters.items()}
+                 for name, parameter in inspect.signature(LinearProductRegressor.fit).parameters.items()}
+
+# Former name, kept permanently: saved models are unpickled by this module path and class name.
+LinearProductRegressorBCD = LinearProductRegressor
 
 
 class LinearProductRegressorScipy(LinearProductRegressorBase):

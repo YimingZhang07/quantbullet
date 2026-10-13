@@ -5,7 +5,7 @@ from sklearn.metrics import mean_squared_error
 from sklearn.preprocessing import OneHotEncoder
 
 from quantbullet.linear_product_model import (
-    LinearProductRegressorBCD,
+    LinearProductRegressor,
     LinearProductRegressorScipy,
     LinearProductModelToolkit,
 )
@@ -58,20 +58,20 @@ def _setup_data():
     df, tk = _setup_toolkit()
     return df, tk.get_expanded_df( df ), tk.feature_groups
 
-class TestLinearProductRegressorBCD(unittest.TestCase):
+class TestLinearProductRegressor(unittest.TestCase):
     def setUp(self):
         df, expanded_df, feature_groups = _setup_data()
         self.df = df
         self.train_df = expanded_df
         self.feature_groups = feature_groups
 
-    def test_LinearProductRegressorBCD(self):
+    def test_LinearProductRegressor(self):
         df = self.df
         train_df = self.train_df
         feature_groups = self.feature_groups
 
         dcontainer = ProductModelDataContainer( df, train_df, response= df['y'], feature_groups=feature_groups )
-        lprm_ols = LinearProductRegressorBCD()
+        lprm_ols = LinearProductRegressor()
         lprm_ols.fit( dcontainer, feature_groups=feature_groups, n_iterations=100, early_stopping_rounds=20, cache_qr_decomp=False )
         df['model_pred_BCD'] = lprm_ols.predict( dcontainer )
 
@@ -82,13 +82,13 @@ class TestLinearProductRegressorBCD(unittest.TestCase):
         # check whether the global scale converges to the mean of y
         self.assertTrue( abs( lprm_ols.global_scalar_ / df['y'].mean() -1 ) < 0.05 )
 
-    def test_LinearProductRegressorBCD_weights( self ):
+    def test_LinearProductRegressor_weights( self ):
         df = self.df
         train_df = self.train_df
         feature_groups = self.feature_groups
 
         dcontainer = ProductModelDataContainer( df, train_df, response= df['y'], feature_groups=feature_groups )
-        lprm_ols = LinearProductRegressorBCD()
+        lprm_ols = LinearProductRegressor()
         lprm_ols.fit( dcontainer, feature_groups=feature_groups, n_iterations=100, early_stopping_rounds=20, cache_qr_decomp=False, weights=np.array([1.0] * df.shape[0]) )
         df['model_pred_BCD'] = lprm_ols.predict( dcontainer )
 
@@ -124,7 +124,7 @@ class TestFrozenSubmodelBlocks(unittest.TestCase):
 
         dcontainer = ProductModelDataContainer(
             df, expanded_df, response=df['y'], feature_groups=component_tk.feature_groups )
-        model = LinearProductRegressorBCD()
+        model = LinearProductRegressor()
         model.fit(
             dcontainer,
             feature_groups=component_tk.feature_groups,

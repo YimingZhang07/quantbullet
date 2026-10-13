@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from quantbullet.linear_product_model import (InteractionCoef, LinearProductModelToolkit, LinearProductRegressorBCD,
+from quantbullet.linear_product_model import (InteractionCoef, LinearProductModelToolkit, LinearProductRegressor,
                                               ModelForm, resolve_form)
 from quantbullet.linear_product_model.datacontainer import ProductModelDataContainer
 from quantbullet.linear_product_model.forms import IdentityMSE, IdentityPoisson, LogPoisson, form_of
@@ -38,7 +38,7 @@ def fitted(loss, submodel=False):
     container = ProductModelDataContainer(orig, expanded, response=rng.poisson(rate).astype(float),
                                           feature_groups=groups)
     submodels = {"state": FrozenCurve([1., 1.1, 1.2, 1.3])} if submodel else None
-    model = LinearProductRegressorBCD().fit(container, groups, interactions={"age": "purpose"}, submodels=submodels,
+    model = LinearProductRegressor().fit(container, groups, interactions={"age": "purpose"}, submodels=submodels,
                                             loss=loss, n_iterations=5, verbose=0)
     return model, container
 

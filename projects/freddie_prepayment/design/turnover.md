@@ -24,11 +24,11 @@ Fitting cohort 为 `c_incentive <= -0.5`，数值 features 要求非空且有限
 pred_turnover = global_scalar × product(numeric blocks) × product(categorical blocks)
 ```
 
-使用 `LinearProductRegressorBCD(loss="poisson")`。`c_age_fit` 按 `f_purpose` 各估一条 ramp，其余 block 是 main effects。
+使用 `LinearProductRegressor(loss="poisson")`。`c_age_fit` 按 `f_purpose` 各估一条 ramp，其余 block 是 main effects。
 每个 block 在 fit 中归一化，global scalar 表示整体 response level。
 
-`[fit] block_link` 选择 block 形式。`identity`（默认）的 block 是基函数的线性组合，由 BCD 逐块拟合，下文的 sweep、ftol、
-one-hot 分组更新都指这一形式。`log` 的 block 是 `exp(线性组合)`，整体即 log-link Poisson GLM，由 Newton 对全部 block 联合拟合，
+`[fit] block_link` 选择 factor 形式。`identity`（默认，线性因子）的 block 是基函数的线性组合，由 BCD 逐块拟合，下文的 sweep、ftol、
+one-hot 分组更新都指这一形式。`log`（对数线性因子）的 block 是 `exp(线性组合)`，整体即 log-link Poisson GLM，由 Newton 对全部 block 联合拟合，
 设置在 `[fit.newton]`（见 [turnover_log.example.toml](../turnover_log.example.toml)）；同一 cohort、knots、weights 与 interaction，
 预测恒为正，归一化与 report 相同。两种形式的产物放在各自的 `output_root`；metadata 记录 `block_link`、`form`、`solver` 与传给 solver 的参数。
 两种形式的实现见 `quantbullet.linear_product_model` 的 [forms](../../../src/quantbullet/linear_product_model/forms.py)

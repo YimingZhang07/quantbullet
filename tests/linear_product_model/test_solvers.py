@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 from sklearn.linear_model import PoissonRegressor
 
-from quantbullet.linear_product_model import LinearProductRegressorBCD, ModelForm, resolve_form
+from quantbullet.linear_product_model import LinearProductRegressor, ModelForm, resolve_form
 from quantbullet.linear_product_model.datacontainer import ProductModelDataContainer
 from quantbullet.linear_product_model.forms import IdentityMSE
 from quantbullet.linear_product_model.solvers import BCDSolver, NewtonSolver
@@ -62,7 +62,7 @@ def sklearn_poisson(Z, y, w, offset=None):
 
 
 def fit_log(data, groups, **options):
-    return LinearProductRegressorBCD().fit(data, groups, loss="poisson", block_link="log", verbose=0, **options)
+    return LinearProductRegressor().fit(data, groups, loss="poisson", block_link="log", verbose=0, **options)
 
 
 # ----------------------------------------------------------------------
@@ -97,10 +97,10 @@ def test_weighted_qr_and_svd_are_rejected_for_mse_and_ignored_for_poisson(option
     data, groups = make_data()
     weights = np.ones(len(data))
     with pytest.raises(NotImplementedError, match="Weighted least squares"):
-        LinearProductRegressorBCD().fit(data, groups, loss="mse", weights=weights, verbose=0, **{option: True})
+        LinearProductRegressor().fit(data, groups, loss="mse", weights=weights, verbose=0, **{option: True})
     options = dict(loss="poisson", weights=weights, n_iterations=3, verbose=0)
-    with_option = LinearProductRegressorBCD().fit(data, groups, **options, **{option: True})
-    without = LinearProductRegressorBCD().fit(data, groups, **options)
+    with_option = LinearProductRegressor().fit(data, groups, **options, **{option: True})
+    without = LinearProductRegressor().fit(data, groups, **options)
     np.testing.assert_array_equal(with_option.predict(data), without.predict(data))
 
 
@@ -115,7 +115,7 @@ def test_mse_solve_options_reach_the_form(option, expected):
             seen.append(sorted(options))
             return options
 
-    class Model(LinearProductRegressorBCD):
+    class Model(LinearProductRegressor):
         bcd_solver = Recording
 
     Model().fit(data, groups, loss="mse", n_iterations=2, verbose=0, **{option: True})
@@ -125,7 +125,7 @@ def test_mse_solve_options_reach_the_form(option, expected):
 @pytest.mark.parametrize("block_link", ["identity", "log"])
 def test_fit_leaves_no_solver_or_per_row_arrays_on_the_model(block_link):
     data, groups, _, _ = poisson_data()
-    model = LinearProductRegressorBCD().fit(data, groups, interactions={"age": "purpose"}, loss="poisson",
+    model = LinearProductRegressor().fit(data, groups, interactions={"age": "purpose"}, loss="poisson",
                                             block_link=block_link, verbose=0)
     assert model.solver_name_ == model.fit_metadata_.solver == ("bcd" if block_link == "identity" else "newton")
     assert not any(isinstance(value, (BCDSolver, NewtonSolver)) for value in vars(model).values())
@@ -173,7 +173,7 @@ def test_frozen_submodel_enters_as_an_offset():
 def test_identity_and_log_forms_agree_when_every_block_is_one_hot():
     data, groups, w, _ = poisson_data(drop=("age",))
     log = fit_log(data, groups, weights=w)
-    identity = LinearProductRegressorBCD().fit(data, groups, loss="poisson", weights=w, n_iterations=300,
+    identity = LinearProductRegressor().fit(data, groups, loss="poisson", weights=w, n_iterations=300,
                                                ftol=None, early_stopping_rounds=None, verbose=0)
     assert identity.loss_history_[-1] == pytest.approx(log.loss_history_[-1], rel=1e-9)
     np.testing.assert_allclose(identity.predict(data), log.predict(data), rtol=1e-5)
@@ -233,8 +233,25 @@ def test_log_model_pickles():
     assert restored.form_ is resolve_form("log", "poisson") and restored.block_link_ == "log"
     assert restored.fit_metadata_.block_link == "log" and restored.fit_metadata_.solver == "newton"
     np.testing.assert_array_equal(restored.predict(data), model.predict(data))
-    # Standard errors are not part of either form until they are built properly.
-    assert not any(hasattr(model, name) for name in ("se_", "calculate_se", "calculate_feature_group_se", "summary"))
+    assert restored.form_.label == "log-linear factors (log-link GLM), Poisson loss"
+    # Standard errors are not part of either form until they are built properly; fitted blocks
+    # are already normalized, so there are no separate normalized coefficient views.
+    assert not any(hasattr(model, name) for name in ("se_", "calculate_se", "calculate_feature_group_se", "summary",
+                                                     "normalized_coef_", "bias_one_coef_"))
+
+
+def test_former_class_name_still_unpickles():
+    from quantbullet.linear_product_model import LinearProductRegressor, LinearProductRegressorBCD, regressor
+    # Saved models name ``regressor.LinearProductRegressorBCD``; unpickling looks the name up on the module.
+    assert LinearProductRegressorBCD is LinearProductRegressor is getattr(regressor, "LinearProductRegressorBCD")
+    data, groups, _, _ = poisson_data()
+    model = LinearProductRegressorBCD().fit(data, groups, loss="poisson", verbose=0)
+    # Protocol 2 writes class references as plain "module\nname\n", so the old name can be substituted exactly.
+    dumped = pickle.dumps(model, protocol=2)
+    current = b"linear_product_model.regressor\nLinearProductRegressor\n"
+    assert current in dumped
+    old = dumped.replace(current, b"linear_product_model.regressor\nLinearProductRegressorBCD\n")
+    np.testing.assert_array_equal(pickle.loads(old).predict(data), model.predict(data))
 
 
 def test_levels_without_events_warn_unless_l2_is_set():

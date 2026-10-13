@@ -10,7 +10,7 @@ import pandas as pd
 import polars as pl
 from sklearn.preprocessing import OneHotEncoder
 
-from quantbullet.linear_product_model import LinearProductModelToolkit, LinearProductRegressorBCD
+from quantbullet.linear_product_model import LinearProductModelToolkit, LinearProductRegressor
 from quantbullet.linear_product_model.datacontainer import ProductModelDataContainer
 from quantbullet.model.feature import DataType, Feature, FeatureRole, FeatureSpec
 from quantbullet.preprocessing.transformers import FlatRampTransformer
@@ -141,7 +141,7 @@ def fit(config: Config, *, smoke_rows: int | None = None) -> dict:
     container = make_container(data, toolkit)
     timings["container"] = time.perf_counter() - started
     print(f"[fit] {container.shape[1]} expanded columns; float32 block arrays", flush=True)
-    model = LinearProductRegressorBCD()
+    model = LinearProductRegressor()
     started = time.perf_counter()
     model.fit(container, feature_groups=toolkit.feature_groups, interactions=INTERACTIONS, loss="poisson",
               weights=data["weight"].to_numpy(), block_link=config.block_link, **solver_arguments(config))

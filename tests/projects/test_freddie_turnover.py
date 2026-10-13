@@ -228,10 +228,10 @@ def test_failed_fit_preserves_artifacts(synthetic_config,monkeypatch):
     prepare(config); fit(config)
     files=[config.output_root/name for name in ("turnover_model.pkl","turnover_predictions.parquet")]
     before=[file_sha256(path) for path in files]
-    from quantbullet.linear_product_model import LinearProductRegressorBCD
+    from quantbullet.linear_product_model import LinearProductRegressor
     def fail(*args,**kwargs):
         raise RuntimeError("synthetic fit failure")
-    monkeypatch.setattr(LinearProductRegressorBCD,"fit",fail)
+    monkeypatch.setattr(LinearProductRegressor,"fit",fail)
     with pytest.raises(RuntimeError,match="synthetic fit failure"):
         fit(config)
     assert [file_sha256(path) for path in files]==before

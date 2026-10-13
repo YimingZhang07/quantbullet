@@ -8,7 +8,7 @@ from .utils import (
     fit_logistic_no_intercept,
 )
 
-from .base import LinearProductClassifierBase, LinearProductModelBCD, memorize_fit_args
+from .base import LinearProductClassifierBase, IterativeFitMixin, memorize_fit_args
 
 class LinearProductClassifierScipy(LinearProductClassifierBase):
     def __init__(self, gtol=1e-8, ftol=1e-8, eps=1e-3):
@@ -143,10 +143,10 @@ class LinearProductClassifierScipy(LinearProductClassifierBase):
 
         return self.forward(self.coef_, X_blocks)
 
-class LinearProductClassifierBCD( LinearProductClassifierBase, LinearProductModelBCD ):
+class LinearProductClassifierBCD( LinearProductClassifierBase, IterativeFitMixin ):
     def __init__(self, eps=1e-3):
         LinearProductClassifierBase.__init__(self)
-        LinearProductModelBCD.__init__(self)
+        IterativeFitMixin.__init__(self)
         self.eps = eps
 
     def loss_function(self, y_hat, y, weights=None):

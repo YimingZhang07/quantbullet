@@ -1,6 +1,8 @@
 """Block forms of the linear product model.
 
-A form is the pair (block link, loss). It owns every formula that differs between model variants --
+A form is the pair (block link, loss). The link names the factor form: ``identity`` gives linear
+factors ``X @ coef`` (the linear-factor model), ``log`` gives log-linear factors ``exp(X @ coef)``
+(the log-linear-factor model, a log-link GLM). It owns every formula that differs between model variants --
 how a block's coefficients become its multiplicative factor, the loss tracked during fitting, and the
 FOC-consistent implied actual used by diagnostics -- and nothing about iteration. Models, solvers and
 the toolkit ask for a form instead of branching on the loss name.
@@ -25,6 +27,7 @@ class ModelForm(ABC):
     loss_name: str
     loss_label: str
     default_solver: str
+    label: str            # readable name for reports, e.g. "log-linear factors (log-link GLM), Poisson loss"
 
     @property
     def name(self) -> str:
@@ -97,7 +100,7 @@ class _PoissonLoss:
 # ----------------------------------------------------------------------
 
 class IdentityForm(ModelForm):
-    """Block factor ``X @ coef``: each block is linear on the multiplier scale.
+    """Linear factors ``X @ coef``: each block is linear on the multiplier scale.
 
     Identity forms are fitted block by block: ``block_step`` returns a block's new coefficients
     with the other blocks fixed, where the full prediction is ``scalar · fixed · (X @ coef)``.
@@ -117,6 +120,7 @@ class IdentityForm(ModelForm):
 
 
 class IdentityMSE(_MSELoss, IdentityForm):
+    label = "linear factors, MSE loss"
     step_options = ("qr", "use_svd")
 
     def implied_actual_terms(self, y, m, p, w):
@@ -146,6 +150,7 @@ class IdentityMSE(_MSELoss, IdentityForm):
 class IdentityPoisson(_PoissonLoss, IdentityForm):
     """Identity blocks are not bounded below; the loss floors predictions at 1e-10."""
 
+    label = "linear factors, Poisson loss"
     grouped_one_hot = True
 
     def implied_actual_terms(self, y, m, p, w):
@@ -176,7 +181,7 @@ class IdentityPoisson(_PoissonLoss, IdentityForm):
 # ----------------------------------------------------------------------
 
 class LogForm(ModelForm):
-    """Block factor ``exp(X @ coef)``: blocks add on the log scale, so the model is a log-link GLM.
+    """Log-linear factors ``exp(X @ coef)``: blocks add on the log scale, so the model is a log-link GLM.
 
     Factors are always positive. A block is rescaled to mean 1 by shifting its coefficients along
     a constant direction ``c`` with ``X @ c = 1`` (a bias column, or all levels of a full one-hot block).
@@ -203,6 +208,8 @@ class LogForm(ModelForm):
 
 class LogPoisson(_PoissonLoss, LogForm):
     """Weighted Poisson likelihood with a log link."""
+
+    label = "log-linear factors (log-link GLM), Poisson loss"
 
     def implied_actual_terms(self, y, m, p, w):
         """Poisson deviance FOC for a log block: ``sum(w·y) / sum(w·m)``."""
