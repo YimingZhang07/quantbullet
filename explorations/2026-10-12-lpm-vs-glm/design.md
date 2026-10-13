@@ -196,10 +196,12 @@ model.fit(..., loss="mse", block_link="log")
    `max_cache_gb`（默认 16）时缓存，否则 stream。用固定上限而不是空闲内存，结果不随机器状态变化，也不新增依赖。
    所选模式记入 `fit_timing_` 与 metadata。缓存与 stream 只在 Hessian 精度上不同，gradient 都是 float64，收敛到同一最优点。
 
+4. **不提供标准误**（2026-10-12）：两种 form 都不提供，现有的 identity 标准误（OLS 公式、固定其他块）一并删除；
+   因子曲线的置信带（loan-clustered sandwich 协方差）作为以后单独的工作。
+
 待决：
 
-4. 第 4 期 Block 类是否做，或停在 `block_factor` 唯一入口。
-5. Log form 的标准误范围：只给 ramp 与 level 系数，还是包括 bias。
+5. 第 4 期 Block 类是否做，或停在 `block_factor` 唯一入口。
 6. Classifier 是否纳入 form 体系。
 7. 实施完成后，exploration 下的 `compare_turnover.py`、`fit_turnover_glm.py` 保留还是删除。
 
@@ -309,3 +311,11 @@ eta 与 gradient 各一次。现在每个 chunk 只转换一次，两个乘积�
 在 turnover 300 万行上用真实 solver 对比（每种 30 次 pass 的中位数）：每次乘积各自 upcast 4.59s，按 4096 行分块 4.66s
 （合成数据上看似更快，但真实计算中每块的 Python 调用开销抵消了收益），每块转换一次 3.71s（-19%）；三者 deviance 相同（差 1e-16）。
 turnover 全量（17.0M 行）：fit 243s（之前 262s；扣除建 design 后 Newton 部分约 211s → 187s），deviance 与预测与之前逐位相同（显式转换与 NumPy 隐式 upcast 得到同样的 float64 值）。
+
+**删除标准误**（同一 branch）：`calculate_se`、`calculate_feature_group_se`（含 log form 的 `NotImplementedError` 保护）、
+`summary()` 与 `se_` 属性从模型中删除；`utils.py` 中只为它们服务的函数（`estimate_ols_beta_se`、
+`estimate_ols_beta_se_with_scalar_vector`、`estimate_logistic_beta_se`、`estimate_linear_cross_entropy_beta_hessian/_se`、
+`numerical_hessian` 及两个 cross-entropy loss 辅助函数）与 `tests/linear_product_model/test_error_model.py` 一并删除。
+已保存的模型照常加载与预测（旧 pickle 中残留的 `se_` 属性不起作用）。演示 `calculate_se` / `summary()` 的
+`docs/linear_product_model/error_model.ipynb` 也已删除（docs 中无引用）。LPM 与 turnover 测试 113 通过（减少的 6 个即被删的测试），
+2 个既有失败不变。

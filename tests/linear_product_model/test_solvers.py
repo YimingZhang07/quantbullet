@@ -226,15 +226,15 @@ def test_fit_arguments_are_checked_against_the_solver_before_the_model_changes()
         fit_log(data, groups, interactions={"age": "purpose"}, submodels={"purpose": FrozenCurve(np.ones(3))})
 
 
-def test_log_model_pickles_and_has_no_identity_standard_errors():
+def test_log_model_pickles():
     data, groups, w, _ = poisson_data()
     model = fit_log(data, groups, weights=w, interactions={"age": "purpose"})
     restored = pickle.loads(pickle.dumps(model))
     assert restored.form_ is resolve_form("log", "poisson") and restored.block_link_ == "log"
     assert restored.fit_metadata_.block_link == "log" and restored.fit_metadata_.solver == "newton"
     np.testing.assert_array_equal(restored.predict(data), model.predict(data))
-    with pytest.raises(NotImplementedError, match="log/poisson"):
-        model.calculate_feature_group_se("state", data.expanded, data.response)
+    # Standard errors are not part of either form until they are built properly.
+    assert not any(hasattr(model, name) for name in ("se_", "calculate_se", "calculate_feature_group_se", "summary"))
 
 
 def test_levels_without_events_warn_unless_l2_is_set():
