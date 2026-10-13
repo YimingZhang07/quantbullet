@@ -113,6 +113,24 @@ def test_mse_block_step_variants():
     assert resolve_form("identity", "poisson").grouped_one_hot
 
 
+def test_poisson_forms_need_a_non_negative_response():
+    for key in (("identity", "poisson"), ("log", "poisson")):
+        form = resolve_form(*key)
+        form.check_response(np.array([0., .25, 1., 3.]))          # zeros, fractions and counts
+        with pytest.raises(ValueError, match="y >= 0; found 1 negative and 1 NaN values"):
+            form.check_response(np.array([0., -.1, np.nan]))
+    resolve_form("identity", "mse").check_response(np.array([-1., 2.]))
+
+    model, container = fitted("poisson")
+    before = model.predict(container)
+    container.response[0] = -1.
+    for block_link in ("identity", "log"):
+        with pytest.raises(ValueError, match="Poisson loss needs a response y >= 0; found 1 negative"):
+            model.fit(container, model.feature_groups_, interactions={"age": "purpose"}, loss="poisson",
+                      block_link=block_link, verbose=0)
+        np.testing.assert_array_equal(model.predict(container), before)
+
+
 def test_form_of_falls_back_to_the_identity_form_of_loss():
     assert form_of(SimpleNamespace(loss_="poisson")) is resolve_form("identity", "poisson")
     assert form_of(SimpleNamespace()) is resolve_form("identity", "mse")

@@ -38,6 +38,9 @@ class ModelForm(ABC):
     def loss_terms(self, y, y_hat):
         """Per-row loss; ``loss`` is its (optionally weighted) mean."""
 
+    def check_response(self, y):
+        """Raise ``ValueError`` if the loss is undefined for this response; any ``y`` is accepted by default."""
+
     def loss(self, y, y_hat, weights=None):
         """Mean (optionally weighted) loss, the value recorded in ``loss_history_``."""
         per_obs = self.loss_terms(y, y_hat)
@@ -80,6 +83,13 @@ class _PoissonLoss:
         y_safe = np.maximum(y, 1e-10)
         yhat_safe = np.maximum(y_hat, 1e-10)
         return 2 * (y_safe * np.log(y_safe / yhat_safe) - (y - y_hat))
+
+    def check_response(self, y):
+        """Poisson deviance needs ``y >= 0``: counts, 0/1 events, fractions or amounts, but not negatives or NaN."""
+        y = np.asarray(y, dtype=float)
+        if not np.all(y >= 0):
+            raise ValueError(f"Poisson loss needs a response y >= 0; found {int(np.sum(y < 0))} negative and "
+                             f"{int(np.sum(np.isnan(y)))} NaN values")
 
 
 # ----------------------------------------------------------------------

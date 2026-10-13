@@ -99,6 +99,8 @@ class LinearProductRegressorBCD( LinearProductRegressorBase, LinearProductModelB
                              f"of form {form.name}")
         solver = solver_class(self, form, verbose=verbose,
                               **{name: arguments[name] for name in solver_class.FIT_ARGUMENTS})
+        if X.response is not None:
+            form.check_response(X.response if offset_y is None else X.response + offset_y)
 
         # ---- 2) setup model state ----
         self.loss_, self.block_link_ = loss, block_link
