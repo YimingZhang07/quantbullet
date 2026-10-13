@@ -31,7 +31,8 @@ pred_turnover = global_scalar × product(numeric blocks) × product(categorical 
 one-hot 分组更新都指这一形式。`log` 的 block 是 `exp(线性组合)`，整体即 log-link Poisson GLM，由 Newton 对全部 block 联合拟合，
 设置在 `[fit.newton]`（见 [turnover_log.example.toml](../turnover_log.example.toml)）；同一 cohort、knots、weights 与 interaction，
 预测恒为正，归一化与 report 相同。两种形式的产物放在各自的 `output_root`；metadata 记录 `block_link`、`form`、`solver` 与传给 solver 的参数。
-两者的对比与实现设计见 [LPM vs GLM](../../../explorations/2026-10-12-lpm-vs-glm/report.md)。
+两种形式的实现见 `quantbullet.linear_product_model` 的 [forms](../../../src/quantbullet/linear_product_model/forms.py)
+与 [solvers](../../../src/quantbullet/linear_product_model/solvers.py)。
 
 `identity` 默认最多 60 sweeps、10-round early stopping、ftol=1e-5，不缓存 QR。ftol 比较最近 5 个 sweep 的相对 loss 改进，低于 ftol 即停止；1e-8 实际从不触发。Early stopping 在当前 loss 不低于 10 个 sweep 前时停止。
 完整 one-hot 的普通 Poisson blocks 使用 category codes + grouped sums 更新，保留原 IRLS epsilon-floor 和 ridge=1e-8；

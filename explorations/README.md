@@ -16,4 +16,4 @@
 
 | 日期 | 主题 | 状态 |
 |---|---|---|
-| 2026-10-12 | [LPM BCD 与 GLM：offset、速度与可替代性](2026-10-12-lpm-vs-glm/report.md)；[form / solver 分层设计](2026-10-12-lpm-vs-glm/design.md) | 待评估；turnover in-sample 对比已完成，时间外待跑；设计草案待决 |
+| 2026-10-12 | LPM BCD 与 log-link GLM：offset、速度、可替代性，form / solver 分层设计 | 已实施：`linear_product_model` 的 `forms` 与 `solvers`（`block_link="log"` 由 Newton 拟合），turnover 通过 `[fit] block_link` 选择。文件夹已删除，报告、设计与脚本见 commit `39365b0` 及之后的实施 commit |
