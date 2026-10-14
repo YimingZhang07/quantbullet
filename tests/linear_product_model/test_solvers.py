@@ -10,6 +10,7 @@ from sklearn.linear_model import PoissonRegressor
 
 from quantbullet.linear_product_model import LinearProductRegressor, ModelForm, resolve_form
 from quantbullet.linear_product_model.datacontainer import ProductModelDataContainer
+from quantbullet.linear_product_model import solvers
 from quantbullet.linear_product_model.forms import IdentityMSE
 from quantbullet.linear_product_model.solvers import BCDSolver, NewtonSolver
 
@@ -203,6 +204,45 @@ def test_design_cache_modes_agree():
     assert streamed.fit_timing_["design_cache"] == automatic.fit_timing_["design_cache"] == "stream"
     assert cached.convergence_info_["hessian"] in ("float32", "float32, then float64")
     assert streamed.convergence_info_["hessian"] == "float64"
+
+
+@pytest.mark.parametrize("design_cache", [True, False])
+def test_design_threads_do_not_change_the_fit(monkeypatch, design_cache):
+    data, groups, w, _ = poisson_data()
+    options = {"design_cache": design_cache, "chunk_rows": 2500}
+    monkeypatch.setattr(solvers, "_THREAD_ROWS", 10 ** 6)
+    whole = fit_log(data, groups, weights=w, interactions={"age": "purpose"}, solver_options=options)
+    monkeypatch.setattr(solvers, "_THREAD_ROWS", 97)                 # many row blocks, ragged last one
+    threaded = fit_log(data, groups, weights=w, interactions={"age": "purpose"}, solver_options=options)
+    np.testing.assert_array_equal(threaded.predict(data), whole.predict(data))
+    assert threaded.loss_history_ == whole.loss_history_
+
+
+@pytest.mark.parametrize("interaction", [False, True])
+def test_newton_history_is_normalized_and_reproduces_each_step_loss(monkeypatch, interaction):
+    monkeypatch.setattr(solvers, "_THREAD_ROWS", 97)                 # history means summed over many row blocks
+    data, groups, w, _ = poisson_data()
+    interactions = {"age": "purpose"} if interaction else None
+    model = fit_log(data, groups, weights=w, interactions=interactions, solver_options={"design_cache": False})
+    assert len(model.coef_history_) == len(model.global_scalar_history_) == len(model.loss_history_) > 2
+    assert model.global_scalar_history_[-1] == model.global_scalar_
+    blocks = {group: data.get_expanded_array_for_feature_group(group) for group in groups}
+    for step, loss in enumerate(model.loss_history_):
+        params, curves = model.coef_history_[step], model.interaction_params_history_[step]
+        pred = np.full(len(data), model.global_scalar_history_[step])
+        for group in ("purpose", "state"):
+            pred *= model.block_factor(group, blocks[group], coef=params[group])
+        if interaction:
+            for label, coef in curves["age"].items():
+                rows = (data.orig["purpose"] == label).values
+                curve = model.block_factor("age", blocks["age"][rows], coef=coef)
+                assert np.average(curve, weights=w[rows]) == pytest.approx(1., abs=1e-10)
+                pred[rows] *= curve
+        else:
+            curve = model.block_factor("age", blocks["age"], coef=params["age"])
+            assert np.average(curve, weights=w) == pytest.approx(1., abs=1e-10)
+            pred *= curve
+        assert np.dot(w, model.form_.loss_terms(data.response, pred)) / w.sum() == pytest.approx(loss, rel=1e-10)
 
 
 def test_fit_arguments_are_checked_against_the_solver_before_the_model_changes():

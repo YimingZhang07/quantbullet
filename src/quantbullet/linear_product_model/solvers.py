@@ -6,8 +6,10 @@ A solver owns the iteration of a fit and none of the formulas: updates come from
 ``FIT_ARGUMENTS`` lists the ``fit`` arguments a solver takes; ``fit`` passes those and rejects any
 other solver argument given a non-default value. A solver keeps no per-row data after ``run``.
 """
+import os
 import time
 import warnings
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 import numpy as np
@@ -536,6 +538,10 @@ def _without(n_columns, column):
     return columns if column is None else np.delete(columns, column)
 
 
+_THREAD_ROWS = 1 << 16                          # rows per thread task: design assembly, history means
+_THREADS = min(8, os.cpu_count() or 1)
+
+
 class _LogDesign:
     """Identifiable, standardized design of a log form, assembled chunk by chunk from the model's blocks.
 
@@ -623,18 +629,28 @@ class _LogDesign:
     def part_matrix(self, part, blocks, rows):
         return (self._expand(part, blocks, rows)[:, part.keep] - part.mean) / part.std
 
+    def fill(self, blocks, rows, out):
+        """Write the design of ``rows`` into ``out``, one row block per thread; the work is NumPy that releases the GIL.
+
+        Every entry is computed from its own row, so the result does not depend on the row blocks.
+        """
+        def fill_rows(start):
+            sub = slice(rows.start + start, min(rows.start + start + _THREAD_ROWS, rows.stop))
+            Z = out[start:start + sub.stop - sub.start]
+            Z[:, 0] = 1.
+            for part in self.parts:
+                Z[:, part.beta] = self.part_matrix(part, blocks, sub)
+
+        with ThreadPoolExecutor(_THREADS) as pool:
+            list(pool.map(fill_rows, range(0, rows.stop - rows.start, _THREAD_ROWS)))
+        return out
+
     def matrix(self, blocks, rows, dtype=np.float64):
-        Z = np.empty((rows.stop - rows.start, self.n_columns), dtype=dtype)
-        Z[:, 0] = 1.
-        for part in self.parts:
-            Z[:, part.beta] = self.part_matrix(part, blocks, rows)
-        return Z
+        return self.fill(blocks, rows, np.empty((rows.stop - rows.start, self.n_columns), dtype=dtype))
 
     def cache(self, blocks, n):
         """Hold the design in float32 so Newton passes do not rebuild it."""
-        self.cached = np.empty((n, self.n_columns), dtype=np.float32)
-        for rows in self.chunks(n):
-            self.cached[rows] = self.matrix(blocks, rows, dtype=np.float32)
+        self.cached = self.fill(blocks, slice(0, n), np.empty((n, self.n_columns), dtype=np.float32))
 
     def rows(self, blocks, rows):
         return self.cached[rows] if self.cached is not None else self.matrix(blocks, rows)
@@ -650,7 +666,9 @@ class NewtonSolver:
     an offset ``log(prediction)`` and must predict positive values. After the fit, coefficients are
     mapped back to each block's own basis and normalized like a BCD fit: blocks with a constant
     direction have weighted mean 1, interaction curves have mean 1 within each level (the level
-    moves to the ``by`` block), and ``global_scalar_`` carries the intercept and the means.
+    moves to the ``by`` block), and ``global_scalar_`` carries the intercept and the means. Earlier
+    steps are normalized for the history with block means from one extra pass over the design. Up
+    to 8 threads over row blocks assemble the design and sum those means.
 
     ``solver_options``: ``max_iter`` (Newton steps), ``tol`` (relative objective decrease that stops),
     ``l2`` (ridge on the standardized coefficients, intercept excluded; a small value keeps levels
@@ -700,9 +718,13 @@ class NewtonSolver:
             print(f"Newton: {design.n_columns} design columns, {mode} ({size_gb:.1f} GB)")
 
         accepted, status, steps = self._iterate(design, data_blocks, y, w, offset)
+        # Earlier steps only feed the history, so their block means come from one pass over the design;
+        # the fitted step is normalized on the blocks themselves.
+        means = self._factor_means(design, data_blocks, w, [beta for beta, *_ in accepted[:-1]]) + [None]
         design.cached = None
 
-        history = [self._block_coefficients(design, beta, data_blocks, w) for beta, *_ in accepted]
+        history = [self._block_coefficients(design, beta, data_blocks, w, step_means)
+                   for (beta, *_), step_means in zip(accepted, means)]
         params, curves, scalar = history[-1]
         model.coef_history_ = [h[0] for h in history]
         model.interaction_params_history_ = [h[1] for h in history]
@@ -825,12 +847,50 @@ class NewtonSolver:
             beta = accepted[-1][0] + step
         return accepted, status, steps
 
-    def _block_coefficients(self, design, beta, blocks, w):
+    def _factor_means(self, design, blocks, w, betas):
+        """Weighted means of the block factors at each of ``betas``, from one pass over the design.
+
+        Returns one ``{group: mean}`` per beta; an interaction's mean is an array over its ``by``
+        block's columns. A block's factor is ``factor`` of its own part of the design, which equals
+        the factor of the mapped coefficients up to the design's float32 rounding when cached.
+        """
+        parts = [part for part in design.parts if part.kind != "categorical" and part.constant is not None]
+        if not betas or not parts:
+            return [{} for _ in betas]
+        B = np.column_stack(betas)
+
+        def chunk_sums(start):
+            rows = slice(start, min(start + _THREAD_ROWS, len(w)))
+            Z = design.rows(blocks, rows).astype(np.float64, copy=False)
+            sums = {}
+            for part in parts:
+                weighted = w[rows, None] * self.form.factor(Z[:, part.beta], B[part.beta])
+                if part.kind == "interaction":                       # levels x betas
+                    codes, n_levels = design.codes[part.by][rows], blocks[part.by].shape[1]
+                    sums[part.group] = np.column_stack([np.bincount(codes, weights=column, minlength=n_levels)
+                                                        for column in weighted.T])
+                else:
+                    sums[part.group] = weighted.sum(axis=0)
+            return sums
+
+        sums = {part.group: 0. for part in parts}
+        with ThreadPoolExecutor(_THREADS) as pool:                  # summed in row order: deterministic
+            for chunk in pool.map(chunk_sums, range(0, len(w), _THREAD_ROWS)):
+                for group, value in chunk.items():
+                    sums[group] = sums[group] + value
+        totals = {part.by: np.bincount(design.codes[part.by], weights=w, minlength=blocks[part.by].shape[1])
+                  for part in parts if part.kind == "interaction"}
+        means = {part.group: sums[part.group] / (totals[part.by][:, None] if part.kind == "interaction" else w.sum())
+                 for part in parts}
+        return [{group: mean[..., step] for group, mean in means.items()} for step in range(len(betas))]
+
+    def _block_coefficients(self, design, beta, blocks, w, means=None):
         """Map design coefficients to each block's basis, normalized like a BCD fit.
 
         Returns ``(params, curves, global_scalar)``: coefficient vectors for regular blocks (NaN
         placeholders for frozen ones), ``{group: {label: coef}}`` for interaction curves, and the
-        scalar carrying the intercept and every block mean.
+        scalar carrying the intercept and every block mean. The means are evaluated on the blocks
+        unless ``means`` (from ``_factor_means``) gives them.
         """
         form = self.form
         log_scalar = float(beta[0])
@@ -856,7 +916,7 @@ class NewtonSolver:
                 coef[part.columns] = slope
                 if constant is not None:
                     coef[part.constant] += intercept
-                    mean = np.average(form.factor(X, coef), weights=w)
+                    mean = means[part.group] if means is not None else np.average(form.factor(X, coef), weights=w)
                     coef = form.rescale(coef, mean, constant)
                     log_scalar += np.log(mean)
                 params[part.group] = coef
@@ -869,8 +929,11 @@ class NewtonSolver:
                 coef[part.columns] = slopes[:, column]
                 if constant is not None:
                     coef[part.constant] += intercept
-                    rows = design.codes[part.by] == column
-                    mean = np.average(form.factor(X[rows], coef), weights=w[rows])
+                    if means is not None:
+                        mean = means[part.group][column]
+                    else:
+                        rows = design.codes[part.by] == column
+                        mean = np.average(form.factor(X[rows], coef), weights=w[rows])
                     coef = form.rescale(coef, mean, constant)
                     shifts[column] = np.log(mean)
                 curves[part.group][label] = coef
