@@ -27,11 +27,15 @@ pred_turnover = global_scalar × product(numeric blocks) × product(categorical 
 使用 `LinearProductRegressor(loss="poisson")`。`c_age_fit` 按 `f_purpose` 各估一条 ramp，其余 block 是 main effects。
 每个 block 在 fit 中归一化，global scalar 表示整体 response level。
 
-`[fit] block_link` 选择 factor 形式。`identity`（默认，线性因子）的 block 是基函数的线性组合，由 BCD 逐块拟合，下文的 sweep、ftol、
-one-hot 分组更新都指这一形式。`log`（对数线性因子）的 block 是 `exp(线性组合)`，整体即 log-link Poisson GLM，由 Newton 对全部 block 联合拟合，
-设置在 `[fit.newton]`（见 [turnover_log.example.toml](../turnover_log.example.toml)）；同一 cohort、knots、weights 与 interaction，
-预测恒为正，归一化与 report 相同。两种形式的产物放在各自的 `output_root`；metadata 记录 `block_link`、`form`、`solver` 与传给 solver 的参数。
-两种形式的实现见 `quantbullet.linear_product_model` 的 [forms](../../../src/quantbullet/linear_product_model/forms.py)
+`[fit] block_link` 选择 factor 形式；两种形式用同一 cohort、knots、weights 与 interaction，归一化与 report 相同：
+
+- `log`（默认，对数线性因子）：block 是 `exp(线性组合)`，整体即 log-link Poisson GLM，由 Newton 对全部 block 联合拟合，设置在 `[fit.newton]`。预测恒为正。
+- `identity`（线性因子，见 [turnover_identity.example.toml](../turnover_identity.example.toml)）：block 是基函数的线性组合，由 BCD 逐块拟合；下文的 sweep、ftol、one-hot 分组更新都指这一形式。
+
+默认用 `log`，因为它收敛而 BCD 在默认设置下不收敛。全量 turnover 上 Newton 8 次 pass 即收敛（约 2–3 分钟）。BCD 在 ftol=1e-5 停止时（16 sweeps，约 4–6 分钟）loss 已近平坦，
+但 original LTV、factor、HPI ratio、updated LTV 这组相互依赖的曲线仍在移动：继续到 80 sweeps，loss 只再降 0.0009%，预测最多改变 16.5%（p99 3.3%），且仍未满足 ftol=1e-9。
+两种形式的产物放在各自的 `output_root`；metadata 记录 `block_link`、`form`、`solver` 与传给 solver 的参数。
+实现见 `quantbullet.linear_product_model` 的 [forms](../../../src/quantbullet/linear_product_model/forms.py)
 与 [solvers](../../../src/quantbullet/linear_product_model/solvers.py)。
 
 `identity` 默认最多 60 sweeps、10-round early stopping、ftol=1e-5，不缓存 QR。ftol 比较最近 5 个 sweep 的相对 loss 改进，低于 ftol 即停止；1e-8 实际从不触发。Early stopping 在当前 loss 不低于 10 个 sweep 前时停止。
@@ -78,10 +82,11 @@ Implied actuals 与模型数值的 actual-vs-predicted 都使用 `*_fit`。Repor
 Mortgage 图的 rounding 分箱沿用 `BinSpec.round`，聚合由 `summarize_binned_means` 以 Polars 表达式一次完成。Implied actuals 保留 toolkit 的 loss-specific 计算，小型 aggregated table 通过 `BinnedMeans.from_summary()` 传给 renderer。
 CPR 转换在 bin-level SMM 聚合后执行，原数据及 predictions 不裁剪、不修改。日期使用真实日期位置，保留时间轴的月份间隔。
 
-Poisson implied actual 使用现有 toolkit 的 convention：
+Implied actual 是该 component 的 IRLS working response 在 bin 内的加权平均，toolkit 按模型的 form 选择公式：
 
 ```text
-implied_actual = sum(weight × target / p) / sum(weight × m / p)
+log（默认）：  implied_actual = sum(weight × target) / sum(weight × m)
+identity：     implied_actual = sum(weight × target / p) / sum(weight × m / p)
 p = 当前 component；m = global scalar × 其他 components 的乘积
 ```
 

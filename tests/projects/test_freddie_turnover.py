@@ -1,5 +1,6 @@
 from dataclasses import replace
 from datetime import date
+from pathlib import Path
 
 import numpy as np
 import polars as pl
@@ -109,7 +110,7 @@ def synthetic_config(tmp_path):
             d_exit_month=date(2025,6,1) if events[index] else None))
     source=tmp_path/"panel.parquet"
     pl.DataFrame(records).write_parquet(source)
-    return Config(source,tmp_path/"turnover",n_iterations=6)
+    return Config(source,tmp_path/"turnover",block_link="identity",n_iterations=6)
 
 
 def test_fit_roundtrip_alignment_and_report_independence(synthetic_config,monkeypatch):
@@ -208,19 +209,27 @@ def test_log_link_fit_and_report(synthetic_config,monkeypatch):
 
 def test_config_block_link_settings(tmp_path):
     base=Config(tmp_path/"panel.parquet",tmp_path/"turnover")
-    assert base.block_link=="identity" and base.newton=={}
-    log=replace(base,block_link="log",newton={"max_iter":20})
+    assert base.block_link=="log" and base.newton=={}
     with pytest.raises(ValueError,match="n_iterations apply to block_link = 'identity'"):
-        replace(log,n_iterations=6)
+        replace(base,n_iterations=6)
+    identity=replace(base,block_link="identity",n_iterations=6)
     with pytest.raises(ValueError,match=r"\[fit.newton\] settings apply to block_link = 'log'"):
-        replace(base,newton={"max_iter":20})
+        replace(identity,newton={"max_iter":20})
     with pytest.raises(ValueError,match="block_link must be"):
         replace(base,block_link="logit")
     path=tmp_path/"log.toml"
     path.write_text('[data]\npanel_path="panel.parquet"\noutput_root="model"\n'
-                    '[fit]\nblock_link="log"\n[fit.newton]\nmax_iter=20\n')
+                    '[fit.newton]\nmax_iter=20\n')
     config=read_config(path)
     assert config.block_link=="log" and config.newton=={"max_iter":20}
+
+
+def test_example_configs_default_to_the_log_form(tmp_path,monkeypatch):
+    monkeypatch.setenv("FREDDIE_DATA_ROOT",str(tmp_path))
+    here=Path(report_turnover.__file__).parent
+    default,identity=(read_config(here/name) for name in ("turnover.example.toml","turnover_identity.example.toml"))
+    assert (default.block_link,identity.block_link)==("log","identity")
+    assert default.panel_path==identity.panel_path and default.output_root!=identity.output_root
 
 
 def test_failed_fit_preserves_artifacts(synthetic_config,monkeypatch):

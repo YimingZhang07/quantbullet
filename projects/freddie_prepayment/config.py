@@ -23,7 +23,7 @@ class Config:
     panel_path: Path
     output_root: Path
     incentive_max: float = -.5
-    block_link: str = "identity"   # "identity": BCD (settings below); "log": log-link GLM by Newton
+    block_link: str = "log"   # "log": log-link GLM by Newton ([fit.newton]); "identity": BCD (settings below)
     n_iterations: int = 60
     early_stopping_rounds: int = 10
     ftol: float = 1e-5
