@@ -1,5 +1,6 @@
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -7,14 +8,14 @@ from matplotlib.textpath import text_to_path
 from pypdf import PdfReader
 
 from quantbullet.plot.theme import PRINT_RC
-from quantbullet.reporting import PdfChartReport, ReportStyle
+from quantbullet.reporting import PdfPageReport, ReportPage, ReportStyle
 from quantbullet.reporting._reportlab_utils import PdfColumnFormat, PdfColumnMeta
 from tests.artifacts import artifact_dir
 
 
-class TestPdfChartReport(unittest.TestCase):
+class TestPdfPageReport(unittest.TestCase):
     def setUp(self):
-        self.output_dir = artifact_dir(self, "reporting/pdf_chart_report")
+        self.output_dir = artifact_dir(self, "reporting/pdf_page_report")
 
     def _path(self, name):
         return Path(self.output_dir) / name
@@ -46,7 +47,7 @@ class TestPdfChartReport(unittest.TestCase):
 
     def test_sections_outline_order_and_full_figure_size(self):
         path = self._path("sections.pdf")
-        report = PdfChartReport(path)
+        report = PdfPageReport(path)
         report.new_page(layout=(1, 1), title="Introduction")
         report.get_next_ax().plot([0, 1], [0, 1])
 
@@ -83,7 +84,7 @@ class TestPdfChartReport(unittest.TestCase):
 
     def test_automatic_overflow_and_empty_page_requests(self):
         path = self._path("overflow.pdf")
-        report = PdfChartReport(path, layout=(1, 1))
+        report = PdfPageReport(path, layout=(1, 1))
         report.new_page(title="Unused")
         report.new_page(title="Plots")
         report.get_next_ax().plot([0, 1], [0, 1])
@@ -99,7 +100,7 @@ class TestPdfChartReport(unittest.TestCase):
 
     def test_mixed_grid_and_figure_preserves_call_order(self):
         path = self._path("mixed.pdf")
-        report = PdfChartReport(path, layout=(1, 2))
+        report = PdfPageReport(path, layout=(1, 2))
         report.new_page(title="Grid First")
         report.get_next_ax().set_title("First Grid Plot")
         report.add_figure(self._line_figure("Middle Figure"), bookmark_title="Middle")
@@ -119,7 +120,7 @@ class TestPdfChartReport(unittest.TestCase):
     def test_external_axes_and_chrome_stay_vector(self):
         path = self._path("vector.pdf")
         source_fig = self._line_figure("Source Plot")
-        report = PdfChartReport(path, layout=(1, 1), footer="Page {page}")
+        report = PdfPageReport(path, layout=(1, 1), footer="Page {page}")
         report.add_external_axes([source_fig.axes[0]])
         report.save()
         plt.close(source_fig)
@@ -135,7 +136,7 @@ class TestPdfChartReport(unittest.TestCase):
 
     def test_page_blocks_stack_around_the_chart(self):
         path = self._path("blocks.pdf")
-        report = PdfChartReport(path)
+        report = PdfPageReport(path)
         with report.page("Summary", subtitle="Subtitle line") as page:
             page.text("Intro paragraph")
             page.heading("Counts")
@@ -165,7 +166,7 @@ class TestPdfChartReport(unittest.TestCase):
     def test_text_wraps_to_the_body_width(self):
         path = self._path("wrap.pdf")
         style = ReportStyle()
-        report = PdfChartReport(path, style=style)
+        report = PdfPageReport(path, style=style)
         with report.page() as page:
             page.text("Lorem ipsum dolor sit amet, consectetur adipiscing elit. " * 8)
             page.bullets(["Ut enim ad minim veniam, quis nostrud exercitation. " * 6])
@@ -191,7 +192,7 @@ class TestPdfChartReport(unittest.TestCase):
             PdfColumnMeta("share", "Share", PdfColumnFormat(formatter=lambda v: f"{v:.1%}",
                                                             missing_label="n/a")),
         ]
-        report = PdfChartReport(path)
+        report = PdfPageReport(path)
         with report.page("Tables") as page:
             page.table(frame, schema=schema, col_widths=[2, 1, 1], bold_rows=[-1])
             page.table([["Rows", 12], ["Ratio", 0.5]], align=["left", "right"])
@@ -214,7 +215,7 @@ class TestPdfChartReport(unittest.TestCase):
 
     def test_header_footer_fields_and_uncounted_cover_and_dividers(self):
         path = self._path("chrome.pdf")
-        report = PdfChartReport(path, title="Doc", header=("{title}", "", "{section}"),
+        report = PdfPageReport(path, title="Doc", header=("{title}", "", "{section}"),
                                 footer=("", "", "Page {page} of {pages}"))
         report.add_title_page("Cover Title", subtitle="Cover subtitle", notes=["A note"])
         report.add_section("Alpha", divider=False)
@@ -248,7 +249,7 @@ class TestPdfChartReport(unittest.TestCase):
 
     def test_overflowing_pages_raise_and_the_report_continues(self):
         path = self._path("too_tall.pdf")
-        report = PdfChartReport(path)
+        report = PdfPageReport(path)
         with self.assertRaisesRegex(ValueError, "past the bottom of the body"):
             with report.page("Long") as page:
                 page.table([[str(row)] for row in range(200)])
@@ -269,10 +270,10 @@ class TestPdfChartReport(unittest.TestCase):
 
     def test_section_without_pages_and_bad_templates_raise(self):
         with self.assertRaisesRegex(ValueError, "Bad footer template"):
-            PdfChartReport(self._path("unused.pdf"), footer="{pagez}")
+            PdfPageReport(self._path("unused.pdf"), footer="{pagez}")
 
         path = self._path("empty_section.pdf")
-        report = PdfChartReport(path)
+        report = PdfPageReport(path)
         report.page("Kept").close()
         report.add_section("Empty", divider=False)
         with self.assertRaisesRegex(ValueError, "'Empty' has no pages"):
@@ -285,7 +286,7 @@ class TestPdfChartReport(unittest.TestCase):
         constrained.axes[0].set_ylabel("A long y label")
         constrained.suptitle("Own Suptitle")
         plain = self._line_figure("Plain chart")
-        report = PdfChartReport(path)
+        report = PdfPageReport(path)
         report.add_figure(constrained)
         report.add_figure(plain, title="Plain")
         report.save()
@@ -300,7 +301,7 @@ class TestPdfChartReport(unittest.TestCase):
 
     def test_report_rc_applies_inside_page_blocks_only(self):
         path = self._path("rc.pdf")
-        report = PdfChartReport(path, layout=(1, 1))
+        report = PdfPageReport(path, layout=(1, 1))
         with report.page() as page:
             page_ax = page.chart()
             page_ax.set_title("In block")
@@ -315,6 +316,81 @@ class TestPdfChartReport(unittest.TestCase):
         self.assertEqual(grid_ax.xaxis.get_ticklabels()[0].get_fontsize(),
                          reference_ax.xaxis.get_ticklabels()[0].get_fontsize())
         plt.close(reference_fig)
+
+    def _leftovers(self):
+        return list(Path(self.output_dir).glob(".pdf_page_*"))
+
+    def test_context_manager_saves_or_discards_the_report(self):
+        saved = self._path("with_saved.pdf")
+        with PdfPageReport(saved) as report:
+            report.page("Kept").close()
+        self.assertEqual(len(PdfReader(saved).pages), 1)
+        with PdfPageReport(self._path("saved_inside.pdf")) as report:
+            report.page("Kept").close()
+            report.save()
+
+        failed = self._path("with_failed.pdf")
+        with self.assertRaisesRegex(KeyError, "boom"):
+            with PdfPageReport(failed) as report:
+                report.page("Written").close()
+                report.page("Open").text("Never written")
+                raise KeyError("boom")
+        self.assertFalse(failed.exists())
+        with self.assertRaisesRegex(RuntimeError, "saved or discarded"):
+            report.page()
+
+        manual = PdfPageReport(self._path("manual.pdf"))
+        manual.page("Dropped").close()
+        manual.discard()
+        manual.discard()
+        self.assertFalse(self._path("manual.pdf").exists())
+        self.assertEqual(self._leftovers(), [])
+
+    def test_add_table_splits_rows_and_repeats_the_header(self):
+        path = self._path("long_table.pdf")
+        codes = [f"R{index:03d}" for index in range(120)]
+        calls = []
+        table_block = ReportPage._table_block
+
+        def spy(page, parts, rows, bold, **kwargs):
+            calls.append((rows, bold))
+            return table_block(page, parts, rows, bold, **kwargs)
+
+        report = PdfPageReport(path)
+        with patch.object(ReportPage, "_table_block", spy):
+            report.add_table(pd.DataFrame({"code": codes, "value": range(120)}), title="Loan detail",
+                             subtitle="Every loan", bold_rows=[0, -1])
+            report.add_table([[f"K{index:02d}", index] for index in range(5)])
+        report.save()
+
+        loan_calls, plain_calls = calls[:-1], calls[-1:]
+        self.assertGreater(len(loan_calls), 2)
+        self.assertEqual([row[0] for rows, _ in loan_calls for row in rows], codes)
+        sizes = [len(rows) for rows, _ in loan_calls]
+        self.assertLess(sizes[0], sizes[1])  # the subtitle takes room on the first page only
+        self.assertEqual(len(set(sizes[1:-1])), 1)
+        self.assertEqual([bold for _, bold in loan_calls],
+                         [{0}] + [set()] * (len(loan_calls) - 2) + [{sizes[-1] - 1}])
+        self.assertEqual([row[0] for row in plain_calls[0][0]], [f"K{index:02d}" for index in range(5)])
+
+        reader = PdfReader(path)
+        self.assertEqual([item.title for item in reader.outline],
+                         ["Loan detail"] + ["Loan detail (continued)"] * (len(loan_calls) - 1)
+                         + [f"Page {len(loan_calls) + 1}"])
+        texts = [page.extract_text() for page in reader.pages]
+        for text in texts[:-1]:
+            self.assertIn("code", text)
+            self.assertIn("value", text)
+        self.assertIn("Every loan", texts[0])
+        self.assertNotIn("Every loan", texts[1])
+        self.assertNotIn("code", texts[-1])
+
+    def test_add_table_rejects_rows_taller_than_the_body(self):
+        report = PdfPageReport(self._path("huge_font.pdf"))
+        with self.assertRaisesRegex(ValueError, "No table row fits"):
+            report.add_table([["a"]], columns=["Header"], font_size=200)
+        report.discard()
+        self.assertEqual(self._leftovers(), [])
 
 
 if __name__ == "__main__":

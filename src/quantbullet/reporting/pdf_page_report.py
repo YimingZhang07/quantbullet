@@ -115,8 +115,20 @@ def _cell_text(value) -> str:
     return str(value)
 
 
-def _table_cells(data, columns, schema, align):
-    """Header labels (or None), cell text, and body and header alignments."""
+@dataclass
+class _TableParts:
+    """A table's cell text and layout, shared by the pages it spans."""
+
+    header: list[str] | None
+    rows: list[list[str]]
+    aligns: list[str]
+    header_aligns: list[str]
+    widths: np.ndarray  # fractions of the body width
+    bold: set[int]  # data-row indices
+
+
+def _table_parts(data, columns, schema, align, col_widths, bold_rows) -> _TableParts:
+    """Validate a table's arguments and format its cells."""
     formats = None
     if schema is not None:
         if not isinstance(data, pd.DataFrame):
@@ -154,11 +166,20 @@ def _table_cells(data, columns, schema, align):
     unknown = set(aligns + header_aligns) - set(_ALIGNMENTS)
     if unknown:
         raise ValueError(f"Unknown alignment {sorted(unknown)}; use left, center or right.")
-    return header, rows, aligns, header_aligns
+
+    widths = np.ones(n_cols) if col_widths is None else np.asarray(col_widths, dtype=float)
+    if widths.shape != (n_cols,) or not np.all(widths > 0):
+        raise ValueError(f"col_widths needs {n_cols} positive widths.")
+    bold = set()
+    for index in bold_rows or ():
+        if not -len(rows) <= index < len(rows):
+            raise IndexError(f"bold_rows index {index} is outside the {len(rows)} data rows.")
+        bold.add(index % len(rows))
+    return _TableParts(header, rows, aligns, header_aligns, widths / widths.sum(), bold)
 
 
 class ReportPage:
-    """One body page of a :class:`PdfChartReport`, built by stacking blocks.
+    """One body page of a :class:`PdfPageReport`, built by stacking blocks.
 
     Blocks added before :meth:`chart` or :meth:`charts` stack down from the
     title; blocks added after them stack up from the bottom of the body, and
@@ -171,7 +192,7 @@ class ReportPage:
     ``with`` block, and leaving it writes the page (an exception discards it).
     """
 
-    def __init__(self, report: PdfChartReport, title: str | None = None,
+    def __init__(self, report: PdfPageReport, title: str | None = None,
                  subtitle: str | None = None, bookmark_title: str | None = None, *,
                  figure=None, chart_rc: bool = True):
         self._report = report
@@ -196,6 +217,7 @@ class ReportPage:
                 figure.suptitle("").set_in_layout(False)
                 self.title = suptitle if title is None else title
         self.fig = figure
+        self._titles = None
         self._blocks = []
         self._flex_space_after = 0.0
         self._grid_axes = None
@@ -279,22 +301,17 @@ class ReportPage:
         indexes the data rows. Cell text does not wrap.
         """
         self._ensure_open()
-        header, rows, aligns, header_aligns = _table_cells(data, columns, schema, align)
-        n_cols = len(aligns)
-        widths = np.ones(n_cols) if col_widths is None else np.asarray(col_widths, dtype=float)
-        if widths.shape != (n_cols,) or not np.all(widths > 0):
-            raise ValueError(f"col_widths needs {n_cols} positive widths.")
-        widths = widths / widths.sum()
-        bold = set()
-        for index in bold_rows or ():
-            if not -len(rows) <= index < len(rows):
-                raise IndexError(f"bold_rows index {index} is outside the {len(rows)} data rows.")
-            bold.add(index % len(rows))
+        parts = _table_parts(data, columns, schema, align, col_widths, bold_rows)
+        self._blocks.append(self._table_block(parts, parts.rows, parts.bold, font_size=font_size,
+                                              zebra=zebra, space_after=space_after))
 
+    def _table_block(self, parts, rows, bold, *, font_size, zebra, space_after):
+        """A block drawing ``parts``' header over ``rows``; ``bold`` indexes ``rows``."""
         style = self._style
         size = font_size or style.table_size
         row_height = size * style.table_row_scale / 72
-        grid = ([(header, header_aligns)] if header is not None else []) + [(row, aligns) for row in rows]
+        header, aligns, widths = parts.header, parts.aligns, parts.widths
+        grid = ([(header, parts.header_aligns)] if header is not None else []) + [(row, aligns) for row in rows]
         height = len(grid) * row_height
         page_width, page_height = style.page_size
         left = style.margins[0]
@@ -324,7 +341,7 @@ class ReportPage:
                                 label.set_fontweight("bold")
                 host.add_table(table)
 
-        self._blocks.append(_Block(height, space_after / 72, place))
+        return _Block(height, space_after / 72, place)
 
     def chart(self, *, space_after: float = 10, **subplot_kw) -> plt.Axes:
         """Add one chart that takes the height left on the page."""
@@ -416,13 +433,19 @@ class ReportPage:
                                            color=style.muted, space_after=12))
         return blocks
 
+    def _title_run(self):
+        """The title blocks, built once: building them adds their text to the figure."""
+        if self._titles is None:
+            self._titles = self._title_blocks()
+        return self._titles
+
     def _layout(self, top: float | None = None):
         """Place the title and blocks in the body box and give the charts the rest."""
         style = self._style
         page_width, page_height = style.page_size
         left, right, top_margin, bottom = style.margins
         chart_axes = list(self.fig.axes)
-        titles = self._title_blocks()
+        titles = self._title_run()
         blocks = titles + self._blocks
         split = len(blocks) if self._flex is None else len(titles) + self._flex
 
@@ -489,7 +512,7 @@ class ReportPage:
         plt.close(self.fig)
 
 
-class PdfChartReport:
+class PdfPageReport:
     """Build report pages of vector charts, text and tables, with a PDF outline.
 
     Each physical page gets one outline entry. Pages after :meth:`add_section`
@@ -499,6 +522,10 @@ class PdfChartReport:
     the fields ``{page}``, ``{pages}``, ``{section}`` and ``{title}``. They are
     stamped on body pages when the report is saved, so ``{pages}`` is the
     final count; title and section divider pages carry none.
+
+    Used as a context manager, the report is saved when the block ends and
+    discarded, with its intermediate PDF, when the block raises. Otherwise
+    call :meth:`save`, or :meth:`discard` to drop an unsaved report.
     """
 
     def __init__(
@@ -525,7 +552,7 @@ class PdfChartReport:
         # PdfPages must be closed before pypdf can add the PDF outline. Keep both
         # intermediate PDFs beside the destination so the final replace is atomic.
         fd, render_path = tempfile.mkstemp(
-            prefix=".pdf_chart_", suffix=".pdf", dir=self._output_path.parent
+            prefix=".pdf_page_", suffix=".pdf", dir=self._output_path.parent
         )
         os.close(fd)
         self._render_path = Path(render_path)
@@ -546,9 +573,20 @@ class PdfChartReport:
         self._page_chrome = []
         self._closed = False
 
+    def __enter__(self):
+        self._ensure_open()
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if exc_type is not None:
+            self.discard()
+        elif not self._closed:
+            self.save()
+        return False
+
     def _ensure_open(self):
         if self._closed:
-            raise RuntimeError("This PDF report has already been saved.")
+            raise RuntimeError("This PDF report has already been saved or discarded.")
 
     def _numbered(self, text):
         if text is None or self._grid_page_number == 1:
@@ -745,6 +783,60 @@ class PdfChartReport:
             raise
         page._write()
 
+    def add_table(
+        self,
+        data,
+        columns: Sequence[str] | None = None,
+        *,
+        title: str | None = None,
+        subtitle: str | None = None,
+        bookmark_title: str | None = None,
+        schema=None,
+        col_widths: Sequence[float] | None = None,
+        align: str | Sequence[str] = "center",
+        font_size: float | None = None,
+        zebra: bool = True,
+        bold_rows: Sequence[int] | None = None,
+    ):
+        """Add a table on pages of its own, split by rows where it overflows.
+
+        The table arguments are those of :meth:`ReportPage.table`. Every page
+        repeats the header row. Pages after the first are titled
+        "<title> (continued)", in the outline too, and only the first page
+        shows ``subtitle``. ``bookmark_title`` overrides ``title`` in the PDF
+        outline; pages with neither get page-number bookmarks.
+        """
+        self._ensure_open()
+        parts = _table_parts(data, columns, schema, align, col_widths, bold_rows)
+        if self._finalize_page():
+            self._grid_page_number += 1
+        style = self.style
+        row_height = (font_size or style.table_size) * style.table_row_scale / 72
+        body_height = style.page_size[1] - style.margins[2] - style.margins[3]
+        mark = bookmark_title or title
+        start = 0
+        while True:
+            first = start == 0
+            page = ReportPage(
+                self,
+                title if first or title is None else f"{title} (continued)",
+                subtitle if first else None,
+                mark if first or mark is None else f"{mark} (continued)",
+            )
+            room = body_height - sum(block.height + block.space_after for block in page._title_run())
+            fit = int((room + 1e-9) // row_height) - (parts.header is not None)
+            if fit < 1:
+                page._discard()
+                raise ValueError("No table row fits below the title; use a smaller font_size.")
+            stop = start + fit
+            bold = {index - start for index in parts.bold if start <= index < stop}
+            page._blocks.append(page._table_block(parts, parts.rows[start:stop], bold,
+                                                  font_size=font_size, zebra=zebra, space_after=0))
+            page._write()
+            start = stop
+            if start >= len(parts.rows):
+                break
+
     def add_pagebreak(self):
         """End the current grid early, if it contains a chart."""
         self._ensure_open()
@@ -816,6 +908,19 @@ class PdfChartReport:
         for index, overlay_page in zip(stamped, PdfReader(buffer).pages):
             writer.pages[index].merge_page(overlay_page)
 
+    def discard(self):
+        """Close an unsaved report without writing it and delete its intermediate PDF."""
+        if self._closed:
+            return
+        page, self._page = self._page, None
+        if page is not None:
+            page._discard()
+        self._closed = True
+        try:
+            self.pdf.close()
+        finally:
+            self._render_path.unlink(missing_ok=True)
+
     def save(self):
         """Close the Matplotlib PDF, add chrome and outlines, and replace the destination."""
         self._ensure_open()
@@ -831,7 +936,7 @@ class PdfChartReport:
                 raise ValueError("Cannot save a PDF report without pages.")
 
             fd, output_path = tempfile.mkstemp(
-                prefix=".pdf_chart_final_", suffix=".pdf", dir=self._output_path.parent
+                prefix=".pdf_page_final_", suffix=".pdf", dir=self._output_path.parent
             )
             os.close(fd)
             writer = PdfWriter(clone_from=self._render_path)

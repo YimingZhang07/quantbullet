@@ -40,7 +40,7 @@ def test_generate_plots_pdf_titles_grid_pages_and_footer(tmp_path):
     toolkit.implied_actual_plot_axes=axes
     extra_fig,extra_ax=plt.subplots()
     extra_ax.plot([0,1],[1,0])
-    toolkit.add_additional_plots(extra_ax,layout=(1,1),suptitle="Extra")
+    toolkit.add_additional_plots(extra_ax,layout=(1,1),title="Extra")
     path=toolkit.generate_plots_pdf(report_name=str(tmp_path/"Model"))
     plt.close(fig);plt.close(extra_fig)
     reader=PdfReader(path)

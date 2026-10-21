@@ -27,7 +27,7 @@ from quantbullet.plot.colors import EconomistBrandColor
 from quantbullet.plot.panels import PanelSet, panel_grid
 from quantbullet.plot.theme import MINIMAL_THEME, PlotTheme
 from quantbullet.preprocessing.transformers import FlatRampTransformer
-from quantbullet.reporting import AdobeSourceFontStyles, PdfChartReport
+from quantbullet.reporting import AdobeSourceFontStyles, PdfPageReport
 from quantbullet.reporting.utils import register_fonts_from_package, merge_pdfs
 from quantbullet.reporting.formatters import numberarray2string
 from quantbullet.linear_product_model.mortgage_diagnostics import MortgageColnames, MortgageDiagnostics
@@ -775,34 +775,32 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
 
         pdf_full_path = f"{report_name}-Errors.pdf"
 
-        # step 1: add numerical implied errors plots
-        if hasattr( self, 'implied_actual_plot_axes' ):
-            # No page numbers: generate_full_report_pdf appends these pages to the fit summary.
-            chart_pdf = PdfChartReport( pdf_full_path, title=report_name, footer=( "", "", report_name ) )
+        # No page numbers: generate_full_report_pdf appends these pages to the fit summary.
+        # Leaving the block saves the PDF, or discards it if a step raises.
+        with PdfPageReport( pdf_full_path, title=report_name, footer=( "", "", report_name ) ) as chart_pdf:
+            # step 1: add numerical implied errors plots
             chart_pdf.new_page( layout=( 3, 3 ), title = 'Numerical - Implied Errors' )
             chart_pdf.add_external_axes( self.implied_actual_plot_axes )
 
-        # step 2: add categorical error plots
-        if hasattr( self, 'categorical_plot_axes' ):
-            chart_pdf.new_page( layout=( 2, 2 ), title = 'Categorical - Implied Errors' )
-            chart_pdf.add_external_axes( self.categorical_plot_axes )
+            # step 2: add categorical error plots
+            if hasattr( self, 'categorical_plot_axes' ):
+                chart_pdf.new_page( layout=( 2, 2 ), title = 'Categorical - Implied Errors' )
+                chart_pdf.add_external_axes( self.categorical_plot_axes )
 
-        # step 3: add performance diagnostic plots if available
-        if hasattr( self, 'perf_plots_incentive_axes' ):
-            chart_pdf.new_page( layout=( 3, 3 ), title = 'Performance Diagnostics - Incentive by Vintage Year' )
-            chart_pdf.add_external_axes( self.perf_plots_incentive_axes )
+            # step 3: add performance diagnostic plots if available
+            if hasattr( self, 'perf_plots_incentive_axes' ):
+                chart_pdf.new_page( layout=( 3, 3 ), title = 'Performance Diagnostics - Incentive by Vintage Year' )
+                chart_pdf.add_external_axes( self.perf_plots_incentive_axes )
 
-        # Add additional plots
-        for additional_axes, layout, suptitle in self.additional_plots:
-            chart_pdf.new_page( layout=layout, title=suptitle )
-            chart_pdf.add_external_axes( additional_axes )
+            # Add additional plots
+            for additional_axes, layout, title in self.additional_plots:
+                chart_pdf.new_page( layout=layout, title=title )
+                chart_pdf.add_external_axes( additional_axes )
 
-        chart_pdf.save()
-        
         return pdf_full_path
-    
-    def add_additional_plots( self, axes, layout=(2, 2), suptitle=None ):
-        self.additional_plots.append( ( axes, layout, suptitle ) )
+
+    def add_additional_plots( self, axes, layout=(2, 2), title=None ):
+        self.additional_plots.append( ( axes, layout, title ) )
 
     def generate_full_report_pdf( self, model, report_name='Model-Report' ):
         """Generate a full report PDF including fitting summary and error plots."""
