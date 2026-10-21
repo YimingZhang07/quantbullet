@@ -777,23 +777,24 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
 
         # step 1: add numerical implied errors plots
         if hasattr( self, 'implied_actual_plot_axes' ):
-            chart_pdf = PdfChartReport( pdf_full_path, corner_text=report_name )
-            chart_pdf.new_page( layout=( 3, 3 ), suptitle = 'Numerical - Implied Errors' )
+            # No page numbers: generate_full_report_pdf appends these pages to the fit summary.
+            chart_pdf = PdfChartReport( pdf_full_path, title=report_name, footer=( "", "", report_name ) )
+            chart_pdf.new_page( layout=( 3, 3 ), title = 'Numerical - Implied Errors' )
             chart_pdf.add_external_axes( self.implied_actual_plot_axes )
 
         # step 2: add categorical error plots
         if hasattr( self, 'categorical_plot_axes' ):
-            chart_pdf.new_page( layout=( 2, 2 ), suptitle = 'Categorical - Implied Errors' )
+            chart_pdf.new_page( layout=( 2, 2 ), title = 'Categorical - Implied Errors' )
             chart_pdf.add_external_axes( self.categorical_plot_axes )
 
         # step 3: add performance diagnostic plots if available
         if hasattr( self, 'perf_plots_incentive_axes' ):
-            chart_pdf.new_page( layout=( 3, 3 ), suptitle = 'Performance Diagnostics - Incentive by Vintage Year' )
+            chart_pdf.new_page( layout=( 3, 3 ), title = 'Performance Diagnostics - Incentive by Vintage Year' )
             chart_pdf.add_external_axes( self.perf_plots_incentive_axes )
 
         # Add additional plots
         for additional_axes, layout, suptitle in self.additional_plots:
-            chart_pdf.new_page( layout=layout, suptitle=suptitle )
+            chart_pdf.new_page( layout=layout, title=suptitle )
             chart_pdf.add_external_axes( additional_axes )
 
         chart_pdf.save()

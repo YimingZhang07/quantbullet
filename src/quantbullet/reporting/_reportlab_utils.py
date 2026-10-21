@@ -248,6 +248,19 @@ def apply_heatmap(table_data, row_range, col_range, cmap, vmid=None):
                 continue
     return styles
 
+def format_pdf_cell(val, fmt: PdfColumnFormat) -> str:
+    """Display text for one table value under its column format."""
+    if pd.isna(val):
+        return fmt.missing_label if fmt.missing_label is not None else ""
+    if fmt.transformer:
+        val = fmt.transformer(val)
+    if fmt.formatter:
+        return fmt.formatter(val)
+    if isinstance(val, (int, float, np.number)):
+        return flex_number_formatter(val, decimals=fmt.decimals, comma=fmt.comma)
+    return str(val)
+
+
 def build_table_from_df( df: pd.DataFrame, schema, col_widths: list[float] = None ) -> Table:
     """Turn DataFrame + schema into a styled ReportLab Table.
 
@@ -290,24 +303,7 @@ def build_table_from_df( df: pd.DataFrame, schema, col_widths: list[float] = Non
 
     # Process each row and each cell with appropriate formatting
     for _, row in df.iterrows():
-        row_data = []
-        for col in flat_cols:
-            val = row[col.name]
-
-            if pd.isna(val):
-                display_val = col.format.missing_label if col.format.missing_label is not None else ""
-            else:
-                if col.format.transformer:
-                    val = col.format.transformer(val)
-
-                if col.format.formatter:
-                    display_val = col.format.formatter(val)
-                elif isinstance(val, (int, float, np.number)):
-                    display_val = flex_number_formatter(val, decimals=col.format.decimals, comma=col.format.comma)
-                else:
-                    display_val = str(val)
-            row_data.append(display_val)
-        table_data.append(row_data)
+        table_data.append([format_pdf_cell(row[col.name], col.format) for col in flat_cols])
 
     # --- Build ReportLab table
     repeat_rows = header_offset
