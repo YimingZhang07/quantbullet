@@ -222,13 +222,22 @@ class TentTransformer(BaseEstimator, TransformerMixin):
 
     def fit(self, X, y=None):
         """Check the knots and that every column has data; names columns ``{feature}_at_{knot}``."""
+        self._fit(X)
+        return self
+
+    def fit_transform(self, X, y=None):
+        """``fit`` and ``transform`` with one basis computation."""
+        return self._fit(X)
+
+    def _fit(self, X):
         x, name = _single_column(X)
         knots = np.asarray(self.knots, dtype=float)
         if knots.ndim != 1 or len(knots) < 2 or not np.all(np.isfinite(knots)):
             raise ValueError("knots must be a one-dimensional array of at least two finite values.")
         if not np.all(np.diff(knots) > 0):
             raise ValueError("knots must be strictly increasing.")
-        empty = ~np.any(self._basis(x, knots) > 0, axis=0)
+        basis = self._basis(x, knots)
+        empty = ~np.any(basis > 0, axis=0)
         if empty.any():
             raise ValueError(f"{name}: no values between the neighbours of knots {knots[empty].tolist()}; "
                              "their coefficients would not be identified.")
@@ -237,7 +246,7 @@ class TentTransformer(BaseEstimator, TransformerMixin):
         self.n_features_in_ = 1
         self.feature_names_out_ = np.array(
             [f"{name}_at_{np.format_float_positional(knot, trim='-')}" for knot in knots], dtype=object)
-        return self
+        return basis
 
     @staticmethod
     def _basis(x, knots):

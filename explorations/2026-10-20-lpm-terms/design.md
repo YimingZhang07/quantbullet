@@ -1,6 +1,6 @@
 # Design：LPM 的 Term 抽象（tent basis、reference、cross term 与参数化 term）
 
-日期：2026-10-20 · 状态：设计草案；P0（第 9 节）已实施，P1 起未实施
+日期：2026-10-20 · 状态：设计草案；P0（第 9 节）已实施，P1 进行中（P1(a) 已实施），P2 起未实施
 
 ## 目标与非目标
 
@@ -228,7 +228,8 @@ cross term 由几个变量的 basis 逐列相乘得到：分类 × 连续是 `By
 | `ByTerm(term, by, drop)` | 同内层 | 同内层 | 每个 level 一份内层 theta | 每个 level 的水平转入 `by` term | `interactions_` + `InteractionCoef` |
 | `TensorTerm(*terms, drop)` | link | 是 | 节点表（各变量列数的乘积） | 由 `drop` 固定的格子 | 新增：连续 × 连续交互（笔记第 3 节） |
 
-- `column` 是 term 读的原始列。每个 term 还有可选的 `name=`，默认为输入列名；`ByTerm` 默认为 `term|by`，`TensorTerm` 默认为 `a×b`。
+- `column` 是 term 读的原始列。P1 里 term 名就是输入列名，`ByTerm` 用内层 term 的名字，和旧的 `interactions` 一致：现在的 container
+  和 toolkit 都用 group 名去原始 frame 里取列。可选的 `name=` 和 `TensorTerm` 的 `a×b` 留到 P2，届时 container 改为按 term 的输入列取值。
 - `reference`（3.2 节）：`None`、一个值（tent 可以是两个 knot 之间的 x 值），或多个 knot / level（合并成一列）。
 - `drop`（3.2 节）：cross term 必填，没有默认值；模型按笔记 4.2.3 检查，写错就报错。里面写的是 term 名。
 - `ByTerm` 的 `by` 和 `TensorTerm` 的各个变量都是 term 对象（`by` 是 `CategoricalTerm`），见 7.1 节。
@@ -395,7 +396,7 @@ The correct rule for this model is drop="any".
 model.term("c_updated_ltv_fit").curve([60, 80, 95])      # 乘数，80 处为 1
 model.term("c_updated_ltv_fit").knot_table()             # 每个 knot 上的乘数，标出 reference 和约束
 model.term("c_updated_ltv_fit×c_hpi_ratio_fit").table()  # 节点表，reference 所在的行和列都为 1
-model.term("c_age_fit|f_purpose").table()                # 每个 purpose level 一条 age 曲线
+model.term("c_age_fit").table()                          # ByTerm：每个 purpose level 一条 age 曲线
 model.global_scalar_                                     # reference state 上的速度
 model.coef_                                              # 兼容：{name: theta}
 ```
@@ -439,8 +440,8 @@ sato      = FrozenTerm("c_sato_fit", fitted_submodel)
 ## 8. 下游改动
 
 - **toolkit**：单变量曲线改为 `term.prepare` + `term.value`，不再需要临时 container。implied actual 只用 `m`、`p` 和
-  `form.implied_actual_terms`，不改。特征配置表改用 `term.describe()`，去掉 `isinstance` 分支。toolkit 是否改为直接接收
-  `ModelSpec`、取代 `FeatureSpec` + `preprocess_config`，见待决问题 19。
+  `form.implied_actual_terms`，不改。特征配置表改用 `term.describe()`，去掉 `isinstance` 分支。toolkit 只接收
+  `ModelSpec`，取代 `FeatureSpec` + `preprocess_config`（待决问题 19，已定）。
 - **`MortgageDiagnostics`**：只读预测，不改。
 - **`fit_turnover`**：P1 继续走 `feature_groups` 路径。数值特征改用 tent 是独立的建模决定，需要单独的报告对比。
 - **`ComponentManager`**：`ParametricModel` 子类成为 `ParametricTerm` 的形状；序列化 term 配置留到 P3 之后再考虑。
@@ -612,13 +613,20 @@ identity link 不需要常数方向：`theta / f_ref` 对任何线性 block 都�
 | 期 | 内容 | 验收 |
 |---|---|---|
 | P0 | 第 9 节：`TentTransformer`；`fit(references=...)` 与 `toolkit.reference_rows`；Newton 识别常数方向（含 interaction）；toolkit 报告的 tent 分支 | 9.4 节 |
-| P1 | Term 协议与线性 term（`ColumnsTerm`、`BasisTerm`、`TentTerm`、`CategoricalTerm`、`FrozenTerm`、`ByTerm`）；`ModelSpec`（`check`、`prepare`）与 `model.term(name)`（7.1 节）；模型以 `terms_` 为准；container 的 `term_data`；solver 通过 term 求值，但只有线性路径；toolkit 改用 term；3.2 节的 reference（单个、多个合并加 gauge）、Newton 用 reference 当 pivot、cross term 的 `drop` 检查（先用于 `ByTerm`） | 不声明 reference 时行为不变：固定种子的合成数据 fit 前后 `coef_`、预测、`loss_history_` 一致（≤ 1e-12）；turnover `--smoke-rows 100000` 的 metrics 一致；现有 `turnover_model.pkl` 可加载，预测一致。另见下方 P1 测试 |
+| P1 | Term 协议与线性 term（`ColumnsTerm`、`BasisTerm`、`TentTerm`、`CategoricalTerm`、`FrozenTerm`、`ByTerm`）；`ModelSpec`（`check`、`prepare`）与 `model.term(name)`（7.1 节）；spec 编译成 solver 现有的 block（feature groups、interactions、frozen submodels、references），solver 不动；toolkit 只接收 `ModelSpec`，turnover 随之迁移；3.2 节的 reference（单个、多个合并加 gauge）、Newton 用 reference 当 pivot、cross term 的 `drop` 检查（先用于 `ByTerm`） | spec 路径和 container 路径的 `coef_`、预测、`loss_history_` 完全一致；turnover `--smoke-rows 100000` 的 metrics 一致；现有 `turnover_model.pkl` 可加载，预测一致。另见下方 P1 测试 |
 | P2 | `TensorTerm`（连续 × 连续）；`drop` 检查推广到多个连续变量；knots 子集检查（笔记 4.4） | 见下方 P2 测试 |
 | P3 | `Param` 与重参数化；`ParametricTerm`（差分 Jacobian）；BCD 的阻尼 GN 步；Newton 的动态 part + LM；`pivot()` 与归一化；从曲线拟合初值 | 见下方 P3 测试 |
 | P4 | tent 的二阶差分惩罚与单调重参数化；identity 联合 GN solver；自由 knot | 按需，各自测试 |
 
-P1 本身分四个提交，每个单独做等价检查：(a) term 类和兼容层，solver 不动；(b) solver 改为通过 term 求值；(c) toolkit；
-(d) term 上的 reference 与 `drop` 检查。
+P1 分三个提交：
+
+- (a) term 类、`ModelSpec`（`check`、`prepare`、`transform`）、`fit(spec.prepare(...))` 与 `predict(原始 frame)`、`ByTerm` 的 `drop` 检查、
+  单个 reference（编译成 P0 的 `fit(references=...)`）。已实施，测试在 `tests/linear_product_model/test_terms.py`。
+- (b) toolkit 只接收 `ModelSpec`、`model.term(name)` 的读取接口、turnover 迁移到 spec。
+- (c) 多个 reference（合并列加 gauge）、Newton 用 reference 当 pivot。
+
+原计划里"solver 改为通过 term 求值"一步取消（2026-10-21）：P1 只有线性 term，spec 编译成 solver 现有的 block 就够了，数值结果按构造与
+container 路径一致。让 solver 通过 term 求值、取 Jacobian 是 P3 参数化 term 才需要的，放到 P3。
 
 P1 测试（reference 与 `drop`）：
 
@@ -673,8 +681,8 @@ P3 测试：
     是加一个显式开关，还是用多个 reference 表达。
 15. **不在 knot 上的多个 reference**：v1 要求多个 reference 都落在 knot 或 level 上；`f(x_a) = f(x_b)` 这类一般线性约束是否需要支持。
 16. **`ByTerm` 与 `TensorTerm`**：`ByTerm` 是否最终并入 `TensorTerm`（分类 × 连续也存成节点表），还是为了 `InteractionCoef` 的兼容一直分开。
-17. **类名风格**：`TentTerm`、`CategoricalTerm` 这样的全名，还是在 `terms` 模块下用短名（`Tent`、`Categorical`，写成 `T.Tent(...)`）。
-18. **`ModelSpec` 是否支持序列化**（`to_dict` / `from_dict`）：支持的话，turnover 的 TOML 可以直接写 spec，取代现在的 `KNOTS`、
-    `CATEGORICAL`、`INTERACTIONS` 这些常量；和 `ComponentManager` 的序列化（第 8 节）也可以合并。
-19. **toolkit 的角色**：改为直接接收 `ModelSpec`，取代现在的 `FeatureSpec` + `preprocess_config`，报告用 `term.describe()`；
-    还是保留现有的 toolkit 接口，只在内部从 spec 构造。
+17. **类名风格**：已定，用 `TentTerm`、`CategoricalTerm` 这样的全名（2026-10-21）。
+18. **`ModelSpec` 的序列化**（`to_dict` / `from_dict`）：已定，以后再做（2026-10-21）。等 turnover 真要从 TOML 读 spec 时再加，
+    届时和 `ComponentManager` 的序列化（第 8 节）一起考虑。
+19. **toolkit 的角色**：已定，toolkit 只接收 `ModelSpec`，取代现在的 `FeatureSpec` + `preprocess_config`，报告用 `term.describe()`；
+    turnover 在 P1(b) 随之迁移（2026-10-21）。

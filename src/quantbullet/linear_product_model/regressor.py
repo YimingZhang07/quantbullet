@@ -12,6 +12,7 @@ from .base import IterativeFitMixin, LinearProductRegressorBase, InteractionCoef
 from .datacontainer import ProductModelDataContainer
 from .forms import resolve_form
 from .solvers import BCDSolver, NewtonSolver, _constant_direction
+from .terms import ModelData
 
 
 def _is_default(value, default):
@@ -137,7 +138,7 @@ class LinearProductRegressor( LinearProductRegressorBase, IterativeFitMixin ):
         return {"bcd": self.bcd_solver, "newton": self.newton_solver}[form.default_solver]
 
     @memorize_fit_args
-    def fit( self, X: ProductModelDataContainer, feature_groups: Dict, submodels: Dict=None,
+    def fit( self, X: ProductModelDataContainer, feature_groups: Dict = None, submodels: Dict=None,
              interactions: Dict=None, interaction_submodels: Dict=None,
              init_params=None, early_stopping_rounds=5, n_iterations=20, force_rounds=5, verbose=1, ftol=1e-5,
              cache_qr_decomp=False, offset_y=None, use_svd=False, weights=None, loss: str = 'mse',
@@ -154,8 +155,26 @@ class LinearProductRegressor( LinearProductRegressorBase, IterativeFitMixin ):
         ``references`` (``{group: basis row}``, e.g. from ``LinearProductModelToolkit.reference_rows``)
         rescales each named block after the fit so its factor is 1 at its row, instead of mean 1; see
         ``_apply_references``. Predictions do not change.
+
+        ``X`` is either data from ``ModelSpec.prepare``, whose spec gives the feature groups, frozen
+        submodels, interactions, references and weights (``spec_`` keeps it, and ``predict`` then reads raw
+        frames), or a container with ``feature_groups`` and, optionally, those arguments.
         """
         fit_started = time.perf_counter()
+        spec = X.spec if isinstance(X, ModelData) else None
+        if spec is not None:
+            given = [name for name, value in (("feature_groups", feature_groups), ("submodels", submodels),
+                                              ("interactions", interactions), ("references", references)) if value]
+            if weights is not None and X.weights is not None:
+                given.append("weights")
+            if given:
+                raise ValueError(f"{', '.join(given)} come from the spec of the prepared data; "
+                                 "pass them only with a container")
+            feature_groups, submodels, interactions = spec.feature_groups(), spec.submodels(), spec.interactions()
+            references = spec.references()
+            weights = X.weights if weights is None else weights
+        elif feature_groups is None:
+            raise ValueError("fit needs feature_groups unless X is data from ModelSpec.prepare")
         # ---- 1) choose the form and its solver; reject what they do not support before the model is reset ----
         form = resolve_form(block_link, loss)
         solver_class = self._solver_class(form)
@@ -189,6 +208,7 @@ class LinearProductRegressor( LinearProductRegressorBase, IterativeFitMixin ):
         self.submodels_ = submodels or {}
         self.interactions_ = interactions or {}
         self.references_ = {}
+        self.spec_ = spec
 
         # ---- 3) validate inputs ----
         if weights is not None:
@@ -283,8 +303,11 @@ class LinearProductRegressor( LinearProductRegressorBase, IterativeFitMixin ):
     # ------------------------------------------------------------------
 
     def predict(self, X: ProductModelDataContainer | pd.DataFrame):
+        """Predictions for a container; a model fitted on ``ModelSpec`` data also reads raw frames through ``spec_``."""
         if self.feature_groups_ is None or self.coef_ is None:
             raise ValueError("Model not fitted yet. Please call fit() first.")
+        if isinstance(X, pd.DataFrame) and getattr(self, "spec_", None) is not None:
+            X = self.spec_.transform(X)
 
         if not self.interactions_:
             return super().predict(X)
