@@ -1,6 +1,6 @@
 # Design：LPM 的 Term 抽象（tent basis、reference、cross term 与参数化 term）
 
-日期：2026-10-20 · 状态：设计草案；P0（第 9 节）与 P1 已实施，P2 起未实施
+日期：2026-10-20 · 状态：设计草案；P0（第 9 节）、P1 与 P2 已实施，P3 起未实施
 
 ## 目标与非目标
 
@@ -203,9 +203,18 @@ cross term 由几个变量的 basis 逐列相乘得到：分类 × 连续是 `By
 
 **写错了就报错**，在 fit 开始、模型状态重置之前。报错信息说明错在哪里，并给出正确的写法：
 
+实现上按笔记 4.2.1 的块来检查（P2）：全局 scalar 提供常数块，每个主效应提供只随自己变化的块，每个 cross term 按自己的 `drop`
+提供它保留的块（规则 `S` 保留包含 `S` 的块，`"all"` 保留常数块以外的块）。某个块被两处提供就是共线，完整的块没有任何地方提供
+就是约束。报错会写出是哪一块、由谁提供，例如 "it keeps the part that varies only with purpose, which CategoricalTerm('purpose')
+also provides, so the model is collinear"。正确写法在所有变量子集和 `"all"` 里找；都不行时（需要删单个格子之外的东西）也会说明。
+
 - 少删了（留下了其他 term 已经提供的块）：模型共线。
 - 多删了（删掉了没有其他 term 提供的块）：模型多了约束。
 - `S` 里的变量没有在自己的 term 上声明 reference。
+
+`ByTerm` 只支持 `drop=(内层 term,)`，因为 solver 为 `by` 的每个 level 拟合一条完整的曲线；其他结构用 `TensorTerm`
+（分类 × 连续也可以）。`TensorTerm` 的各个 term 只能是 `TentTerm` 或 `CategoricalTerm`，每个只有一个 reference，并且必须落在
+knot 或 level 上；被固定的格子并成一列 `{name}:reference`，拟合后换算到 reference 值，log 下 Newton 也用这一列当 pivot。
 
 最后一条有一个例外：`ByTerm` 的内层变量（例如 `ByTerm(tent_age, "purpose", drop=("age",))` 里的 age）可以不声明 reference。
 这时它和主效应一样，pivot 自动选，求解后每个 level 的曲线归一到均值 1、水平转入 `by`，这就是今天的做法。`TensorTerm` 没有这个例外：
@@ -219,8 +228,11 @@ cross term 由几个变量的 basis 逐列相乘得到：分类 × 连续是 `By
 
 - 笔记的块分析在 log link 下精确成立，因为对数尺度上是加法。identity link 下乘积不是加法：推出的规则在节点上去掉的自由度仍然正确，
   但节点之间两种 link 的曲面本来就不同。
-- 笔记 4.4：cross term 里某个变量用了主效应没有的 knot 时，另一个变量的 reference 位置会影响拟合。fit 开始时检查 cross term 的 knots
-  是否为主效应 knots 的子集，不是就警告。
+- 笔记 4.4：cross term 里某个变量用了主效应没有的 knot 时，另一个变量的 reference 位置会影响拟合。`check()` 检查 cross term 的
+  knots 是否为同名主效应 knots 的子集，不是就警告（用同一个 term 对象时自然满足）。
+- tent × tent 的格子是两个 float32 的乘积，float32 下行和只在舍入误差内等于 1；需要精确的重参数化时用 `dtype=np.float64` 准备数据。
+- identity link 下 BCD 迭代时，cross term 的 reference 列可能经过负值：只要求拟合结果和最优一步的 reference 因子为正，history 中
+  因子为负的步照样换算（预测不变），为 0 的步保持 mean-1 口径。
 
 ## 4. Term 类型
 
@@ -235,8 +247,10 @@ cross term 由几个变量的 basis 逐列相乘得到：分类 × 连续是 `By
 | `ByTerm(term, by, drop)` | 同内层 | 同内层 | 每个 level 一份内层 theta | 每个 level 的水平转入 `by` term | `interactions_` + `InteractionCoef` |
 | `TensorTerm(*terms, drop)` | link | 是 | 节点表（各变量列数的乘积） | 由 `drop` 固定的格子 | 新增：连续 × 连续交互（笔记第 3 节） |
 
-- `column` 是 term 读的原始列。P1 里 term 名就是输入列名，`ByTerm` 用内层 term 的名字，和旧的 `interactions` 一致：现在的 container
-  和 toolkit 都用 group 名去原始 frame 里取列。可选的 `name=` 和 `TensorTerm` 的 `a×b` 留到 P2，届时 container 改为按 term 的输入列取值。
+- `column` 是 term 读的原始列（`TensorTerm` 读各个 term 的列，见 `term.inputs`）。单列 term 的名字就是输入列名，`ByTerm` 用内层
+  term 的名字，和旧的 `interactions` 一致；`TensorTerm` 默认叫 `a×b`，可以用 `name=` 改。spec 准备的数据不再要求 group 名是原始列
+  （`ProductModelDataContainer(groups_in_orig=False)`），toolkit 按 term 的输入列取值。`by` term 的名字仍须是它的列，interaction
+  按 label 取行时要用。
 - `reference`（3.2 节）：`None`、一个值（tent 可以是两个 knot 之间的 x 值），或多个 knot / level（合并成一列）。
 - `drop`（3.2 节）：cross term 必填，没有默认值；模型按笔记 4.2.3 检查，写错就报错。里面写的是 term 名。
 - `ByTerm` 的 `by` 和 `TensorTerm` 的各个变量都是 term 对象（`by` 是 `CategoricalTerm`），见 7.1 节。
@@ -651,8 +665,11 @@ P1 测试（reference 与 `drop`）：
 P2 测试：
 
 - 3.2 节表里的四种模型结构：只有表中的写法通过检查，其他写法都按"共线"或"约束"报错。
-- `1 + x + y + x×y`（log）的拟合和 sklearn `PoissonRegressor` 在同一删列 design 上的结果一致。
+- `1 + x + y + x×y`（log）的拟合和手工删掉 reference 行、列（以及主效应 reference）的 design 一致到 1e-10。
 - cross term 的 knots 不是主效应 knots 的子集时发出警告。
+- 已实施，测试在 `tests/linear_product_model/test_terms.py`，另外还验证了：张量积的 `table()` 在 reference 行、列上为 1（两种 link）；
+  `TensorTerm(purpose, age, drop=("age",))` 和 `ByTerm(age, by=purpose, drop=("age",))` 的拟合一致；toolkit 的一维 implied actual
+  跳过张量积；`leave_out × single` 等于完整预测。
 
 P3 测试：
 
@@ -697,3 +714,4 @@ P3 测试：
     届时和 `ComponentManager` 的序列化（第 8 节）一起考虑。
 19. **toolkit 的角色**：已定，toolkit 只接收 `ModelSpec`，取代现在的 `FeatureSpec` + `preprocess_config`，报告用 `term.describe()`；
     turnover 在 P1(b) 随之迁移（2026-10-21）。
+20. **张量积的诊断图**：一维 implied actual 跳过张量积。是否加二维的 implied actual（例如节点表上的 A/E 热图），放在哪一期。

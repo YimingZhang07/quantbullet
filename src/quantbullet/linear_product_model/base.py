@@ -280,7 +280,7 @@ class LinearProductModelBase(ABC):
                 return np.ones(X.shape[0], dtype=float)
 
         if isinstance(X, ProductModelDataContainer):
-            X_blocks = X.get_containers_dict( list( keep_feature_groups.keys() ) )
+            X_blocks = X.get_expanded_array_dict( list( keep_feature_groups.keys() ) )
         elif isinstance(X, pd.DataFrame):
             X_blocks = { key: X[cols].values for key, cols in keep_feature_groups.items() }
         else:

@@ -5,11 +5,13 @@ its ``reference``, where its factor is 1. ``ModelSpec`` combines terms, checks t
 (``check``) and builds the fitting data once (``prepare``); a model fitted on that data keeps the prepared
 spec and reads new rows with it.
 
-A spec compiles to the blocks the solvers fit: each term is a feature group named after its input column,
-a ``ByTerm`` is the interaction of its term by its ``by`` term, a ``FrozenTerm`` is a frozen submodel, and
-a term's reference becomes a ``fit(references=...)`` row.
+A spec compiles to the blocks the solvers fit: each term is a feature group named after its input column
+(a ``TensorTerm`` after its terms, ``a×b``), a ``ByTerm`` is the interaction of its term by its ``by`` term,
+a ``FrozenTerm`` is a frozen submodel, and a term's reference becomes a ``fit(references=...)`` row.
 """
 import copy
+import itertools
+import warnings
 from abc import ABC, abstractmethod
 
 import numpy as np
@@ -28,6 +30,14 @@ class Term(ABC):
     @property
     def name(self):
         return self.column
+
+    @property
+    def inputs(self):
+        """The raw columns the term reads."""
+        return (self.column,)
+
+    def has_reference(self):
+        return self.reference is not None
 
     def setup_basis(self, frame, dtype):
         """Learn what needs data from the training ``frame`` and return its basis; ``prepare`` calls it on a copy."""
@@ -212,17 +222,132 @@ class ByTerm(Term):
         return f"ByTerm({self.term.name!r} by {self.by.name!r})"
 
 
-def _dropped(term, variables):
-    """``term.drop`` as ``"all"`` or the set of names whose reference it drops."""
-    if term.drop == "all":
+class TensorTerm(Term):
+    """The product of several terms' bases, one coefficient per cell of their knots and levels.
+
+    ``terms`` are ``TentTerm`` or ``CategoricalTerm``, usually the spec's own main terms, so the knots and
+    references are shared; a tent × tent term interpolates bilinearly on its node table. ``drop`` has no default
+    (see ``ByTerm``): ``ModelSpec.check`` accepts only the rule the model's other terms determine. The cells it
+    drops are fixed at the reference value: they are tied into one column, ``{name}:reference``, which ``fit``
+    sets to that value. The term is named ``a×b`` unless ``name`` is given.
+
+    Tent × tent cells are products of float32 values when prepared in float32, so their rows sum to 1 only
+    within float32 rounding; prepare in float64 when exact reparametrization matters.
+    """
+
+    def __init__(self, *terms, drop=None, name=None):
+        if len(terms) < 2:
+            raise ValueError("TensorTerm takes at least two terms")
+        self.terms, self.drop, self._name = list(terms), drop, name
+
+    @property
+    def name(self):
+        return self._name or "×".join(term.name for term in self.terms)
+
+    @property
+    def inputs(self):
+        return tuple(term.column for term in self.terms)
+
+    def has_reference(self):
+        return True
+
+    def setup_basis(self, frame, dtype):
+        """The terms are set up already (``ModelSpec.prepare`` sets each term up once)."""
+        self.tied_ = self._dropped_cells()
+        return self.basis(frame, dtype)
+
+    def basis(self, frame, dtype):
+        full = None
+        for term in self.terms:
+            basis = term.basis(frame, dtype)
+            full = basis if full is None else (full[:, :, None] * basis[:, None, :]).reshape(len(basis), -1)
+        return _tie(full, self.tied_)
+
+    def columns(self):
+        names = [""]
+        for term in self.terms:
+            names = [f"{a}×{b}" if a else b for a in names for b in term.columns()]
+        tied = self.tied_
+        return [f"{self.name}:reference" if j == tied[0] else name for j, name in enumerate(names) if j not in tied[1:]]
+
+    def reference_row(self):
+        row = np.zeros(len(self.columns()))
+        row[self.tied_[0]] = 1.
+        return row
+
+    def points(self):
+        """Each term's knots or levels, in column order."""
+        return [term.transformer_.knots_.tolist() if isinstance(term, TentTerm) else list(term.levels_)
+                for term in self.terms]
+
+    def _dropped_cells(self):
+        """Flat indices of the cells ``drop`` fixes: any dropped variable at its reference, or all at theirs."""
+        variables = [term.name for term in self.terms]
+        rule = _rule(self.drop, variables, self)
+        points = self.points()
+        positions = {term.name: point.index(_references(term.reference)[0])
+                     for term, point in zip(self.terms, points) if term.reference is not None}
+        cells = np.indices([len(point) for point in points]).reshape(len(points), -1).T
+        if rule == "all":
+            fixed = np.all([cells[:, k] == positions[v] for k, v in enumerate(variables)], axis=0)
+        else:
+            fixed = np.any([cells[:, k] == positions[v] for k, v in enumerate(variables) if v in rule], axis=0)
+        return np.flatnonzero(fixed).tolist()
+
+    def describe(self):
+        return f"{' × '.join(term.name for term in self.terms)}, drop={self.drop!r}"
+
+    def __repr__(self):
+        return f"TensorTerm({self.name!r})"
+
+
+def _rule(drop, variables, term):
+    """``drop`` as ``"all"`` or the frozenset of names whose reference it drops."""
+    if drop == "all":
         return "all"
-    if term.drop == "any":
-        return set(variables)
-    dropped = {term.drop} if isinstance(term.drop, str) else set(term.drop)
+    if drop == "any":
+        return frozenset(variables)
+    dropped = frozenset([drop] if isinstance(drop, str) else drop)
     unknown = sorted(dropped - set(variables))
     if unknown:
         raise ValueError(f"{term!r}: drop names {unknown}, which are not its terms {list(variables)}")
     return dropped
+
+
+def _blocks(variables, rule):
+    """The blocks a cross term over ``variables`` keeps under ``rule`` (note on tent bases, 4.2.1).
+
+    A variable's columns span a constant and the part that varies with it, so the full term spans one block
+    per subset of its variables. Dropping a variable's reference removes the blocks without that variable;
+    ``"all"`` removes only the constant block.
+    """
+    subsets = {frozenset(c) for r in range(len(variables) + 1) for c in itertools.combinations(variables, r)}
+    if rule == "all":
+        return {block for block in subsets if block}
+    return {block for block in subsets if rule <= block}
+
+
+def _rule_text(rule, variables):
+    if rule == "all":
+        return "all"
+    if len(rule) == len(variables):
+        return "any"
+    return tuple(v for v in variables if v in rule)
+
+
+def _block_text(block, variables):
+    if not block:
+        return "the constant part"
+    names = [v for v in variables if v in block]
+    return f"the part that varies only with {names[0]}" if len(names) == 1 else \
+        f"the part that varies with {' and '.join(names)} together"
+
+
+def _cross_variables(term):
+    """The variables (term names) of a cross term."""
+    if isinstance(term, ByTerm):
+        return (term.term.name, term.by.name)
+    return tuple(component.name for component in term.terms)
 
 
 def _references(reference):
@@ -287,8 +412,8 @@ class ModelSpec:
             raise ValueError(f"Terms share the names {shared}; each term is one feature group named after its column")
         for term in self.terms:
             self._check_references(term)
-            if isinstance(term, ByTerm):
-                self._check_by(term)
+            if isinstance(term, (ByTerm, TensorTerm)):
+                self._check_cross(term)
         return self
 
     def _check_references(self, term):
@@ -305,36 +430,80 @@ class ModelSpec:
         if isinstance(inner, TentTerm):
             inner._tied(np.asarray(inner.knots, dtype=float).tolist(), "knots")
 
-    def _check_by(self, term):
-        """The one ``drop`` rule of a ``ByTerm`` (note on tent bases, 4.2.3).
-
-        A variable's reference must apply to the cross term exactly when the term left without that variable is
-        in the model; frozen terms do not count, since they cannot take what is dropped.
+    def _provided_blocks(self, exclude):
+        """``{block: [provider]}`` of every term but ``exclude``: the global level, each main term's varying part
+        and each other cross term's kept blocks. Frozen terms provide nothing, since they cannot take what is dropped.
         """
-        if not any(other is term.by for other in self.terms):
+        provided = {frozenset(): ["the global scalar"]}
+        for term in self.terms:
+            if term is exclude or isinstance(term, FrozenTerm):
+                continue
+            if isinstance(term, (ByTerm, TensorTerm)):
+                variables = _cross_variables(term)
+                if term.drop is None:
+                    continue
+                blocks = _blocks(variables, _rule(term.drop, variables, term))
+            else:
+                blocks = {frozenset([term.name])}
+            for block in blocks:
+                provided.setdefault(block, []).append(repr(term))
+        return provided
+
+    def _check_cross(self, term):
+        """The one ``drop`` rule of a cross term (note on tent bases, 4.2): it keeps no block another term provides
+        and removes no block that no other term provides. ``drop`` has no default, and any other rule raises.
+        """
+        if isinstance(term, ByTerm) and not any(other is term.by for other in self.terms):
             raise ValueError(f"{term!r}: its by term must be one of the spec's terms, the same object")
-        variables = (term.term.name, term.by.name)
-        rest = dict(zip(variables, variables[::-1]))
-        others = {other.name for other in self.terms if other is not term and not isinstance(other, FrozenTerm)}
-        required = {variable for variable in variables if rest[variable] in others}
-        rule = "any" if len(required) == 2 else tuple(v for v in variables if v in required) or "all"
+        variables = _cross_variables(term)
+        if len(set(variables)) < len(variables):
+            raise ValueError(f"{term!r} repeats a variable: {list(variables)}")
+        provided = self._provided_blocks(exclude=term)
+        full = _blocks(variables, frozenset())
+
+        def problems(rule):
+            kept = _blocks(variables, rule)
+            return sorted(kept & set(provided), key=len), sorted(full - kept - set(provided), key=len)
+
+        candidates = [frozenset(c) for r in range(len(variables), 0, -1)
+                      for c in itertools.combinations(variables, r)] + ["all"]
+        valid = [rule for rule in candidates if not any(problems(rule))]
+        correct = (f"drop={_rule_text(valid[0], variables)!r}" if valid
+                   else "no drop rule: removing exactly the repeated parts needs single cells")
         if term.drop is None:
-            raise ValueError(f"{term!r} needs drop written out; for this model it is drop={rule!r}")
-        dropped = _dropped(term, variables)
-        if dropped == (required or "all"):
+            raise ValueError(f"{term!r} needs drop written out; for this model it is {correct}")
+        rule = _rule(term.drop, variables, term)
+        duplicated, missing = problems(rule)
+        if duplicated or missing:
+            reasons = [f"it keeps {_block_text(block, variables)}, which {' and '.join(provided[block])} also "
+                       f"provides, so the model is collinear" for block in duplicated]
+            reasons += [f"it removes {_block_text(block, variables)}, which no other term provides, so the model "
+                        f"gains a constraint" for block in missing]
+            raise ValueError(f"{term!r} has drop={term.drop!r}: {'; '.join(reasons)}. For this model it is {correct}")
+        if isinstance(term, ByTerm):
+            if rule != frozenset([term.term.name]):
+                raise NotImplementedError(f"{term!r} fits a curve for every level of {term.by.name}, so it takes only "
+                                          f"drop=({term.term.name!r},); use a TensorTerm for this model")
             return
-        problems, missing, extra = [], required, set()
-        if dropped == "all":
-            problems.append(f"drop='all' fixes only the cell where {' and '.join(variables)} are both at their references")
-        else:
-            missing, extra = required - dropped, dropped - required
-            if not required and not dropped:
-                problems.append("the term repeats the global level, which only drop='all' removes")
-        problems += [f"keeping {v}'s reference leaves the part that varies only with {rest[v]} in both this term and "
-                     f"{rest[v]}'s own term, so the model is collinear" for v in variables if v in missing]
-        problems += [f"dropping {v}'s reference removes the part that varies only with {rest[v]}, which no other term "
-                     f"provides, so the model gains a constraint" for v in variables if v in extra]
-        raise ValueError(f"{term!r} has drop={term.drop!r}: {'; '.join(problems)}. For this model it is drop={rule!r}")
+        dropped = variables if rule == "all" else [v for v in variables if v in rule]
+        main = {other.name: other for other in self.terms if not isinstance(other, (ByTerm, TensorTerm, FrozenTerm))}
+        for component in term.terms:
+            if not isinstance(component, (TentTerm, CategoricalTerm)):
+                raise ValueError(f"{term!r} takes TentTerm and CategoricalTerm terms; {component!r} is neither")
+            references = _references(component.reference)
+            if len(references) > 1:
+                raise ValueError(f"{term!r}: {component!r} has several references; a tensor term needs one per term")
+            if component.name in dropped and not references:
+                raise ValueError(f"{term!r} drops {component!r}'s reference, which it does not have")
+            if isinstance(component, TentTerm):
+                if references and float(references[0]) not in np.asarray(component.knots, dtype=float):
+                    raise ValueError(f"{term!r}: {component!r}'s reference {references[0]!r} is not one of its knots")
+                other = main.get(component.name)
+                if isinstance(other, TentTerm) and other is not component and \
+                        not set(np.asarray(component.knots, dtype=float)) <= set(np.asarray(other.knots, dtype=float)):
+                    warnings.warn(f"{term!r}: {component!r} has knots that {other!r} lacks, so where its reference "
+                                  "sits changes the fit (note on tent bases, 4.4); use the main term's knots or a "
+                                  "subset", stacklevel=3)
 
     def prepare(self, frame, response=None, weights=None, dtype=np.float32):
         """Fitting data for ``frame``: a fitted copy of the spec learns levels and builds every basis once.
@@ -344,7 +513,20 @@ class ModelSpec:
         self.check()
         spec = copy.deepcopy(self)
         spec.dtype_ = np.dtype(dtype)
-        bases = [term.setup_basis(frame, spec.dtype_) for term in spec.terms]
+        done = set()
+
+        def setup(term):
+            """Each term object is set up once; a tensor term's terms are set up before it."""
+            if id(term) in done:
+                return term.basis(frame, spec.dtype_)
+            for component in term.terms if isinstance(term, TensorTerm) else ():
+                if id(component) not in done:
+                    component.setup_basis(frame, spec.dtype_)
+                    done.add(id(component))
+            done.add(id(term))
+            return term.setup_basis(frame, spec.dtype_)
+
+        bases = [setup(term) for term in spec.terms]
         return spec._data(frame, bases, response, weights)
 
     def transform(self, frame, response=None, weights=None):
@@ -387,7 +569,7 @@ class ModelSpec:
 
     def references(self):
         """``{group: basis row}`` of the terms with a reference, for ``fit(references=...)``."""
-        return {term.name: term.reference_row() for term in self.terms if term.reference is not None}
+        return {term.name: term.reference_row() for term in self.terms if term.has_reference()}
 
     def __repr__(self):
         return f"ModelSpec({self.terms!r})"
@@ -397,7 +579,8 @@ class ModelData(ProductModelDataContainer):
     """Fitting data from ``ModelSpec.prepare``: the container the solvers read, with the fitted spec and weights."""
 
     def __init__(self, spec, orig_df, expanded_df, response=None, weights=None):
-        super().__init__(orig_df, expanded_df, response=response, feature_groups=spec.feature_groups())
+        super().__init__(orig_df, expanded_df, response=response, feature_groups=spec.feature_groups(),
+                         groups_in_orig=False)
         self.spec, self.weights = spec, weights
 
 
@@ -420,7 +603,12 @@ class FittedTerm:
         return pd.Series(coef, index=self.term.columns(), name=self.name)
 
     def curve(self, values, level=None):
-        """The factor at raw ``values``; a ``ByTerm`` needs the ``level`` of ``by`` whose curve to read."""
+        """The factor at raw ``values``; a ``ByTerm`` needs the ``level`` of ``by`` whose curve to read.
+
+        A ``TensorTerm`` takes ``values`` as a frame or dict of its input columns.
+        """
+        if isinstance(self.term, TensorTerm):
+            return self.model.block_factor(self.name, self.term.basis(pd.DataFrame(values), np.float64))
         values = np.atleast_1d(np.asarray(values, dtype=object if isinstance(values, str) else None))
         basis = self.term.basis(pd.DataFrame({self.term.column: values}), np.float64)
         if not isinstance(self.term, ByTerm):
@@ -437,6 +625,13 @@ class FittedTerm:
 
         A ``ByTerm`` gives one column per level of ``by``. Other terms have no such points; use ``curve``.
         """
+        if isinstance(self.term, TensorTerm):
+            if len(self.term.terms) != 2:
+                raise ValueError(f"{self.term!r} has {len(self.term.terms)} terms; table() shows two, use curve")
+            (rows, columns), (a, b) = self.term.points(), self.term.inputs
+            grid = pd.DataFrame({a: np.repeat(rows, len(columns)), b: np.tile(np.asarray(columns, dtype=object), len(rows))})
+            return pd.DataFrame(self.curve(grid).reshape(len(rows), len(columns)),
+                                index=pd.Index(rows, name=a), columns=pd.Index(columns, name=b))
         inner = self.term.term if isinstance(self.term, ByTerm) else self.term
         if isinstance(inner, TentTerm):
             points = inner.transformer_.knots_.tolist()

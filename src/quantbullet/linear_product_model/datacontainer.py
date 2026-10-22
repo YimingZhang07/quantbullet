@@ -15,15 +15,17 @@ class ProductModelDataContainer:
     Guidelines:
     To adapt the existing framework, we need this container to by default operates the same way as the expanded dataframe.
     """
-    def __init__( self, orig_df: pd.DataFrame, expanded_df: pd.DataFrame=None, response=None, feature_groups: dict=None, as_float32:bool = False ):
+    def __init__( self, orig_df: pd.DataFrame, expanded_df: pd.DataFrame=None, response=None, feature_groups: dict=None, as_float32:bool = False,
+                  groups_in_orig: bool = True ):
         self.orig_df        = orig_df
         self.expanded_df    = expanded_df
         self.response       = response
         self.feature_groups = feature_groups
         self.as_float32     = as_float32
-        # all the keys in the feature_groups dict must be in orig_df
+        # Group names are orig_df columns, unless a ModelSpec names its groups (a tensor term reads several columns).
+        self.groups_in_orig = groups_in_orig
         if self.feature_groups is not None:
-            if not self._cols_in_df(self.orig_df, list(self.feature_groups.keys())):
+            if groups_in_orig and not self._cols_in_df(self.orig_df, list(self.feature_groups.keys())):
                 raise ValueError("All the keys in the feature_groups dict must be in orig_df.")
 
             # all the values in the feature_groups dict must be in orig_df
@@ -144,4 +146,5 @@ class ProductModelDataContainer:
             expanded_df=expanded_df_sampled,
             response=response_sampled,
             feature_groups=self.feature_groups,
+            groups_in_orig=getattr(self, "groups_in_orig", True),
         )

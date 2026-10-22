@@ -30,6 +30,10 @@ class _Reference:
     levels: dict | None = None              # interaction: the by-block column of each category
 
 
+class _ZeroReference(Exception):
+    """A history step's block is zero (or not finite) at its reference row, so it cannot be rescaled there."""
+
+
 def _level_columns(X_by, labels):
     """``{label: column}`` when ``X_by`` is full one-hot and each used column holds exactly one label's rows."""
     codes = one_hot_codes(X_by)
@@ -244,7 +248,9 @@ class LinearProductRegressor( LinearProductRegressorBase, IterativeFitMixin ):
         ``coef_`` and ``global_scalar_``, every step of ``coef_history_``, ``interaction_params_history_`` and
         ``global_scalar_history_``, and ``best_*`` are each rescaled with their own factors at the rows.
         ``global_scalar_step_history_`` traces steps inside a sweep and keeps the mean-1 scale. Nothing changes
-        unless every factor is positive.
+        unless the fitted model's and the best step's factors are positive. An earlier step may have any nonzero
+        factor (BCD can pass through a negative level of an identity block) and is rescaled all the same; a step
+        whose factor is zero keeps the mean-1 scale.
         """
         def curves(coef):
             return {group: c.categories for group, c in coef.items() if isinstance(c, InteractionCoef)}
@@ -252,9 +258,12 @@ class LinearProductRegressor( LinearProductRegressorBase, IterativeFitMixin ):
         params, fitted_curves, scalar = self._rebase(
             {group: c for group, c in self.coef_.items() if not isinstance(c, InteractionCoef)},
             curves(self.coef_), self.global_scalar_, references, "the fitted model")
-        steps = [self._rebase(p, c, s, references, f"history step {i}")
-                 for i, (p, c, s) in enumerate(zip(self.coef_history_, self.interaction_params_history_,
-                                                   self.global_scalar_history_))]
+        steps = []
+        for p, c, s in zip(self.coef_history_, self.interaction_params_history_, self.global_scalar_history_):
+            try:
+                steps.append(self._rebase(p, c, s, references, "a history step", strict=False))
+            except _ZeroReference:
+                steps.append((p, c, s))
         best = self._rebase(self.best_params_, self.best_interaction_params_ or {}, 1., references, "the best step")
 
         self.coef_ = {group: InteractionCoef(by=c.by, categories=fitted_curves[group])
@@ -265,18 +274,23 @@ class LinearProductRegressor( LinearProductRegressorBase, IterativeFitMixin ):
         self.global_scalar_history_ = [s for _, _, s in steps]
         self.best_params_, self.best_interaction_params_ = best[0], best[1]
 
-    def _rebase(self, params, curves, scalar, references, where):
+    def _rebase(self, params, curves, scalar, references, where, strict=True):
         """``(params, curves, scalar)`` with each referenced block 1 at its row, as new objects.
 
         Interaction curves go first and move their levels to the ``by`` block, so a reference on the ``by``
         block applies to the moved levels; every other block moves its level into ``scalar``. Groups go in
-        ``feature_groups_`` order, so the result does not depend on the order of ``references``.
+        ``feature_groups_`` order, so the result does not depend on the order of ``references``. ``strict`` asks
+        for positive factors; otherwise any nonzero one will do, and a zero one raises ``_ZeroReference``.
         """
         form = self.form_
         params, curves = dict(params), {group: dict(c) for group, c in curves.items()}
 
         def factor(group, coef, label=None):
             value = float(form.factor(references[group].row[None, :], coef)[0])
+            if np.isfinite(value) and value != 0 and not strict:
+                return value
+            if not strict:
+                raise _ZeroReference
             if not (np.isfinite(value) and value > 0):
                 of = f"'{group}'" if label is None else f"'{group}' for {self.interactions_[group]}={label!r}"
                 raise ValueError(f"The reference factor of {of} is {value:.6g} in {where}; a reference needs a "

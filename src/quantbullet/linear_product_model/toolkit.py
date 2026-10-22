@@ -196,7 +196,11 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         }
 
         result: dict[str, pd.DataFrame] = {}
+        terms = self.spec.term_dict()
         for feature in self.numerical_feature_group_names:
+            if len(terms[feature].inputs) > 1:
+                continue                     # a tensor term varies with several columns; it has no 1-D implied actual
+            values = dc.orig[terms[feature].column].values
             m = model.global_scalar_ * vector_product_numexpr_dict_values(
                 data=block_preds, exclude=feature,
             )
@@ -209,7 +213,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
                     mask = (cat_series == cat_val).values
                     key = f"{feature}|{coef.by}={cat_val}"
                     result[key] = pd.DataFrame({
-                        'feature_value': dc.orig[feature].values[mask],
+                        'feature_value': values[mask],
                         'y': y[mask],
                         'm': m[mask],
                         'model_pred': block_preds[feature][mask],
@@ -217,7 +221,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
                     })
             else:
                 result[feature] = pd.DataFrame({
-                    'feature_value': dc.orig[feature].values,
+                    'feature_value': values,
                     'y': y,
                     'm': m,
                     'model_pred': block_preds[feature],
