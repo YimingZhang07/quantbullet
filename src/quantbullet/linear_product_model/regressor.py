@@ -3,13 +3,15 @@ import numpy as np
 import pandas as pd
 import time
 
+from dataclasses import dataclass
 from typing import Dict
 from scipy.optimize import least_squares
 
+from ._acceleration import one_hot_codes
 from .base import IterativeFitMixin, LinearProductRegressorBase, InteractionCoef, memorize_fit_args
 from .datacontainer import ProductModelDataContainer
 from .forms import resolve_form
-from .solvers import BCDSolver, NewtonSolver
+from .solvers import BCDSolver, NewtonSolver, _constant_direction
 
 
 def _is_default(value, default):
@@ -17,6 +19,63 @@ def _is_default(value, default):
     if default is None:
         return value is None or (isinstance(value, dict) and not value)
     return not isinstance(value, np.ndarray) and value == default
+
+
+@dataclass
+class _Reference:
+    """A checked ``fit(references=...)`` entry."""
+    row: np.ndarray
+    constant: np.ndarray | None = None      # log link: coefficients c with X @ c = 1, along which the level moves
+    levels: dict | None = None              # interaction: the by-block column of each category
+
+
+def _level_columns(X_by, labels):
+    """``{label: column}`` when ``X_by`` is full one-hot and each used column holds exactly one label's rows."""
+    codes = one_hot_codes(X_by)
+    if codes is None:
+        return None
+    columns = {}
+    for label in labels.dropna().unique():
+        rows = (labels == label).to_numpy()
+        column = int(codes[rows][0])
+        if not np.array_equal(codes == column, rows):
+            return None
+        columns[label] = column
+    return columns
+
+
+def _checked_references(references, form, feature_groups, submodels, interactions, interaction_submodels,
+                        data_blocks, orig):
+    """``{group: _Reference}`` for ``fit(references=...)``; raises before the model changes."""
+    if not references:
+        return {}
+    if not isinstance(references, dict):
+        raise TypeError("references must be a dict {group: basis row}")
+    checked = {}
+    for group, row in references.items():
+        if group not in feature_groups:
+            raise ValueError(f"Reference group '{group}' is not in feature_groups")
+        if group in submodels:
+            raise ValueError(f"Reference group '{group}' is a frozen submodel, whose factor cannot be rescaled")
+        row = np.asarray(row, dtype=float).ravel()
+        if len(row) != len(feature_groups[group]) or not np.all(np.isfinite(row)):
+            raise ValueError(f"The reference row of '{group}' must be {len(feature_groups[group])} finite values")
+        reference = _Reference(row)
+        if form.link == "log":
+            reference.constant, _ = _constant_direction(data_blocks[group], None, NewtonSolver.OPTIONS["chunk_rows"])
+            if reference.constant is None:
+                raise ValueError(f"Reference group '{group}' has no constant direction (no bias column, and its rows "
+                                 "do not sum to 1), so its log-link factor cannot be rescaled")
+        if group in interactions:
+            by = interactions[group]
+            if interaction_submodels.get(group):
+                raise ValueError(f"Reference group '{group}' has frozen interaction curves, which cannot be rescaled")
+            reference.levels = None if by in submodels else _level_columns(data_blocks[by], orig[by])
+            if reference.levels is None:
+                raise ValueError(f"Reference group '{group}' needs its by-block '{by}' to be a trainable full one-hot "
+                                 f"block whose columns match the '{by}' labels, to take each curve's level")
+        checked[group] = reference
+    return checked
 
 
 class LinearProductRegressor( LinearProductRegressorBase, IterativeFitMixin ):
@@ -82,7 +141,7 @@ class LinearProductRegressor( LinearProductRegressorBase, IterativeFitMixin ):
              interactions: Dict=None, interaction_submodels: Dict=None,
              init_params=None, early_stopping_rounds=5, n_iterations=20, force_rounds=5, verbose=1, ftol=1e-5,
              cache_qr_decomp=False, offset_y=None, use_svd=False, weights=None, loss: str = 'mse',
-             block_link: str = 'identity', solver_options: Dict = None ):
+             block_link: str = 'identity', solver_options: Dict = None, references: Dict = None ):
         """Fit the model. ``loss`` and ``block_link`` select the form, and the form selects the solver.
 
         ``block_link='identity'`` (default) fits blocks ``X_k @ beta_k`` by BCD, configured by
@@ -91,6 +150,10 @@ class LinearProductRegressor( LinearProductRegressorBase, IterativeFitMixin ):
         blocks ``exp(X_k @ beta_k)`` jointly by Newton (Poisson loss), configured by ``solver_options``
         (see ``solvers.NewtonSolver``). A solver argument the chosen solver does not use must keep its
         default.
+
+        ``references`` (``{group: basis row}``, e.g. from ``LinearProductModelToolkit.reference_rows``)
+        rescales each named block after the fit so its factor is 1 at its row, instead of mean 1; see
+        ``_apply_references``. Predictions do not change.
         """
         fit_started = time.perf_counter()
         # ---- 1) choose the form and its solver; reject what they do not support before the model is reset ----
@@ -109,6 +172,15 @@ class LinearProductRegressor( LinearProductRegressorBase, IterativeFitMixin ):
                               **{name: arguments[name] for name in solver_class.FIT_ARGUMENTS})
         if X.response is not None:
             form.check_response(X.response if offset_y is None else X.response + offset_y)
+        for parent, cat_var in (interactions or {}).items():
+            if cat_var not in feature_groups:
+                raise ValueError(
+                    f"Interaction by-variable '{cat_var}' must be included in feature_groups "
+                    f"as a separate categorical block (required for '{parent}' interaction)."
+                )
+        data_blocks = X.get_expanded_array_dict( list( feature_groups.keys() ) )
+        references = _checked_references(references, form, feature_groups, submodels or {}, interactions or {},
+                                         interaction_submodels or {}, data_blocks, X.orig)
 
         # ---- 2) setup model state ----
         self.loss_, self.block_link_ = loss, block_link
@@ -116,17 +188,9 @@ class LinearProductRegressor( LinearProductRegressorBase, IterativeFitMixin ):
         self.feature_groups_ = feature_groups
         self.submodels_ = submodels or {}
         self.interactions_ = interactions or {}
+        self.references_ = {}
 
-        for parent, cat_var in self.interactions_.items():
-            if cat_var not in feature_groups:
-                raise ValueError(
-                    f"Interaction by-variable '{cat_var}' must be included in feature_groups "
-                    f"as a separate categorical block (required for '{parent}' interaction)."
-                )
-
-        # ---- 3) validate inputs and build canonical arrays ----
-        data_blocks = X.get_expanded_array_dict( list( feature_groups.keys() ) )
-
+        # ---- 3) validate inputs ----
         if weights is not None:
             weights = np.asarray(weights).ravel()
             if weights.ndim != 1 or weights.shape[0] != X.shape[0]:
@@ -142,7 +206,77 @@ class LinearProductRegressor( LinearProductRegressorBase, IterativeFitMixin ):
         # ---- 4) iterate ----
         solver.run(X, data_blocks, y, weights, started=fit_started)
         self.solver_name_ = self.fit_metadata_.solver = solver.name
+
+        # ---- 5) move the levels of referenced blocks to their reference rows ----
+        if references:
+            self._apply_references(references)
+            self._compute_block_means(data_blocks, X, weights)
+            self.references_ = {group: reference.row for group, reference in references.items()}
+            self.fit_metadata_.references = list(references)
         return self
+
+    def _apply_references(self, references):
+        """Rescale each referenced block so its factor is 1 at its reference row; predictions do not change.
+
+        ``coef_`` and ``global_scalar_``, every step of ``coef_history_``, ``interaction_params_history_`` and
+        ``global_scalar_history_``, and ``best_*`` are each rescaled with their own factors at the rows.
+        ``global_scalar_step_history_`` traces steps inside a sweep and keeps the mean-1 scale. Nothing changes
+        unless every factor is positive.
+        """
+        def curves(coef):
+            return {group: c.categories for group, c in coef.items() if isinstance(c, InteractionCoef)}
+
+        params, fitted_curves, scalar = self._rebase(
+            {group: c for group, c in self.coef_.items() if not isinstance(c, InteractionCoef)},
+            curves(self.coef_), self.global_scalar_, references, "the fitted model")
+        steps = [self._rebase(p, c, s, references, f"history step {i}")
+                 for i, (p, c, s) in enumerate(zip(self.coef_history_, self.interaction_params_history_,
+                                                   self.global_scalar_history_))]
+        best = self._rebase(self.best_params_, self.best_interaction_params_ or {}, 1., references, "the best step")
+
+        self.coef_ = {group: InteractionCoef(by=c.by, categories=fitted_curves[group])
+                      if isinstance(c, InteractionCoef) else params[group] for group, c in self.coef_.items()}
+        self.global_scalar_ = scalar
+        self.coef_history_ = [p for p, _, _ in steps]
+        self.interaction_params_history_ = [c for _, c, _ in steps]
+        self.global_scalar_history_ = [s for _, _, s in steps]
+        self.best_params_, self.best_interaction_params_ = best[0], best[1]
+
+    def _rebase(self, params, curves, scalar, references, where):
+        """``(params, curves, scalar)`` with each referenced block 1 at its row, as new objects.
+
+        Interaction curves go first and move their levels to the ``by`` block, so a reference on the ``by``
+        block applies to the moved levels; every other block moves its level into ``scalar``.
+        """
+        form = self.form_
+        params, curves = dict(params), {group: dict(c) for group, c in curves.items()}
+
+        def factor(group, coef, label=None):
+            value = float(form.factor(references[group].row[None, :], coef)[0])
+            if not (np.isfinite(value) and value > 0):
+                of = f"'{group}'" if label is None else f"'{group}' for {self.interactions_[group]}={label!r}"
+                raise ValueError(f"The reference factor of {of} is {value:.6g} in {where}; a reference needs a "
+                                 "positive factor, so the fit is kept without references")
+            return value
+
+        for group, reference in references.items():
+            if group not in self.interactions_:
+                continue
+            by = self.interactions_[group]
+            by_coef = np.array(params[by], dtype=float)
+            for label, coef in curves[group].items():
+                level = factor(group, coef, label)
+                curves[group][label] = form.rescale(coef, level, reference.constant)
+                column = reference.levels[label]
+                by_coef[column] = form.rescale(by_coef[column], 1. / level, 1.)
+            params[by] = by_coef
+        for group, reference in references.items():
+            if group in self.interactions_:
+                continue
+            level = factor(group, params[group])
+            params[group] = form.rescale(params[group], level, reference.constant)
+            scalar *= level
+        return params, curves, scalar
 
     # ------------------------------------------------------------------
     # predict  (override to handle InteractionCoef in coef_)

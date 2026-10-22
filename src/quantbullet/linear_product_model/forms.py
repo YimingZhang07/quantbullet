@@ -10,7 +10,8 @@ the toolkit ask for a form instead of branching on the loss name.
 Only the combinations registered in ``resolve_form`` exist; any other one is an error. Each form names
 the solver that fits it (``default_solver``), and solver capabilities are declared by the forms that
 have them: ``block_step`` (with ``grouped_one_hot`` and ``step_options``) is what ``solvers.BCDSolver``
-needs; ``newton_terms`` and ``rescale`` are what ``solvers.NewtonSolver`` needs.
+needs; ``newton_terms`` and ``rescale`` are what ``solvers.NewtonSolver`` needs. Every form can ``rescale``
+a block's coefficients, which ``fit(references=...)`` uses after either solver.
 """
 from abc import ABC, abstractmethod
 
@@ -114,6 +115,10 @@ class IdentityForm(ModelForm):
     def factor(self, X, coef):
         return np.dot(X, coef)
 
+    def rescale(self, coef, mean, constant=None):
+        """Coefficients whose factor is this one divided by ``mean``; any linear block can be rescaled."""
+        return coef / mean
+
     @abstractmethod
     def block_step(self, X, y, scalar, fixed, w, coef, codes=None):
         """New coefficients of one block given the global ``scalar`` and the other blocks' product ``fixed``."""
@@ -184,7 +189,8 @@ class LogForm(ModelForm):
     """Log-linear factors ``exp(X @ coef)``: blocks add on the log scale, so the model is a log-link GLM.
 
     Factors are always positive. A block is rescaled to mean 1 by shifting its coefficients along
-    a constant direction ``c`` with ``X @ c = 1`` (a bias column, or all levels of a full one-hot block).
+    a constant direction ``c`` with ``X @ c = 1`` (a bias column, or all columns of a full one-hot block or of
+    a tent basis).
     """
 
     link = "log"

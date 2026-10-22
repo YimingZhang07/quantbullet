@@ -19,6 +19,7 @@ class FitMetadata:
     cache_qr_decomp    : bool  | None = None
     block_link         : str   | None = None
     solver             : str   | None = None   # set by fit once the solver has run
+    references         : list  | None = None   # groups fit rescaled to their reference rows
 
 @dataclass
 class InteractionCoef:

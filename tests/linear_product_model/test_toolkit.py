@@ -47,3 +47,44 @@ def test_generate_plots_pdf_titles_grid_pages_and_footer(tmp_path):
     assert [item.title for item in reader.outline]==["Numerical - Implied Errors","Extra"]
     assert "Numerical - Implied Errors" in reader.pages[0].extract_text()
     assert "Model" in reader.pages[0].extract_text()
+
+
+def _tent_toolkit(raw=False):
+    """Tent age, FlatRamp x and one-hot purpose; ``raw`` adds a feature z without a transformer."""
+    from sklearn.preprocessing import OneHotEncoder
+    from quantbullet.linear_product_model import LinearProductModelToolkit
+    from quantbullet.model.feature import DataType,Feature,FeatureRole,FeatureSpec
+    from quantbullet.preprocessing import FlatRampTransformer,TentTransformer
+    rng=np.random.default_rng(0)
+    df=pd.DataFrame({"age":rng.uniform(1.,120.,500),"x":rng.uniform(0.,10.,500),"z":rng.uniform(0.,1.,500),
+                     "purpose":pd.Categorical(rng.choice(["C","N","P"],500))})
+    df["y"]=rng.poisson(.3,500).astype(float)
+    spec=FeatureSpec([Feature(name,DataType.FLOAT,FeatureRole.MODEL_INPUT) for name in ("age","x")+(("z",) if raw else ())]
+                     +[Feature("purpose",DataType.CATEGORY,FeatureRole.MODEL_INPUT),Feature("y",DataType.FLOAT,FeatureRole.TARGET)])
+    config={"age":TentTransformer((1.,12.,24.,60.,120.)),"x":FlatRampTransformer(knots=[2,5,8],include_bias=True),
+            "purpose":OneHotEncoder(drop=None)}
+    return df,LinearProductModelToolkit(spec,preprocess_config=config).fit(df)
+
+
+def test_reference_rows_put_each_value_through_its_transformer():
+    df,toolkit=_tent_toolkit(raw=True)
+    rows=toolkit.reference_rows({"age":30.,"x":4.,"purpose":"P","z":.5})
+    np.testing.assert_allclose(rows["age"],[0,0,5/6,1/6,0])
+    np.testing.assert_allclose(rows["x"],toolkit.preprocess_config["x"].transform(pd.DataFrame({"x":[4.]}))[0])
+    np.testing.assert_array_equal(rows["purpose"],[0,0,1])
+    np.testing.assert_array_equal(rows["z"],[.5])
+    with pytest.raises(ValueError,match="Feature income not found"):
+        toolkit.reference_rows({"income":1.})
+
+
+def test_fitting_summary_lists_tent_knots(tmp_path):
+    from pypdf import PdfReader
+    from quantbullet.linear_product_model import LinearProductRegressor
+    from quantbullet.linear_product_model.datacontainer import ProductModelDataContainer
+    df,toolkit=_tent_toolkit()
+    data=ProductModelDataContainer(df,toolkit.get_expanded_df(df),response=df["y"].to_numpy(),
+                                   feature_groups=toolkit.feature_groups)
+    model=LinearProductRegressor().fit(data,toolkit.feature_groups,loss="poisson",block_link="log",verbose=0)
+    path=toolkit.generate_fitting_summary_pdf(model,report_name=str(tmp_path/"Model"))
+    text=" ".join(page.extract_text() for page in PdfReader(path).pages)
+    assert "TentTransformer" in text and "knots=[1, 12, 24, 60, 120]" in text

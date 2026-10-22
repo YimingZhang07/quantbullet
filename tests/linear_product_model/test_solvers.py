@@ -13,6 +13,7 @@ from quantbullet.linear_product_model.datacontainer import ProductModelDataConta
 from quantbullet.linear_product_model import solvers
 from quantbullet.linear_product_model.forms import IdentityMSE
 from quantbullet.linear_product_model.solvers import BCDSolver, NewtonSolver
+from quantbullet.preprocessing import FlatRampTransformer, TentTransformer
 
 
 class FrozenCurve:
@@ -36,13 +37,17 @@ def make_data(n=2000):
     return container, groups
 
 
-def poisson_data(n=6000, seed=3, drop=()):
-    """Counts with a log-linear age ramp, purpose and state effects; ``drop`` leaves groups out."""
+def poisson_data(n=6000, seed=3, drop=(), age_basis=None):
+    """Counts with a log-linear age ramp, purpose and state effects; ``drop`` leaves groups out.
+
+    ``age_basis`` maps age to the age block; by default a bias column and the two ramp pieces.
+    """
     rng = np.random.default_rng(seed)
     age, purpose, state = rng.uniform(1., 120., n), rng.integers(0, 3, n), rng.integers(0, 4, n)
     ramp = np.column_stack((np.minimum(age, 36.) / 36., np.maximum(age - 36., 0.) / 84.))
     rate = .05 * np.exp(.6 * ramp[:, 0] - .3 * ramp[:, 1]) * np.array([.8, 1.2, 1.])[purpose] * (1. + .1 * state)
-    matrices = {"purpose": np.eye(3)[purpose], "state": np.eye(4)[state], "age": np.column_stack((np.ones(n), ramp))}
+    matrices = {"purpose": np.eye(3)[purpose], "state": np.eye(4)[state],
+                "age": np.column_stack((np.ones(n), ramp)) if age_basis is None else age_basis(age)}
     matrices = {name: X for name, X in matrices.items() if name not in drop}
     groups = {name: [f"{name}_{i}" for i in range(X.shape[1])] for name, X in matrices.items()}
     expanded = pd.DataFrame(np.column_stack(list(matrices.values())), columns=sum(groups.values(), []))
@@ -64,6 +69,18 @@ def sklearn_poisson(Z, y, w, offset=None):
 
 def fit_log(data, groups, **options):
     return LinearProductRegressor().fit(data, groups, loss="poisson", block_link="log", verbose=0, **options)
+
+
+AGE_KNOTS = (12., 36., 60.)
+
+
+def flat_ramp_age(age):
+    return FlatRampTransformer(knots=list(AGE_KNOTS), include_bias=True).fit_transform(pd.Series(age, name="age"))
+
+
+def tent_age(age):
+    """Tent knots at the ends of the age range too: on [1, 120] it spans the same curves as ``flat_ramp_age``."""
+    return TentTransformer(knots=(1., *AGE_KNOTS, 120.)).fit_transform(pd.Series(age, name="age"))
 
 
 # ----------------------------------------------------------------------
@@ -157,6 +174,54 @@ def test_newton_matches_sklearn_and_normalizes_blocks(interaction, weighted):
             rows = (data.orig["purpose"] == label).values
             curve = model.block_factor("age", X_age[rows], coef=coef)
             assert np.average(curve, weights=None if w is None else w[rows]) == pytest.approx(1., abs=1e-10)
+
+
+def test_constant_direction_of_bias_tent_and_plain_blocks():
+    rng = np.random.default_rng(0)
+    age, w = rng.uniform(1., 120., 1000), rng.uniform(.5, 2., 1000)
+    bias, tent = flat_ramp_age(age), tent_age(age).astype(np.float32)
+    for chunk_rows in (1000, 7):
+        constant, left_out = solvers._constant_direction(bias, w, chunk_rows)
+        np.testing.assert_array_equal(constant, np.eye(bias.shape[1])[0])
+        assert left_out == 0
+        constant, left_out = solvers._constant_direction(tent, w, chunk_rows)
+        np.testing.assert_array_equal(constant, np.ones(tent.shape[1]))
+        assert left_out == np.argmax(w @ tent)
+        np.testing.assert_allclose(tent @ constant, 1., atol=1e-6)
+        assert solvers._constant_direction(bias[:, 1:], w, chunk_rows) == (None, None)
+
+
+@pytest.mark.parametrize("interaction", [False, True])
+def test_tent_and_flat_ramp_fit_the_same_log_model(interaction):
+    interactions = {"age": "purpose"} if interaction else None
+    models, containers = {}, {}
+    for name, basis in (("flat", flat_ramp_age), ("tent", tent_age)):
+        containers[name], groups, w, _ = poisson_data(age_basis=basis)
+        # A float64 Hessian takes both fits to the optimum rather than to the objective tolerance.
+        models[name] = fit_log(containers[name], groups, weights=w, interactions=interactions,
+                               solver_options={"design_cache": False})
+    flat, tent = models["flat"], models["tent"]
+    np.testing.assert_allclose(tent.predict(containers["tent"]), flat.predict(containers["flat"]), rtol=1e-10)
+    # The tent block loses one column along its constant direction, as the bias column of the ramp does.
+    assert tent.fit_timing_["design_columns"] == flat.fit_timing_["design_columns"]
+    assert tent.convergence_info_["reason"] == "converged"
+    for group in groups:
+        assert tent.block_means_[group] == pytest.approx(1., abs=1e-10)
+
+
+@pytest.mark.parametrize("interaction", [False, True])
+def test_tent_and_flat_ramp_reach_the_same_identity_fit(interaction):
+    interactions = {"age": "purpose"} if interaction else None
+    models, containers = {}, {}
+    for name, basis in (("flat", flat_ramp_age), ("tent", tent_age)):
+        containers[name], groups, w, _ = poisson_data(age_basis=basis)
+        models[name] = LinearProductRegressor().fit(
+            containers[name], groups, loss="poisson", weights=w, interactions=interactions, n_iterations=300,
+            ftol=None, early_stopping_rounds=None, verbose=0)
+    # Different bases start BCD from different points, so the fits agree to the precision BCD reaches.
+    assert models["tent"].best_loss_ == pytest.approx(models["flat"].best_loss_, rel=1e-9)
+    np.testing.assert_allclose(models["tent"].predict(containers["tent"]), models["flat"].predict(containers["flat"]),
+                               rtol=1e-5)
 
 
 def test_frozen_submodel_enters_as_an_offset():

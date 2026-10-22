@@ -513,7 +513,7 @@ class _Part:
     kind: str                       # "numeric", "categorical" or "interaction"
     n_block_columns: int
     columns: np.ndarray             # block columns expanded into the design
-    constant: int | None = None     # block column that is identically 1, when there is one
+    constant: np.ndarray | None = None   # coefficients c with X @ c = 1, when the block has them
     by: str | None = None           # interaction: full one-hot block whose levels split the curve
     reference: int | None = None    # categorical: level left out of the design
     keep: np.ndarray = None         # expanded columns kept (varying, not the reference)
@@ -522,14 +522,28 @@ class _Part:
     beta: slice = None              # position in the coefficient vector; 0 is the intercept
 
 
-def _constant_column(X, chunk_rows):
-    """Index of the first column of ``X`` that is identically 1, or ``None``."""
-    candidates = np.ones(X.shape[1], dtype=bool)
+def _constant_direction(X, w, chunk_rows):
+    """Coefficients ``c`` with ``X @ c = 1`` and the column the design leaves out for them, or ``(None, None)``.
+
+    A column that is identically 1 (a bias) is its own direction and is left out. Otherwise, when every row
+    sums to 1 (a tent basis), ``c`` is all ones and the largest-weight column is left out, as for a categorical
+    block. Row sums allow float32 rounding. ``w`` may be ``None`` for equal weights.
+    """
+    ones = np.ones(X.shape[1], dtype=bool)
+    rows_sum_to_one, weight = True, np.zeros(X.shape[1])
     for start in range(0, X.shape[0], chunk_rows):
-        candidates &= np.all(X[start:start + chunk_rows] == 1, axis=0)
-        if not candidates.any():
-            return None
-    return int(np.flatnonzero(candidates)[0])
+        block = X[start:start + chunk_rows]
+        ones &= np.all(block == 1, axis=0)
+        if rows_sum_to_one:
+            rows_sum_to_one = bool(np.all(np.abs(block.sum(axis=1, dtype=np.float64) - 1.) <= 1e-6))
+        if rows_sum_to_one:
+            weight += block.sum(axis=0, dtype=np.float64) if w is None else w[start:start + chunk_rows] @ block
+        if not ones.any() and not rows_sum_to_one:
+            return None, None
+    if ones.any():
+        column = int(np.flatnonzero(ones)[0])
+        return np.eye(X.shape[1])[column], column
+    return np.ones(X.shape[1]), int(np.argmax(weight))
 
 
 def _without(n_columns, column):
@@ -545,9 +559,10 @@ _THREADS = min(8, os.cpu_count() or 1)
 class _LogDesign:
     """Identifiable, standardized design of a log form, assembled chunk by chunk from the model's blocks.
 
-    Numeric blocks lose their constant column (one global intercept), categorical blocks their
-    largest-weight level, and an interaction block becomes its non-constant columns times the full
-    one-hot ``by`` block. Frozen submodels stay out of the design and enter as an offset.
+    There is one global intercept: numeric blocks with a constant direction lose one column along it (a
+    bias column, or the largest-weight column when rows sum to 1), categorical blocks their largest-weight
+    level, and an interaction block becomes its remaining columns times the full one-hot ``by`` block.
+    Frozen submodels stay out of the design and enter as an offset.
     """
 
     def __init__(self, model, data_blocks, orig, w, chunk_rows):
@@ -561,8 +576,8 @@ class _LogDesign:
             if group in model.interactions_:
                 by = model.interactions_[group]
                 self._check_interaction(group, by, model, data_blocks, orig)
-                constant = _constant_column(X, chunk_rows)
-                self.parts.append(_Part(group, "interaction", X.shape[1], _without(X.shape[1], constant),
+                constant, left_out = _constant_direction(X, w, chunk_rows)
+                self.parts.append(_Part(group, "interaction", X.shape[1], _without(X.shape[1], left_out),
                                         constant, by=by))
                 continue
             codes = self.codes[group] if group in self.codes else one_hot_codes(X)
@@ -572,8 +587,8 @@ class _LogDesign:
                 self.parts.append(_Part(group, "categorical", X.shape[1], np.arange(X.shape[1]),
                                         reference=reference))
                 continue
-            constant = _constant_column(X, chunk_rows)
-            self.parts.append(_Part(group, "numeric", X.shape[1], _without(X.shape[1], constant), constant))
+            constant, left_out = _constant_direction(X, w, chunk_rows)
+            self.parts.append(_Part(group, "numeric", X.shape[1], _without(X.shape[1], left_out), constant))
         self._standardize(data_blocks, len(w))
 
     def _check_interaction(self, group, by, model, data_blocks, orig):
@@ -906,16 +921,14 @@ class NewtonSolver:
                 continue
             slope, intercept = linear[part.group]
             X = blocks[part.group]
-            constant = None
-            if part.constant is None:
+            constant = part.constant
+            if constant is None:
                 log_scalar += intercept
-            else:
-                constant = np.eye(part.n_block_columns)[part.constant]
             if part.kind == "numeric":
                 coef = np.zeros(part.n_block_columns)
                 coef[part.columns] = slope
                 if constant is not None:
-                    coef[part.constant] += intercept
+                    coef += intercept * constant
                     mean = means[part.group] if means is not None else np.average(form.factor(X, coef), weights=w)
                     coef = form.rescale(coef, mean, constant)
                     log_scalar += np.log(mean)
@@ -928,7 +941,7 @@ class NewtonSolver:
                 coef = np.zeros(part.n_block_columns)
                 coef[part.columns] = slopes[:, column]
                 if constant is not None:
-                    coef[part.constant] += intercept
+                    coef += intercept * constant
                     if means is not None:
                         mean = means[part.group][column]
                     else:

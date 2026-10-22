@@ -26,7 +26,7 @@ from quantbullet.plot.panels import label_outer_panels
 from quantbullet.plot.colors import EconomistBrandColor
 from quantbullet.plot.panels import PanelSet, panel_grid
 from quantbullet.plot.theme import MINIMAL_THEME, PlotTheme
-from quantbullet.preprocessing.transformers import FlatRampTransformer
+from quantbullet.preprocessing.transformers import FlatRampTransformer, TentTransformer
 from quantbullet.reporting import AdobeSourceFontStyles, PdfPageReport
 from quantbullet.reporting.utils import register_fonts_from_package, merge_pdfs
 from quantbullet.reporting.formatters import numberarray2string
@@ -182,6 +182,25 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
     
     def has_feature_group( self, feature_name ):
         return feature_name in self.feature_groups_.keys()
+
+    def reference_rows( self, values: dict ) -> dict:
+        """Basis rows of reference values, for ``LinearProductRegressor.fit(references=...)``.
+
+        ``values`` maps a feature to its reference: an x value for a numeric feature (not necessarily a
+        knot) or a level label for a categorical one. Each row is that value through the feature's own
+        transformer; a feature without a transformer is its own one-column row.
+        """
+        rows = {}
+        for feature_name, value in values.items():
+            if not self.has_feature_group( feature_name ):
+                raise ValueError(f"Feature {feature_name} not found in feature_groups_")
+            frame = pd.DataFrame( { feature_name: [ value ] } )
+            transformer = ( self.preprocess_config or {} ).get( feature_name, None )
+            row = transformer.transform( frame ) if transformer is not None else frame.to_numpy()
+            if hasattr( row, "toarray" ):
+                row = row.toarray()
+            rows[ feature_name ] = np.asarray( row, dtype=float ).ravel()
+        return rows
 
     def get_feature_grid_and_predictions( self, feature_series, model, n_points=200 ):
         """Get a grid of feature values and the corresponding model predictions for that feature."""
@@ -758,6 +777,11 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
                 text = f"knots={ numberarray2string( transformer.knots ) }"
                 feature_config_data.append( [ feature_group_name, 
                                               Paragraph("FlatRampTransformer", AdobeSourceFontStyles.MonoCode),
+                                              Paragraph(text, AdobeSourceFontStyles.MonoCode ) ] )
+            elif isinstance(transformer, TentTransformer):
+                text = f"knots={ numberarray2string( transformer.knots_ ) }"
+                feature_config_data.append( [ feature_group_name,
+                                              Paragraph("TentTransformer", AdobeSourceFontStyles.MonoCode),
                                               Paragraph(text, AdobeSourceFontStyles.MonoCode ) ] )
             else:
                 raise ValueError(f"Unknown transformer type: {type(transformer)}")

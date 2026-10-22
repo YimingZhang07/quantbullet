@@ -1,7 +1,7 @@
 import numpy as np
 import re
 import pandas as pd
-from sklearn.utils.validation import check_array
+from sklearn.utils.validation import check_array, check_is_fitted
 from sklearn.base import BaseEstimator, TransformerMixin
 from quantbullet.dfutils import get_bins_and_labels
 
@@ -185,3 +185,76 @@ class FlatRampTransformer(BaseEstimator, TransformerMixin):
 
     def get_bins_and_labels(self):
         return get_bins_and_labels(list(self.knots))
+
+
+def _single_column(X):
+    """One feature as a finite float vector and its name: a Series, a one-column DataFrame or an (n, 1) array."""
+    if isinstance(X, pd.Series):
+        name, values = (X.name if X.name is not None else "x0"), X.to_numpy()[:, None]
+    elif isinstance(X, pd.DataFrame):
+        if X.shape[1] != 1:
+            raise ValueError("X must have exactly one feature (1 column).")
+        name, values = X.columns[0], X.to_numpy()
+    else:
+        name, values = "x0", X
+    values = check_array(values, ensure_2d=True, dtype=float)
+    if values.shape[1] != 1:
+        raise ValueError("X must have exactly one feature.")
+    return values[:, 0], str(name)
+
+
+class TentTransformer(BaseEstimator, TransformerMixin):
+    """Tent basis (degree-1 B-spline): one column per knot.
+
+    Column ``j`` is 1 at knot ``j`` and falls linearly to 0 at the neighbouring knots; beyond the end knots
+    the end column stays at 1. Every row sums to 1, so a curve ``basis @ coef`` takes the value ``coef[j]``
+    at knot ``j``, is linear between knots and flat outside them. The basis equals sklearn's
+    ``SplineTransformer(degree=1, extrapolation="constant")`` with the same knots.
+
+    Parameters
+    ----------
+    knots : array-like
+        At least two, strictly increasing; checked by ``fit``.
+    """
+
+    def __init__(self, knots):
+        self.knots = knots
+
+    def fit(self, X, y=None):
+        """Check the knots and that every column has data; names columns ``{feature}_at_{knot}``."""
+        x, name = _single_column(X)
+        knots = np.asarray(self.knots, dtype=float)
+        if knots.ndim != 1 or len(knots) < 2 or not np.all(np.isfinite(knots)):
+            raise ValueError("knots must be a one-dimensional array of at least two finite values.")
+        if not np.all(np.diff(knots) > 0):
+            raise ValueError("knots must be strictly increasing.")
+        empty = ~np.any(self._basis(x, knots) > 0, axis=0)
+        if empty.any():
+            raise ValueError(f"{name}: no values between the neighbours of knots {knots[empty].tolist()}; "
+                             "their coefficients would not be identified.")
+        self.knots_ = knots
+        self.feature_names_in_ = [name]
+        self.n_features_in_ = 1
+        self.feature_names_out_ = np.array(
+            [f"{name}_at_{np.format_float_positional(knot, trim='-')}" for knot in knots], dtype=object)
+        return self
+
+    @staticmethod
+    def _basis(x, knots):
+        x = np.clip(x, knots[0], knots[-1])
+        left = np.clip(np.searchsorted(knots, x, side="right") - 1, 0, len(knots) - 2)
+        t = (x - knots[left]) / (knots[left + 1] - knots[left])
+        basis = np.zeros((len(x), len(knots)))
+        rows = np.arange(len(x))
+        basis[rows, left] = 1 - t
+        basis[rows, left + 1] = t
+        return basis
+
+    def transform(self, X):
+        check_is_fitted(self, "knots_")
+        x, _ = _single_column(X)
+        return self._basis(x, self.knots_)
+
+    def get_feature_names_out(self, input_features=None):
+        check_is_fitted(self, "feature_names_out_")
+        return self.feature_names_out_
