@@ -209,7 +209,9 @@ class TentTransformer(BaseEstimator, TransformerMixin):
     Column ``j`` is 1 at knot ``j`` and falls linearly to 0 at the neighbouring knots; beyond the end knots
     the end column stays at 1. Every row sums to 1, so a curve ``basis @ coef`` takes the value ``coef[j]``
     at knot ``j``, is linear between knots and flat outside them. The basis equals sklearn's
-    ``SplineTransformer(degree=1, extrapolation="constant")`` with the same knots.
+    ``SplineTransformer(degree=1, extrapolation="constant")`` with the same knots. Rows sum to exactly 1 in
+    the output ``dtype`` (``transform(X, dtype=np.float32)`` too), so shifting all coefficients by a constant
+    shifts the curve by exactly that constant.
 
     Parameters
     ----------
@@ -225,18 +227,18 @@ class TentTransformer(BaseEstimator, TransformerMixin):
         self._fit(X)
         return self
 
-    def fit_transform(self, X, y=None):
+    def fit_transform(self, X, y=None, dtype=np.float64):
         """``fit`` and ``transform`` with one basis computation."""
-        return self._fit(X)
+        return self._fit(X, dtype)
 
-    def _fit(self, X):
+    def _fit(self, X, dtype=np.float64):
         x, name = _single_column(X)
         knots = np.asarray(self.knots, dtype=float)
         if knots.ndim != 1 or len(knots) < 2 or not np.all(np.isfinite(knots)):
             raise ValueError("knots must be a one-dimensional array of at least two finite values.")
         if not np.all(np.diff(knots) > 0):
             raise ValueError("knots must be strictly increasing.")
-        basis = self._basis(x, knots)
+        basis = self._basis(x, knots, dtype)
         empty = ~np.any(basis > 0, axis=0)
         if empty.any():
             raise ValueError(f"{name}: no values between the neighbours of knots {knots[empty].tolist()}; "
@@ -249,20 +251,24 @@ class TentTransformer(BaseEstimator, TransformerMixin):
         return basis
 
     @staticmethod
-    def _basis(x, knots):
+    def _basis(x, knots, dtype=np.float64):
         x = np.clip(x, knots[0], knots[-1])
         left = np.clip(np.searchsorted(knots, x, side="right") - 1, 0, len(knots) - 2)
         t = (x - knots[left]) / (knots[left + 1] - knots[left])
-        basis = np.zeros((len(x), len(knots)))
+        # The larger weight is in [0.5, 1], so 1 minus it is exact (Sterbenz) and each row sums to exactly 1.
+        larger = np.maximum(t, 1 - t).astype(dtype)
+        smaller = np.asarray(1, dtype=dtype) - larger
+        right_larger = t >= .5
+        basis = np.zeros((len(x), len(knots)), dtype=dtype)
         rows = np.arange(len(x))
-        basis[rows, left] = 1 - t
-        basis[rows, left + 1] = t
+        basis[rows, left] = np.where(right_larger, smaller, larger)
+        basis[rows, left + 1] = np.where(right_larger, larger, smaller)
         return basis
 
-    def transform(self, X):
+    def transform(self, X, dtype=np.float64):
         check_is_fitted(self, "knots_")
         x, _ = _single_column(X)
-        return self._basis(x, self.knots_)
+        return self._basis(x, self.knots_, dtype)
 
     def get_feature_names_out(self, input_features=None):
         check_is_fitted(self, "feature_names_out_")

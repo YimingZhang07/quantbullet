@@ -46,7 +46,9 @@ def container_data(df, age_transformer, raw=()):
     groups, blocks = {}, []
     for name in ("purpose", "state", "age", *raw):
         if name in transformers:
-            values = transformers[name].fit_transform(df[[name]])
+            # A tent basis is built in float32 directly, as the spec builds it, so its rows sum to exactly 1.
+            exact = {"dtype": np.float32} if isinstance(transformers[name], TentTransformer) else {}
+            values = transformers[name].fit_transform(df[[name]], **exact)
             groups[name] = transformers[name].get_feature_names_out([name]).tolist()
         else:
             values, groups[name] = df[[name]].to_numpy(), [name]
@@ -164,7 +166,12 @@ def test_spec_checks_run_before_any_data():
     cases = [
         ([purpose, purpose], ValueError, r"share the names \['purpose'\]"),
         ([purpose, "age"], TypeError, "ModelSpec takes terms"),
-        ([purpose, TentTerm("age", TENT_KNOTS, reference=[24, 60])], NotImplementedError, "several references"),
+        ([purpose, TentTerm("age", TENT_KNOTS, reference=[24, 30])], ValueError,
+         r"several references must be knots \[1.0, 12.0, 24.0, 60.0, 120.0\]; \[30\] are not"),
+        ([purpose, TentTerm("age", TENT_KNOTS, reference=[24, 24])], ValueError, "repeats a reference"),
+        ([purpose, BasisTerm("sato", FlatRampTransformer(knots=[0.]), reference=[-1., 1.])], ValueError,
+         "only TentTerm and CategoricalTerm"),
+        ([CategoricalTerm("purpose", reference=["P", "N"]),], None, None),
         ([purpose, ByTerm(age, by=CategoricalTerm("purpose"), drop=("age",))], ValueError, "same object"),
         ([purpose, ByTerm(age, by=purpose)], ValueError, r"needs drop written out; for this model it is drop=\('age',\)"),
         ([purpose, ByTerm(age, by=purpose, drop="any")], ValueError, "dropping purpose's reference .* constraint"),
@@ -172,8 +179,14 @@ def test_spec_checks_run_before_any_data():
         ([purpose, ByTerm(age, by=purpose, drop=("sato",))], ValueError, r"drop names \['sato'\]"),
     ]
     for terms, error, message in cases:
+        if error is None:
+            ModelSpec(terms).check()
+            continue
         with pytest.raises(error, match=message):
             ModelSpec(terms).check()
+    tied_by = CategoricalTerm("purpose", reference=["P", "N"])
+    with pytest.raises(ValueError, match="by term of a ByTerm.*give it one reference"):
+        ModelSpec([tied_by, ByTerm(age, by=tied_by, drop=("age",))]).check()
     assert ModelSpec([purpose, ByTerm(age, by=purpose, drop=("age",))]).check() is not None
 
 
@@ -250,3 +263,75 @@ def test_describe_lines_name_the_basis_and_the_reference():
         "knots=[1, 12, 120], reference=24; one curve per purpose level, drop=('age',)")
     fitted = ModelSpec([purpose]).prepare(frame(), response="y").spec
     assert fitted.terms[0].describe() == "3 levels, reference='P'"
+
+
+def tied_spec(age_reference=(24., 60.), purpose_reference=("P", "N")):
+    return ModelSpec([CategoricalTerm("purpose", reference=list(purpose_reference)), CategoricalTerm("state"),
+                      TentTerm("age", TENT_KNOTS, reference=list(age_reference))])
+
+
+@pytest.mark.parametrize("block_link", ["identity", "log"])
+def test_several_references_tie_their_columns_and_equal_the_hand_merged_design(block_link):
+    df = frame()
+    model = fit(tied_spec().prepare(df, response="y", weights="weight"), block_link, "poisson")
+    groups = model.spec_.feature_groups()
+    assert groups["age"] == ["age_at_1", "age_at_12", "age_at_24+60", "age_at_120"]
+    assert groups["purpose"] == ["purpose_C", "purpose_P+N"]
+    np.testing.assert_allclose(model.term("age").table().loc[[24., 60.]], 1., rtol=1e-12)
+    np.testing.assert_allclose(model.term("purpose").table().loc[["P", "N"]], 1., rtol=1e-12)
+
+    # The same design merged by hand on the container path, with unit reference rows.
+    tent = TentTransformer(TENT_KNOTS).fit_transform(df[["age"]], dtype=np.float32)
+    age = np.column_stack([tent[:, 0], tent[:, 1], tent[:, 2] + tent[:, 3], tent[:, 4]])
+    purpose = np.column_stack([(df["purpose"] == "C").to_numpy(), df["purpose"].isin(["P", "N"]).to_numpy()])
+    state = OneHotEncoder(drop=None).fit_transform(df[["state"]]).toarray()
+    blocks = {"purpose": purpose, "state": state, "age": age}
+    expanded = pd.concat([pd.DataFrame(np.asarray(X, dtype=np.float32), columns=groups[name])
+                          for name, X in blocks.items()], axis=1)
+    container = ProductModelDataContainer(df, expanded, response=df["y"].to_numpy(), feature_groups=groups)
+    reference = LinearProductRegressor().fit(container, groups, loss="poisson", block_link=block_link,
+                                             weights=df["weight"].to_numpy(), verbose=0,
+                                             references={"purpose": np.eye(2)[1], "age": np.eye(4)[2]})
+    assert_same_fit(model, reference)
+
+
+def test_tied_references_under_log_equal_dropping_their_columns():
+    df = frame()
+    options = {"solver_options": {"design_cache": False}}
+    model = fit(tied_spec().prepare(df, response="y"), "log", "poisson", **options)
+    # Dropping a tent's knot columns or one-hot levels fixes them at 0 on the log scale, i.e. at a factor of 1.
+    prepared = ModelSpec([CategoricalTerm("purpose"), CategoricalTerm("state"), TentTerm("age", TENT_KNOTS)]).prepare(
+        df, response="y")
+    groups = {name: [column for column in columns if column not in ("purpose_N", "purpose_P", "age_at_24", "age_at_60")]
+              for name, columns in prepared.feature_groups.items()}
+    dropped = LinearProductRegressor().fit(
+        ProductModelDataContainer(df, prepared.expanded_df, response=df["y"].to_numpy(), feature_groups=groups),
+        groups, loss="poisson", block_link="log", verbose=0, **options)
+    np.testing.assert_allclose(model.predict(df), dropped.predict(
+        ProductModelDataContainer(df, prepared.expanded_df, feature_groups=groups)), rtol=1e-10)
+
+
+def test_newton_holds_the_reference_column_as_its_pivot():
+    df = frame()
+    options = {"solver_options": {"design_cache": False}}
+    purpose = CategoricalTerm("purpose", reference="N")
+    spec = ModelSpec([purpose, CategoricalTerm("state"), ByTerm(TentTerm("age", TENT_KNOTS, reference=24), by=purpose,
+                                                                 drop=("age",))])
+    model = fit(spec.prepare(df, response="y"), "log", "poisson", **options)
+    pivots = model.convergence_info_["pivots"]
+    assert pivots["purpose"] == {"column": "purpose_N", "from": "reference"}
+    assert pivots["age"] == {"column": "age_at_24", "from": "reference"}
+    assert pivots["state"]["from"] == "auto"
+
+    plain = ModelSpec([CategoricalTerm("purpose"), CategoricalTerm("state"),
+                       ByTerm(TentTerm("age", TENT_KNOTS), by=(by := CategoricalTerm("purpose")), drop=("age",))])
+    plain.terms[0] = by
+    unreferenced = fit(plain.prepare(df, response="y"), "log", "poisson", **options)
+    assert unreferenced.convergence_info_["pivots"]["age"]["from"] == "auto"
+    np.testing.assert_allclose(model.predict(df), unreferenced.predict(df), rtol=1e-10)
+
+    off_knot = ModelSpec([CategoricalTerm("purpose"), TentTerm("age", TENT_KNOTS, reference=30)])
+    assert fit(off_knot.prepare(df, response="y"), "log", "poisson").convergence_info_["pivots"]["age"]["from"] == "auto"
+    tied = fit(tied_spec().prepare(df, response="y"), "log", "poisson").convergence_info_["pivots"]
+    assert tied["age"] == {"column": "age_at_24+60", "from": "reference"}
+    assert tied["purpose"] == {"column": "purpose_P+N", "from": "reference"}

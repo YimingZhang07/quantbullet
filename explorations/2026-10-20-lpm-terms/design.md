@@ -1,6 +1,6 @@
 # Design：LPM 的 Term 抽象（tent basis、reference、cross term 与参数化 term）
 
-日期：2026-10-20 · 状态：设计草案；P0（第 9 节）已实施，P1 进行中（P1(a)、P1(b) 已实施），P2 起未实施
+日期：2026-10-20 · 状态：设计草案；P0（第 9 节）与 P1 已实施，P2 起未实施
 
 ## 目标与非目标
 
@@ -150,13 +150,18 @@ fit 开始时校验声明：线性 term 的 `c` 用数据检查 `X @ c ≈ 1`。
 **pivot 怎么选。**
 
 1. term 声明了 reference，且 reference 落在单个系数上（tent 的某个 knot、分类的某个 level，或下面合并出来的那一列）：
-   pivot 就是它。Newton 求解时这个系数固定为 0，求解后不做 mean-1 归一化，term 的水平留在 `global_scalar_`，
-   reference 处的系数正好是 0（乘数为 1）。这种情况下没有任何自动选择。
+   pivot 就是它，Newton 求解时这一列不进 design，没有任何自动选择。实现上求解后的换算沿用原路径（先 mean-1，再按 9.2 节换算到
+   reference），结果和"求解后直接把水平留在 `global_scalar_`"相同，reference 处的系数正好是 1（identity）或 0（log）。
 2. reference 是两个 knot 之间的 x 值（只允许单个 reference）：pivot 按 9.3 节自动选，求解后用 9.2 节的 gauge 换算到 reference。
    结果和第 1 种相同。
 3. 没有声明 reference：pivot 按 9.3 节自动选（bias 列，或权重最大的列），求解后做 mean-1 归一化。
 
-自动选出的 pivot 记进 `convergence_info_`，便于核查。identity link 下 BCD 没有 pivot，reference 一律用 9.2 节的 gauge 换算。
+每个 group 的 pivot 记进 `convergence_info_['pivots']`：`{group: {'column': 列名, 'from': 'reference' 或 'auto'}}`。
+identity link 下 BCD 没有 pivot，reference 一律用 9.2 节的 gauge 换算。
+
+只有当常数方向是精确的，换 pivot 才是精确的重参数化。实现 P1(c) 时发现 float32 的 tent 行和只精确到约 6e-8，换 pivot 会让预测
+变化约 1e-8，沿全 1 方向平移系数也是。所以 `TentTransformer` 在输出 dtype 里直接构造每行的两个权重：较大的那个落在 [0.5, 1]，
+另一个取 1 减它，按 Sterbenz 引理是精确的，于是 float32 下每行也精确和为 1。此后不同 pivot 的拟合一致到约 1e-15。
 
 **多个 reference：合并列，再做 gauge。**
 
@@ -165,7 +170,9 @@ fit 开始时校验声明：线性 term 的 `c` 用数据检查 `X @ c ≈ 1`。
 - 合并出来的系数再按上面第 1 点处理：log 下作为 pivot 固定为 0；identity 下用 gauge 设为 1。
 - log 下这和"删掉这些列"完全等价；identity 下删列会把乘数固定为 0（9.2 节），合并才对。
 - 合并后每行仍然和为 1，常数方向不变。
-- `coef_` 对外仍展开成完整的 knot 表：合并的 knot 都填 reference 值，报告标出哪些 knot 是约束。
+- `coef_` 保持 solver 的参数化，即合并后的列（例如 `c_orig_fico_fit_at_740+780`）；`model.term(name).table()` 展开成完整的
+  knot 或 level 表，合并的点都是 reference 值，`describe()` 列出全部 reference。
+- 作为 `ByTerm` 的 `by` 的 term 只能有一个 reference：`by` 的每个 level 都要有自己的列，才能接收各条曲线的水平。
 - 第一个 reference 不改变模型，之后每一个都是约束（笔记第 4 节："多删的每一个都是约束"）。
 
 **cross term 的删除规则。**
@@ -480,7 +487,7 @@ class TentTransformer(BaseEstimator, TransformerMixin):
 | `knots` | 必填，严格递增，至少 2 个 |
 | 端外 | 两端是平的：`x ≤ k_1` 时 `B_1 = 1`，`x ≥ k_K` 时 `B_K = 1`。这和 sklearn `SplineTransformer` 的默认 `extrapolation="constant"` 相同 |
 | 输入 | 单列：`Series`、单列 `DataFrame` 或 `(n, 1)` 数组，同 FlatRamp |
-| 输出 | `(n, K)` 的 float64 ndarray；`fit_turnover` 已在拼接前转成 float32 |
+| 输出 | `(n, K)` ndarray，默认 float64；`transform(X, dtype=np.float32)` 直接输出 float32，且每行精确和为 1（3.2 节） |
 | 列名 | `{feature}_at_{knot}`，knot 用 `np.format_float_positional`（最短的精确写法）格式化，例如 `c_age_fit_at_24`、`c_orig_balance_real_fit_at_125000`。不用 FlatRamp 的 `numeric_to_string`：它对 ≥ 1000 的值用一位小数的科学计数法，125000 和 120000 会得到同一个列名 |
 | 校验 | 参数原样保存，在 `fit` 里检查 `knots`（sklearn 约定，`clone` 可用；FlatRamp 在构造时校验，这里不照搬）。某一列在训练数据上全为 0（knot 附近没有数据）时报错，因为这一列的系数不可识别 |
 
@@ -626,7 +633,8 @@ P1 分三个提交：
 - (b) toolkit 只接收 `ModelSpec`、`model.term(name)` 的读取接口（`coef`、`curve`、`table`）、turnover 迁移到 spec。已实施：
   toolkit 只用 term 的名字和类型（`CategoricalTerm` 为分类，其余为数值），报告用 `term.describe()`；`reference_rows` 移到
   `ModelSpec`；turnover 用 `BasisTerm(FlatRamp)` 和 `CategoricalTerm`，拟合与迁移前完全相同，`spec_` 之前保存的 model 需要重新 fit 才能出报告。
-- (c) 多个 reference（合并列加 gauge）、Newton 用 reference 当 pivot。
+- (c) 多个 reference（合并列加 gauge）、Newton 用 reference 当 pivot。已实施：pivot 记进 `convergence_info_['pivots']`；
+  `TentTransformer` 的行在 float32 下也精确和为 1；reference 的换算按 `feature_groups_` 的顺序进行，与传入顺序无关。
 
 原计划里"solver 改为通过 term 求值"一步取消（2026-10-21）：P1 只有线性 term，spec 编译成 solver 现有的 block 就够了，数值结果按构造与
 container 路径一致。让 solver 通过 term 求值、取 Jacobian 是 P3 参数化 term 才需要的，放到 P3。

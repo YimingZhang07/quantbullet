@@ -209,6 +209,9 @@ class LinearProductRegressor( LinearProductRegressorBase, IterativeFitMixin ):
         self.interactions_ = interactions or {}
         self.references_ = {}
         self.spec_ = spec
+        # A reference on one column (a knot, a level or tied ones) is the column Newton holds fixed.
+        self.pivots_ = {group: int(np.flatnonzero(reference.row)[0]) for group, reference in references.items()
+                        if np.count_nonzero(reference.row) == 1 and reference.row.max() == 1.}
 
         # ---- 3) validate inputs ----
         if weights is not None:
@@ -266,7 +269,8 @@ class LinearProductRegressor( LinearProductRegressorBase, IterativeFitMixin ):
         """``(params, curves, scalar)`` with each referenced block 1 at its row, as new objects.
 
         Interaction curves go first and move their levels to the ``by`` block, so a reference on the ``by``
-        block applies to the moved levels; every other block moves its level into ``scalar``.
+        block applies to the moved levels; every other block moves its level into ``scalar``. Groups go in
+        ``feature_groups_`` order, so the result does not depend on the order of ``references``.
         """
         form = self.form_
         params, curves = dict(params), {group: dict(c) for group, c in curves.items()}
@@ -279,7 +283,8 @@ class LinearProductRegressor( LinearProductRegressorBase, IterativeFitMixin ):
                                  "positive factor, so the fit is kept without references")
             return value
 
-        for group, reference in references.items():
+        ordered = [(group, references[group]) for group in self.feature_groups_ if group in references]
+        for group, reference in ordered:
             if group not in self.interactions_:
                 continue
             by = self.interactions_[group]
@@ -290,7 +295,7 @@ class LinearProductRegressor( LinearProductRegressorBase, IterativeFitMixin ):
                 column = reference.levels[label]
                 by_coef[column] = form.rescale(by_coef[column], 1. / level, 1.)
             params[by] = by_coef
-        for group, reference in references.items():
+        for group, reference in ordered:
             if group in self.interactions_:
                 continue
             level = factor(group, params[group])

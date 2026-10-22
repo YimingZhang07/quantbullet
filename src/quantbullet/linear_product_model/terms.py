@@ -42,8 +42,20 @@ class Term(ABC):
         """Names of the design columns, which name the coefficients too."""
 
     def reference_row(self):
-        """Basis row of ``reference``: after ``fit`` the factor is 1 there."""
-        return self.row(self.reference)
+        """Basis row of ``reference`` (the first of several): after ``fit`` the factor is 1 there."""
+        return self.row(_references(self.reference)[0])
+
+    def _tied(self, points, kind):
+        """Indices among ``points`` of several references, which share one column; ``None`` for one or none."""
+        references = _references(self.reference)
+        if len(references) < 2:
+            return None
+        if len(set(references)) < len(references):
+            raise ValueError(f"{self!r} repeats a reference: {references}")
+        missing = [reference for reference in references if reference not in points]
+        if missing:
+            raise ValueError(f"{self!r}: several references must be {kind} {list(points)}; {missing} are not")
+        return [points.index(reference) for reference in references]
 
     def row(self, value):
         """Basis row of one raw value."""
@@ -63,7 +75,10 @@ class Term(ABC):
 class TentTerm(Term):
     """Tent basis of a numeric column (``TentTransformer``): the coefficients are the curve's values at the knots.
 
-    ``reference`` is an x value, not necessarily a knot.
+    ``reference`` is an x value, not necessarily a knot, or a list of knots. Several references are tied: their
+    columns are summed into one, named ``{column}_at_{a}+{b}``, so the curve takes one value at all of them,
+    which ``fit`` sets to the reference value. The first reference gauges the level; each further one is a
+    constraint.
     """
 
     def __init__(self, column, knots, reference=None):
@@ -71,13 +86,15 @@ class TentTerm(Term):
 
     def setup_basis(self, frame, dtype):
         self.transformer_ = TentTransformer(self.knots)
-        return self.transformer_.fit_transform(frame[[self.column]]).astype(dtype, copy=False)
+        basis = self.transformer_.fit_transform(frame[[self.column]], dtype=dtype)
+        self.tied_ = self._tied(self.transformer_.knots_.tolist(), "knots")
+        return _tie(basis, self.tied_)
 
     def basis(self, frame, dtype):
-        return self.transformer_.transform(frame[[self.column]]).astype(dtype, copy=False)
+        return _tie(self.transformer_.transform(frame[[self.column]], dtype=dtype), self.tied_)
 
     def columns(self):
-        return self.transformer_.get_feature_names_out().tolist()
+        return _tied_names(self.transformer_.get_feature_names_out().tolist(), self.tied_, f"{self.column}_at_")
 
     def _detail(self):
         return f"knots={_numbers(self.knots)}"
@@ -87,7 +104,7 @@ class CategoricalTerm(Term):
     """One-hot levels of a column, named ``{column}_{level}``; the coefficients are the levels' values.
 
     ``levels`` defaults to the sorted levels in the training frame; missing values and other levels raise.
-    ``reference`` is a level.
+    ``reference`` is a level, or a list of levels tied into one column ``{column}_{a}+{b}`` (see ``TentTerm``).
     """
 
     def __init__(self, column, levels=None, reference=None):
@@ -99,6 +116,7 @@ class CategoricalTerm(Term):
             raise ValueError(f"{self.column} has missing values; map them to a level first")
         self.levels_ = (list(self.levels) if self.levels is not None
                         else np.unique(np.asarray(pd.unique(values), dtype=object)).tolist())
+        self.tied_ = self._tied(self.levels_, "levels")
         return self.basis(frame, dtype)
 
     def basis(self, frame, dtype):
@@ -107,12 +125,13 @@ class CategoricalTerm(Term):
         if (codes < 0).any():
             raise ValueError(f"{self.column} has missing values or levels outside {self.levels_}: "
                              f"{pd.unique(values[codes < 0])[:5].tolist()}")
-        basis = np.zeros((len(codes), len(self.levels_)), dtype=dtype)
-        basis[np.arange(len(codes)), codes] = 1
+        column = _tied_positions(len(self.levels_), self.tied_)
+        basis = np.zeros((len(codes), column.max() + 1), dtype=dtype)
+        basis[np.arange(len(codes)), column[codes]] = 1
         return basis
 
     def columns(self):
-        return [f"{self.column}_{level}" for level in self.levels_]
+        return _tied_names([f"{self.column}_{level}" for level in self.levels_], self.tied_, f"{self.column}_")
 
     def _detail(self):
         if hasattr(self, "levels_"):
@@ -206,6 +225,36 @@ def _dropped(term, variables):
     return dropped
 
 
+def _references(reference):
+    """``reference`` as a list: empty for none, one item for a single value."""
+    if reference is None:
+        return []
+    return list(reference) if isinstance(reference, (list, tuple, np.ndarray)) else [reference]
+
+
+def _tied_positions(n_columns, tied):
+    """Column of each of ``n_columns`` points once the ``tied`` ones share the first tied point's column."""
+    keep = [j for j in range(n_columns) if not tied or j not in tied[1:]]
+    position = {j: i for i, j in enumerate(keep)}
+    return np.array([position[tied[0]] if tied and j in tied else position[j] for j in range(n_columns)])
+
+
+def _tie(basis, tied):
+    """Sum the ``tied`` columns into the first of them and drop the others."""
+    if not tied:
+        return basis
+    basis[:, tied[0]] = basis[:, tied].sum(axis=1)
+    return np.delete(basis, tied[1:], axis=1)
+
+
+def _tied_names(names, tied, prefix):
+    """Column names once the ``tied`` columns are one, named ``prefix`` + their suffixes joined by ``+``."""
+    if not tied:
+        return names
+    joined = prefix + "+".join(names[j][len(prefix):] for j in tied)
+    return [joined if j == tied[0] else name for j, name in enumerate(names) if j not in tied[1:]]
+
+
 def _numbers(values):
     return "[" + ", ".join(np.format_float_positional(float(value), trim="-") for value in values) + "]"
 
@@ -237,11 +286,24 @@ class ModelSpec:
         if shared:
             raise ValueError(f"Terms share the names {shared}; each term is one feature group named after its column")
         for term in self.terms:
-            if isinstance(term.reference, (list, tuple, np.ndarray)):
-                raise NotImplementedError(f"{term!r} has several references; one reference per term is supported")
+            self._check_references(term)
             if isinstance(term, ByTerm):
                 self._check_by(term)
         return self
+
+    def _check_references(self, term):
+        """Several references tie knots or levels, so only tent and categorical terms take them."""
+        inner = term.term if isinstance(term, ByTerm) else term
+        if len(_references(inner.reference)) < 2:
+            return
+        if not isinstance(inner, (TentTerm, CategoricalTerm)):
+            raise ValueError(f"{term!r} has several references, which tie knots or levels; "
+                             "only TentTerm and CategoricalTerm take them")
+        if any(isinstance(other, ByTerm) and other.by is term for other in self.terms):
+            raise ValueError(f"{term!r} is the by term of a ByTerm, which needs a column for each level; "
+                             "give it one reference")
+        if isinstance(inner, TentTerm):
+            inner._tied(np.asarray(inner.knots, dtype=float).tolist(), "knots")
 
     def _check_by(self, term):
         """The one ``drop`` rule of a ``ByTerm`` (note on tent bases, 4.2.3).

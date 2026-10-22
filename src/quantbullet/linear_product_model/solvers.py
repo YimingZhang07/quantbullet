@@ -516,18 +516,21 @@ class _Part:
     constant: np.ndarray | None = None   # coefficients c with X @ c = 1, when the block has them
     by: str | None = None           # interaction: full one-hot block whose levels split the curve
     reference: int | None = None    # categorical: level left out of the design
+    pivot: int | None = None        # block column held fixed: the left-out column or level
+    pivot_from_reference: bool = False   # the pivot is the group's reference rather than chosen here
     keep: np.ndarray = None         # expanded columns kept (varying, not the reference)
     mean: np.ndarray = None
     std: np.ndarray = None
     beta: slice = None              # position in the coefficient vector; 0 is the intercept
 
 
-def _constant_direction(X, w, chunk_rows):
+def _constant_direction(X, w, chunk_rows, pivot=None):
     """Coefficients ``c`` with ``X @ c = 1`` and the column the design leaves out for them, or ``(None, None)``.
 
     A column that is identically 1 (a bias) is its own direction and is left out. Otherwise, when every row
     sums to 1 (a tent basis), ``c`` is all ones and the largest-weight column is left out, as for a categorical
-    block. Row sums allow float32 rounding. ``w`` may be ``None`` for equal weights.
+    block, unless ``pivot`` (a reference column with data) is given. Row sums allow float32 rounding. ``w``
+    may be ``None`` for equal weights.
     """
     ones = np.ones(X.shape[1], dtype=bool)
     rows_sum_to_one, weight = True, np.zeros(X.shape[1])
@@ -543,6 +546,8 @@ def _constant_direction(X, w, chunk_rows):
     if ones.any():
         column = int(np.flatnonzero(ones)[0])
         return np.eye(X.shape[1])[column], column
+    if pivot is not None and weight[pivot] > 0:
+        return np.ones(X.shape[1]), pivot
     return np.ones(X.shape[1]), int(np.argmax(weight))
 
 
@@ -561,13 +566,15 @@ class _LogDesign:
 
     There is one global intercept: numeric blocks with a constant direction lose one column along it (a
     bias column, or the largest-weight column when rows sum to 1), categorical blocks their largest-weight
-    level, and an interaction block becomes its remaining columns times the full one-hot ``by`` block.
-    Frozen submodels stay out of the design and enter as an offset.
+    level, and an interaction block becomes its remaining columns times the full one-hot ``by`` block. A
+    group whose reference falls on one column (``model.pivots_``) loses that column instead. Frozen
+    submodels stay out of the design and enter as an offset.
     """
 
     def __init__(self, model, data_blocks, orig, w, chunk_rows):
         self.chunk_rows, self.cached = chunk_rows, None
         self.parts, self.frozen, self.codes, self.levels = [], [], {}, {}
+        pivots = getattr(model, "pivots_", None) or {}
         for group in model.feature_groups_:
             X = data_blocks[group]
             if group in model.submodels_:
@@ -576,19 +583,25 @@ class _LogDesign:
             if group in model.interactions_:
                 by = model.interactions_[group]
                 self._check_interaction(group, by, model, data_blocks, orig)
-                constant, left_out = _constant_direction(X, w, chunk_rows)
+                constant, left_out = _constant_direction(X, w, chunk_rows, pivots.get(group))
                 self.parts.append(_Part(group, "interaction", X.shape[1], _without(X.shape[1], left_out),
-                                        constant, by=by))
+                                        constant, by=by, pivot=left_out,
+                                        pivot_from_reference=left_out is not None and left_out == pivots.get(group)))
                 continue
             codes = self.codes[group] if group in self.codes else one_hot_codes(X)
             if codes is not None:
                 self.codes[group] = codes
-                reference = int(np.argmax(np.bincount(codes, weights=w, minlength=X.shape[1])))
+                weight = np.bincount(codes, weights=w, minlength=X.shape[1])
+                pivot = pivots.get(group)
+                reference = pivot if pivot is not None and weight[pivot] > 0 else int(np.argmax(weight))
                 self.parts.append(_Part(group, "categorical", X.shape[1], np.arange(X.shape[1]),
-                                        reference=reference))
+                                        reference=reference, pivot=reference,
+                                        pivot_from_reference=reference == pivot))
                 continue
-            constant, left_out = _constant_direction(X, w, chunk_rows)
-            self.parts.append(_Part(group, "numeric", X.shape[1], _without(X.shape[1], left_out), constant))
+            constant, left_out = _constant_direction(X, w, chunk_rows, pivots.get(group))
+            self.parts.append(_Part(group, "numeric", X.shape[1], _without(X.shape[1], left_out), constant,
+                                    pivot=left_out,
+                                    pivot_from_reference=left_out is not None and left_out == pivots.get(group)))
         self._standardize(data_blocks, len(w))
 
     def _check_interaction(self, group, by, model, data_blocks, orig):
@@ -754,7 +767,10 @@ class NewtonSolver:
         model.convergence_info_ = {'reason': status, 'iteration': steps, 'current_loss': model.best_loss_,
                                    'best_iteration': len(accepted), 'best_loss': model.best_loss_,
                                    'deviance': accepted[-1][1], 'solver': self.name,
-                                   'hessian': self.hessian_precision}
+                                   'hessian': self.hessian_precision,
+                                   'pivots': {part.group: {'column': model.feature_groups_[part.group][part.pivot],
+                                                           'from': 'reference' if part.pivot_from_reference else 'auto'}
+                                              for part in design.parts if part.pivot is not None}}
         if self.verbose > 0:
             print(f"Newton stopped ({status}) after {steps} steps; Poisson deviance {accepted[-1][1]:.6e}.")
         model._compute_block_means(data_blocks, X, weights)

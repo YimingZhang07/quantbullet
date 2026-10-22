@@ -63,3 +63,16 @@ def test_knots_without_nearby_data_and_non_finite_inputs_are_rejected():
     transformer = TentTransformer(knots=[0, 1]).fit(pd.Series([0., 1.]))
     with pytest.raises(ValueError, match="exactly one feature"):
         transformer.transform(pd.DataFrame({"a": [0.], "b": [1.]}))
+
+
+def test_rows_sum_to_exactly_one_in_float32_and_float64():
+    knots = (1., 3., 6., 12., 36., 120.)
+    x = np.random.default_rng(2).uniform(0., 130., (20000, 1))
+    transformer = TentTransformer(knots).fit(x)
+    exact = transformer.transform(x)
+    for dtype in (np.float64, np.float32):
+        basis = transformer.transform(x, dtype=dtype)
+        assert basis.dtype == dtype and np.all(basis.sum(axis=1, dtype=np.float64) == 1.)
+        np.testing.assert_allclose(basis, exact, atol=1e-7 if dtype == np.float32 else 0.)
+    np.testing.assert_array_equal(TentTransformer(knots).fit_transform(x, dtype=np.float32),
+                                  transformer.transform(x, dtype=np.float32))

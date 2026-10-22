@@ -227,8 +227,10 @@ def test_references_move_levels_without_changing_predictions(block_link, loss, i
     df, spec, data = _reference_data()
     groups, interactions = spec.feature_groups(), {"age": "purpose"} if interaction else None
     rows = spec.reference_rows({"age": 24, "purpose": "P", "state": 2})
-    plain = _fit(data, groups, block_link, loss, interactions=interactions)
-    model = _fit(data, groups, block_link, loss, interactions=interactions, references=rows)
+    # Newton fixes the reference columns instead of its own pivots: a float64 Hessian takes both fits to the optimum.
+    options = {"solver_options": {"design_cache": False}} if block_link == "log" else {}
+    plain = _fit(data, groups, block_link, loss, interactions=interactions, **options)
+    model = _fit(data, groups, block_link, loss, interactions=interactions, references=rows, **options)
     np.testing.assert_allclose(model.predict(data), plain.predict(data), rtol=1e-10)
 
     one = 1. if block_link == "identity" else 0.               # the coefficient whose factor is 1
