@@ -12,7 +12,7 @@ from .base import IterativeFitMixin, LinearProductRegressorBase, InteractionCoef
 from .datacontainer import ProductModelDataContainer
 from .forms import resolve_form
 from .solvers import BCDSolver, NewtonSolver, _constant_direction
-from .terms import ModelData
+from .terms import FittedTerm, ModelData
 
 
 def _is_default(value, default):
@@ -301,6 +301,15 @@ class LinearProductRegressor( LinearProductRegressorBase, IterativeFitMixin ):
     # ------------------------------------------------------------------
     # predict  (override to handle InteractionCoef in coef_)
     # ------------------------------------------------------------------
+
+    def term(self, name):
+        """The fitted term ``name`` of a model fitted on ``ModelSpec`` data: ``coef``, ``curve`` and ``table``."""
+        if getattr(self, "spec_", None) is None:
+            raise ValueError("term() needs a model fitted on data from ModelSpec.prepare")
+        terms = self.spec_.term_dict()
+        if name not in terms:
+            raise KeyError(f"No term {name!r}; the terms are {list(terms)}")
+        return FittedTerm(self, terms[name])
 
     def predict(self, X: ProductModelDataContainer | pd.DataFrame):
         """Predictions for a container; a model fitted on ``ModelSpec`` data also reads raw frames through ``spec_``."""

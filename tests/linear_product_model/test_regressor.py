@@ -3,19 +3,18 @@ import numpy as np
 import pandas as pd
 import pytest
 from sklearn.metrics import mean_squared_error
-from sklearn.preprocessing import OneHotEncoder
 
 from quantbullet.linear_product_model import (
     LinearProductRegressor,
     LinearProductRegressorScipy,
-    LinearProductModelToolkit,
+    ModelSpec,
 )
-from quantbullet.preprocessing import FlatRampTransformer, TentTransformer
+from quantbullet.linear_product_model.terms import BasisTerm, CategoricalTerm, FrozenTerm, TentTerm
+from quantbullet.preprocessing import FlatRampTransformer
 from quantbullet.linear_product_model.datacontainer import ProductModelDataContainer
-from quantbullet.model.feature import DataType, Feature, FeatureRole, FeatureSpec
 from quantbullet.parametric_model import InterpolatedModel
 
-def _setup_toolkit():
+def _setup_frame():
     np.random.seed(42)
     n_samples = int( 10e4 )
     df = pd.DataFrame({
@@ -30,34 +29,21 @@ def _setup_toolkit():
         np.random.randn(n_samples) * 0.5 + \
         np.random.normal(loc = df['x3'].cat.codes, scale=0.5) + 10
 
-    preprocess_config = {
-        'x1': FlatRampTransformer(
-            knots = list( np.arange( 4, 16, 1 ) ),
-            include_bias=True
-        ),
-        'x2': FlatRampTransformer(
-            knots = list( np.arange( 14, 26, 1 ) ),
-            include_bias=True
-        ),
-        'x3': OneHotEncoder( drop=None )
-    }
+    return df
 
-    feature_spec = FeatureSpec(
-        features = [
-            Feature( name='x1', dtype=DataType.FLOAT, role=FeatureRole.MODEL_INPUT ),
-            Feature( name='x2', dtype=DataType.FLOAT, role=FeatureRole.MODEL_INPUT ),
-            Feature( name='x3', dtype=DataType.CATEGORY, role=FeatureRole.MODEL_INPUT ),
-            Feature( name='y', dtype=DataType.FLOAT, role=FeatureRole.TARGET )
-        ]
-    )
 
-    tk = LinearProductModelToolkit( feature_spec=feature_spec, preprocess_config=preprocess_config ).fit( df )
-
-    return df, tk
+def _setup_spec( x1=None ):
+    """FlatRamp x1 and x2 and one-hot x3; ``x1`` replaces the x1 term, e.g. with a ``FrozenTerm``."""
+    return ModelSpec( [
+        x1 if x1 is not None else BasisTerm( 'x1', FlatRampTransformer( knots=list( np.arange( 4, 16, 1 ) ), include_bias=True ) ),
+        BasisTerm( 'x2', FlatRampTransformer( knots=list( np.arange( 14, 26, 1 ) ), include_bias=True ) ),
+        CategoricalTerm( 'x3' ),
+    ] )
 
 def _setup_data():
-    df, tk = _setup_toolkit()
-    return df, tk.get_expanded_df( df ), tk.feature_groups
+    df = _setup_frame()
+    data = _setup_spec().prepare( df, response='y', dtype=np.float64 )
+    return df, data.expanded_df, data.feature_groups
 
 class TestLinearProductRegressor(unittest.TestCase):
     def setUp(self):
@@ -109,30 +95,18 @@ class TestFrozenSubmodelBlocks(unittest.TestCase):
     """
 
     def setUp(self):
-        self.df, self.toolkit = _setup_toolkit()
+        self.df = _setup_frame()
 
     def _fit_with_frozen_x1(self):
         df = self.df
-        # Dropping x1 from the preprocess config is what turns its expanded block
-        # into the raw column, which is the input the submodel expects.
-        component_tk = self.toolkit.clone( exclude_preprocess_features=['x1'] )
-        component_tk.fit( df )
-        expanded_df = component_tk.get_expanded_df( df )
-        self.assertEqual( component_tk.feature_groups['x1'], ['x1'] )
-
         grid = np.linspace( df['x1'].min(), df['x1'].max(), 40 )
         submodel = InterpolatedModel().fit( grid, 1.0 + 0.05 * np.cos( grid ) )
 
-        dcontainer = ProductModelDataContainer(
-            df, expanded_df, response=df['y'], feature_groups=component_tk.feature_groups )
+        # A frozen term's block is the raw column, which is the input the submodel expects.
+        dcontainer = _setup_spec( FrozenTerm( 'x1', submodel ) ).prepare( df, response='y', dtype=np.float64 )
+        self.assertEqual( dcontainer.feature_groups['x1'], ['x1'] )
         model = LinearProductRegressor()
-        model.fit(
-            dcontainer,
-            feature_groups=component_tk.feature_groups,
-            submodels={'x1': submodel},
-            n_iterations=20,
-            early_stopping_rounds=5,
-        )
+        model.fit( dcontainer, n_iterations=20, early_stopping_rounds=5 )
         return model, dcontainer, submodel
 
     def test_block_mean_reads_from_submodel(self):
@@ -224,7 +198,7 @@ class FrozenCurve:
 
 
 def _reference_data(n=6000, seed=3):
-    """Counts driven by age (tent basis), purpose and state (one-hot), built through the toolkit."""
+    """Counts driven by age (tent basis), purpose and state (one-hot), as a container built from a spec."""
     rng = np.random.default_rng(seed)
     df = pd.DataFrame({"age": rng.uniform(1., 120., n),
                        "purpose": pd.Categorical(rng.choice(["C", "N", "P"], n)),
@@ -232,17 +206,14 @@ def _reference_data(n=6000, seed=3):
     rate = (.05 * np.exp(.6 * np.minimum(df["age"], 36.) / 36.)
             * df["purpose"].map({"C": .8, "N": 1.2, "P": 1.}).astype(float) * (1. + .1 * df["state"].astype(int)))
     df["y"] = rng.poisson(rate).astype(float)
-    spec = FeatureSpec([Feature("age", DataType.FLOAT, FeatureRole.MODEL_INPUT),
-                        Feature("purpose", DataType.CATEGORY, FeatureRole.MODEL_INPUT),
-                        Feature("state", DataType.CATEGORY, FeatureRole.MODEL_INPUT),
-                        Feature("y", DataType.FLOAT, FeatureRole.TARGET)])
-    config = {"age": TentTransformer(AGE_KNOTS), "purpose": OneHotEncoder(drop=None), "state": OneHotEncoder(drop=None)}
-    toolkit = LinearProductModelToolkit(spec, preprocess_config=config).fit(df)
-    return df, toolkit, _container(df, toolkit, toolkit.feature_groups)
+    spec = ModelSpec([TentTerm("age", AGE_KNOTS), CategoricalTerm("purpose"), CategoricalTerm("state")])
+    prepared = spec.prepare(df, response="y", dtype=np.float64)
+    return df, prepared.spec, _container(df, prepared, prepared.feature_groups)
 
 
-def _container(df, toolkit, feature_groups):
-    return ProductModelDataContainer(df, toolkit.get_expanded_df(df), response=df["y"].to_numpy(),
+def _container(df, prepared, feature_groups):
+    """The container path: the spec's design without its spec."""
+    return ProductModelDataContainer(df, prepared.expanded_df, response=df["y"].to_numpy(),
                                      feature_groups=feature_groups)
 
 
@@ -253,9 +224,9 @@ def _fit(container, groups, block_link, loss, **options):
 @pytest.mark.parametrize("block_link, loss", FORMS)
 @pytest.mark.parametrize("interaction", [False, True])
 def test_references_move_levels_without_changing_predictions(block_link, loss, interaction):
-    df, toolkit, data = _reference_data()
-    groups, interactions = toolkit.feature_groups, {"age": "purpose"} if interaction else None
-    rows = toolkit.reference_rows({"age": 24, "purpose": "P", "state": 2})
+    df, spec, data = _reference_data()
+    groups, interactions = spec.feature_groups(), {"age": "purpose"} if interaction else None
+    rows = spec.reference_rows({"age": 24, "purpose": "P", "state": 2})
     plain = _fit(data, groups, block_link, loss, interactions=interactions)
     model = _fit(data, groups, block_link, loss, interactions=interactions, references=rows)
     np.testing.assert_allclose(model.predict(data), plain.predict(data), rtol=1e-10)
@@ -270,7 +241,7 @@ def test_references_move_levels_without_changing_predictions(block_link, loss, i
 
     # Every factor is 1 at the reference state, so the scalar is the prediction there.
     state = pd.DataFrame({"age": [24.], "purpose": pd.Categorical(["P"]), "state": pd.Categorical([2])})
-    single = ProductModelDataContainer(state, toolkit.get_expanded_df(state), feature_groups=groups)
+    single = spec.transform(state)
     assert model.predict(single)[0] == pytest.approx(model.global_scalar_, rel=1e-12)
     assert model.global_scalar_ == model.global_scalar_history_[model.best_iteration_]
     for params in model.coef_history_:
@@ -280,20 +251,20 @@ def test_references_move_levels_without_changing_predictions(block_link, loss, i
 
 
 def test_a_reference_off_the_knots_leaves_other_blocks_at_mean_one():
-    df, toolkit, data = _reference_data()
-    rows = toolkit.reference_rows({"age": 30.})
-    model = _fit(data, toolkit.feature_groups, "log", "poisson", references=rows)
+    df, spec, data = _reference_data()
+    rows = spec.reference_rows({"age": 30.})
+    model = _fit(data, spec.feature_groups(), "log", "poisson", references=rows)
     assert model.block_factor("age", rows["age"][None, :])[0] == pytest.approx(1., rel=1e-12)
     for group in ("purpose", "state"):
         assert model.block_means_[group] == pytest.approx(1., abs=1e-10)
 
 
 def test_bad_references_are_rejected_before_the_model_changes():
-    df, toolkit, data = _reference_data()
-    groups = toolkit.feature_groups
+    df, spec, data = _reference_data()
+    groups = spec.feature_groups()
     model = _fit(data, groups, "identity", "poisson")
     before = model.predict(data)
-    age = toolkit.reference_rows({"age": 24})["age"]
+    age = spec.reference_rows({"age": 24})["age"]
     without_first = {**groups, "purpose": groups["purpose"][1:], "age": groups["age"][1:]}
     cases = [
         (data, groups, dict(references=[age]), TypeError, "references must be a dict"),
@@ -305,10 +276,10 @@ def test_bad_references_are_rejected_before_the_model_changes():
         (data, groups, dict(references={"age": age}, interactions={"age": "purpose"},
                             interaction_submodels={"age": {"C": FrozenCurve(np.ones(5))}}),
          ValueError, "frozen interaction curves"),
-        (_container(df, toolkit, without_first), without_first,
+        (_container(df, data, without_first), without_first,
          dict(references={"age": np.eye(4)[1]}, interactions={"age": "purpose"}),
          ValueError, "by-block 'purpose' to be a trainable full one-hot block"),
-        (_container(df, toolkit, without_first), without_first,
+        (_container(df, data, without_first), without_first,
          dict(references={"age": np.eye(4)[1]}, block_link="log"), ValueError, "'age' has no constant direction"),
     ]
     for container, fit_groups, arguments, error, message in cases:
@@ -318,10 +289,10 @@ def test_bad_references_are_rejected_before_the_model_changes():
 
 
 def test_a_non_positive_reference_factor_keeps_the_fit_without_references():
-    df, toolkit, data = _reference_data()
-    plain = _fit(data, toolkit.feature_groups, "identity", "poisson")
+    df, spec, data = _reference_data()
+    plain = _fit(data, spec.feature_groups(), "identity", "poisson")
     model = LinearProductRegressor()
     with pytest.raises(ValueError, match="reference factor of 'age' is 0 in the fitted model"):
-        model.fit(data, toolkit.feature_groups, loss="poisson", verbose=0, references={"age": np.zeros(5)})
+        model.fit(data, spec.feature_groups(), loss="poisson", verbose=0, references={"age": np.zeros(5)})
     np.testing.assert_array_equal(model.predict(data), plain.predict(data))
     assert model.references_ == {} and model.fit_metadata_.references is None

@@ -8,11 +8,8 @@ import time
 import numpy as np
 import pandas as pd
 import polars as pl
-from sklearn.preprocessing import OneHotEncoder
-
-from quantbullet.linear_product_model import LinearProductModelToolkit, LinearProductRegressor
-from quantbullet.linear_product_model.datacontainer import ProductModelDataContainer
-from quantbullet.model.feature import DataType, Feature, FeatureRole, FeatureSpec
+from quantbullet.linear_product_model import LinearProductRegressor, ModelSpec
+from quantbullet.linear_product_model.terms import BasisTerm, ByTerm, CategoricalTerm
 from quantbullet.preprocessing.transformers import FlatRampTransformer
 from quantbullet.utils.files import file_sha256, temporary_output
 
@@ -47,7 +44,6 @@ KNOTS = {
 }
 FIT_NUMERIC = tuple(name + "_fit" for name in KNOTS)
 MODEL_INPUTS = (*FIT_NUMERIC, *CATEGORICAL)
-INTERACTIONS = {"c_age_fit": "f_purpose"}
 
 
 def to_model_data(frame: pl.DataFrame) -> pd.DataFrame:
@@ -63,27 +59,13 @@ def to_model_data(frame: pl.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(data).reset_index(drop=True)
 
 
-def build_toolkit(data: pd.DataFrame) -> LinearProductModelToolkit:
-    transformers = {name: OneHotEncoder(drop=None, handle_unknown="error", dtype=np.float32) for name in CATEGORICAL}
-    transformers.update({name + "_fit": FlatRampTransformer(knots=knots, include_bias=True) for name, knots in KNOTS.items()})
-    features = [Feature(name, DataType.CATEGORY, FeatureRole.MODEL_INPUT) for name in CATEGORICAL]
-    features += [Feature(name + "_fit", DataType.FLOAT, FeatureRole.MODEL_INPUT) for name in KNOTS]
-    features.append(Feature(TARGET, DataType.FLOAT, FeatureRole.TARGET))
-    return LinearProductModelToolkit(FeatureSpec(features), preprocess_config=transformers).fit(data)
-
-
-def make_container(data: pd.DataFrame, toolkit: LinearProductModelToolkit) -> ProductModelDataContainer:
-    # Expand/cast each block before concatenation so a float64 numeric ramp cannot
-    # promote the entire (mostly one-hot) full-cohort matrix to float64.
-    blocks = []
-    for name, columns in toolkit.feature_groups.items():
-        values = toolkit.preprocess_config[name].transform(data[[name]])
-        if hasattr(values, "toarray"):
-            values = values.toarray()
-        blocks.append(pd.DataFrame(np.asarray(values, dtype=np.float32), columns=columns))
-    expanded = pd.concat(blocks, axis=1)
-    return ProductModelDataContainer(data, expanded, response=data[TARGET].to_numpy(),
-                                     feature_groups=toolkit.feature_groups, as_float32=True)
+def build_spec() -> ModelSpec:
+    """One-hot categorical terms, then FlatRamp (with bias) numeric terms; the age ramp is fitted per f_purpose level."""
+    categorical = {name: CategoricalTerm(name) for name in CATEGORICAL}
+    numeric = {name + "_fit": BasisTerm(name + "_fit", FlatRampTransformer(knots=knots, include_bias=True))
+               for name, knots in KNOTS.items()}
+    numeric["c_age_fit"] = ByTerm(numeric["c_age_fit"], by=categorical["f_purpose"], drop=("c_age_fit",))
+    return ModelSpec([*categorical.values(), *numeric.values()])
 
 
 def solver_arguments(config: Config) -> dict:
@@ -135,26 +117,24 @@ def fit(config: Config, *, smoke_rows: int | None = None) -> dict:
     timings["model_data"] = time.perf_counter() - started
     print(f"[fit] {len(data):,} rows; constructing main-effect blocks", flush=True)
     started = time.perf_counter()
-    toolkit = build_toolkit(data)
-    timings["toolkit"] = time.perf_counter() - started
-    started = time.perf_counter()
-    container = make_container(data, toolkit)
-    timings["container"] = time.perf_counter() - started
-    print(f"[fit] {container.shape[1]} expanded columns; float32 block arrays", flush=True)
+    # float32 blocks: a float64 numeric ramp would otherwise promote the mostly one-hot design to float64.
+    prepared = build_spec().prepare(data, response=TARGET, weights="weight", dtype=np.float32)
+    timings["prepare"] = time.perf_counter() - started
+    print(f"[fit] {prepared.shape[1]} expanded columns; float32 block arrays", flush=True)
     model = LinearProductRegressor()
     started = time.perf_counter()
-    model.fit(container, feature_groups=toolkit.feature_groups, interactions=INTERACTIONS, loss="poisson",
-              weights=data["weight"].to_numpy(), block_link=config.block_link, **solver_arguments(config))
+    model.fit(prepared, loss="poisson", block_link=config.block_link, **solver_arguments(config))
     seconds = time.perf_counter() - started
     timings["fit"] = seconds
     started = time.perf_counter()
-    pred = model.predict(container)
+    pred = model.predict(prepared)
     timings["predict"] = time.perf_counter() - started
     started = time.perf_counter()
     metrics = prediction_metrics(data[TARGET], pred, data["weight"])
     timings["metrics"] = time.perf_counter() - started
     started = time.perf_counter()
-    meta = {"rows": frame.height, "expanded_columns": container.shape[1], "fit_seconds": seconds,
+    terms = model.spec_.term_dict()
+    meta = {"rows": frame.height, "expanded_columns": prepared.shape[1], "fit_seconds": seconds,
             "loss": "poisson", "block_link": config.block_link, "form": model.form_.name,
             "solver": model.solver_name_, "solver_arguments": solver_arguments(config),
             "weight_source": "c_prev_balance", "target": TARGET,
@@ -162,8 +142,8 @@ def fit(config: Config, *, smoke_rows: int | None = None) -> dict:
             "clip_counts": {name: int(((frame[name] < lower) | (frame[name] > upper)).sum())
                             for name, (lower, upper) in CLIP.items()},
             "knots": {name: list(knots) for name, knots in KNOTS.items()},
-            "categorical": list(CATEGORICAL), "model_inputs": list(MODEL_INPUTS), "interactions": dict(INTERACTIONS),
-            "categories": {name: toolkit.preprocess_config[name].categories_[0].tolist() for name in CATEGORICAL},
+            "categorical": list(CATEGORICAL), "model_inputs": list(MODEL_INPUTS), "interactions": dict(model.interactions_),
+            "categories": {name: list(terms[name].levels_) for name in CATEGORICAL},
             "incentive_max": config.incentive_max,
             "smoke_rows": smoke_rows, "frame_sha256": file_sha256(source),
             "global_scalar": float(model.global_scalar_), "best_loss": float(model.best_loss_),
@@ -178,9 +158,9 @@ def fit(config: Config, *, smoke_rows: int | None = None) -> dict:
         meta["predictions_sha256"] = file_sha256(path)
     with temporary_output(config.output_root / "turnover_model.pkl") as path:
         with path.open("wb") as file:
-            pickle.dump({"model": model, "toolkit": toolkit, "meta": meta}, file)
+            pickle.dump({"model": model, "meta": meta}, file)
     artifact_seconds = time.perf_counter() - started
-    del container, data
+    del prepared, data
     gc.collect()
     total_seconds = time.perf_counter() - total_started
     print(f"[fit] timings(s)={timings}; artifact_write={artifact_seconds:.3f}; "

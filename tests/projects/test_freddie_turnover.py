@@ -127,7 +127,7 @@ def test_fit_roundtrip_alignment_and_report_independence(synthetic_config,monkey
     assert meta["knots"]["c_hpi_ratio"] == [.95, 1, 1.1, 1.25, 1.5, 1.75]
     bundle,frame=report_turnover.load_artifacts(config)
     assert meta['timing_seconds']['fit'] == meta['fit_seconds']
-    assert set(meta['timing_seconds']) == {'read_frame', 'model_data', 'toolkit', 'container',
+    assert set(meta['timing_seconds']) == {'read_frame', 'model_data', 'prepare',
                                          'fit', 'predict', 'metrics', 'metadata'}
     assert all(value >= 0. for value in meta['timing_seconds'].values())
     assert meta['actual_sweeps'] == len(bundle['model'].loss_history_)

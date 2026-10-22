@@ -1,6 +1,6 @@
 # Design：LPM 的 Term 抽象（tent basis、reference、cross term 与参数化 term）
 
-日期：2026-10-20 · 状态：设计草案；P0（第 9 节）已实施，P1 进行中（P1(a) 已实施），P2 起未实施
+日期：2026-10-20 · 状态：设计草案；P0（第 9 节）已实施，P1 进行中（P1(a)、P1(b) 已实施），P2 起未实施
 
 ## 目标与非目标
 
@@ -394,7 +394,7 @@ The correct rule for this model is drop="any".
 
 ```python
 model.term("c_updated_ltv_fit").curve([60, 80, 95])      # 乘数，80 处为 1
-model.term("c_updated_ltv_fit").knot_table()             # 每个 knot 上的乘数，标出 reference 和约束
+model.term("c_updated_ltv_fit").table()                  # tent 为每个 knot 上的乘数，分类 term 为每个 level
 model.term("c_updated_ltv_fit×c_hpi_ratio_fit").table()  # 节点表，reference 所在的行和列都为 1
 model.term("c_age_fit").table()                          # ByTerm：每个 purpose level 一条 age 曲线
 model.global_scalar_                                     # reference state 上的速度
@@ -524,6 +524,7 @@ model.fit(container, feature_groups=..., interactions=...,
   该 group 列数的 basis 行；稀疏结果转成 dense；没有 transformer 的特征，行就是 `[value]`。对 tent、FlatRamp、OneHot 都适用。
   特征不在 toolkit 里时报错；level 不存在时由 transformer 报错（OneHot 的 `handle_unknown="error"`）。
 - `fit(references=None)`：`{group: basis_row}`。不传时行为和数值都不变。
+- P1(b) 起 toolkit 只接收 `ModelSpec`，这个函数移到拟合后的 spec 上：`ModelSpec.reference_rows`（例如 `model.spec_.reference_rows`）。
 
 **语义。**
 
@@ -622,7 +623,9 @@ P1 分三个提交：
 
 - (a) term 类、`ModelSpec`（`check`、`prepare`、`transform`）、`fit(spec.prepare(...))` 与 `predict(原始 frame)`、`ByTerm` 的 `drop` 检查、
   单个 reference（编译成 P0 的 `fit(references=...)`）。已实施，测试在 `tests/linear_product_model/test_terms.py`。
-- (b) toolkit 只接收 `ModelSpec`、`model.term(name)` 的读取接口、turnover 迁移到 spec。
+- (b) toolkit 只接收 `ModelSpec`、`model.term(name)` 的读取接口（`coef`、`curve`、`table`）、turnover 迁移到 spec。已实施：
+  toolkit 只用 term 的名字和类型（`CategoricalTerm` 为分类，其余为数值），报告用 `term.describe()`；`reference_rows` 移到
+  `ModelSpec`；turnover 用 `BasisTerm(FlatRamp)` 和 `CategoricalTerm`，拟合与迁移前完全相同，`spec_` 之前保存的 model 需要重新 fit 才能出报告。
 - (c) 多个 reference（合并列加 gauge）、Newton 用 reference 当 pivot。
 
 原计划里"solver 改为通过 term 求值"一步取消（2026-10-21）：P1 只有线性 term，spec 编译成 solver 现有的 block 就够了，数值结果按构造与

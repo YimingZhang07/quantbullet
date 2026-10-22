@@ -6,17 +6,16 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import pytest
 
-from sklearn.preprocessing import OneHotEncoder
-
 from quantbullet.linear_product_model import (
     LinearProductRegressor,
     LinearProductModelToolkit,
+    ModelSpec,
 )
+from quantbullet.linear_product_model.terms import BasisTerm, ByTerm, CategoricalTerm
 from quantbullet.preprocessing import FlatRampTransformer
 from quantbullet.linear_product_model.datacontainer import ProductModelDataContainer
 from quantbullet.linear_product_model.base import InteractionCoef
 from quantbullet.linear_product_model.solvers import BCDSolver
-from quantbullet.model.feature import DataType, Feature, FeatureRole, FeatureSpec
 from tests.artifacts import artifact_dir
 
 
@@ -148,6 +147,13 @@ def _generate_interaction_data(n_samples=50_000, seed=42):
     return df, weights
 
 
+def _interaction_spec():
+    """A FlatRamp x1 curve for each x2 level."""
+    x2 = CategoricalTerm('x2')
+    x1 = BasisTerm('x1', FlatRampTransformer(knots=list(np.arange(-9, 10, 1)), include_bias=True))
+    return ModelSpec([ByTerm(x1, by=x2, drop=('x1',)), x2])
+
+
 class TestInteraction(unittest.TestCase):
     def setUp(self):
         self.cache_dir = artifact_dir(self, "linear_product_model/interaction")
@@ -155,38 +161,12 @@ class TestInteraction(unittest.TestCase):
     def test_interaction_x1_by_x2(self):
         df, weights = _generate_interaction_data()
 
-        preprocess_config = {
-            'x1': FlatRampTransformer(
-                knots=list(np.arange(-9, 10, 1)),
-                include_bias=True,
-            ),
-            'x2': OneHotEncoder(),
-        }
-
-        feature_spec = FeatureSpec(features=[
-            Feature(name='x1', dtype=DataType.FLOAT, role=FeatureRole.MODEL_INPUT),
-            Feature(name='x2', dtype=DataType.CATEGORY, role=FeatureRole.MODEL_INPUT),
-            Feature(name='y', dtype=DataType.FLOAT, role=FeatureRole.TARGET),
-        ])
-
-        tk = LinearProductModelToolkit(
-            feature_spec=feature_spec,
-            preprocess_config=preprocess_config,
-        ).fit(df)
-        expanded_df = tk.get_expanded_df(df)
-
-        dcontainer = ProductModelDataContainer(
-            df, expanded_df, response=df['y'], feature_groups=tk.feature_groups,
-        )
-
+        dcontainer = _interaction_spec().prepare(df, response='y', weights=weights, dtype=np.float64)
         model = LinearProductRegressor()
         model.fit(
             dcontainer,
-            feature_groups=tk.feature_groups,
-            interactions={'x1': 'x2'},
             n_iterations=10,
             early_stopping_rounds=5,
-            weights=weights,
         )
 
         # --- basic convergence checks ---
@@ -196,6 +176,7 @@ class TestInteraction(unittest.TestCase):
         self.assertTrue(mse < 30, f"MSE too high: {mse:.4f}")
 
         # --- test that each block mean should be very close to 1 ---
+        tk = LinearProductModelToolkit(model.spec_)
         for key in tk.feature_groups:
             block_mean = model.block_means_[key]
             self.assertTrue(np.isclose(block_mean, 1, atol=1e-4), f"Block mean for '{key}' should be close to 1: {block_mean:.4f}")
@@ -212,38 +193,12 @@ class TestInteraction(unittest.TestCase):
         df, weights = _generate_interaction_data()
         df['y'] = np.maximum(df['y'], 0.01)
 
-        preprocess_config = {
-            'x1': FlatRampTransformer(
-                knots=list(np.arange(-9, 10, 1)),
-                include_bias=True,
-            ),
-            'x2': OneHotEncoder(),
-        }
-
-        feature_spec = FeatureSpec(features=[
-            Feature(name='x1', dtype=DataType.FLOAT, role=FeatureRole.MODEL_INPUT),
-            Feature(name='x2', dtype=DataType.CATEGORY, role=FeatureRole.MODEL_INPUT),
-            Feature(name='y', dtype=DataType.FLOAT, role=FeatureRole.TARGET),
-        ])
-
-        tk = LinearProductModelToolkit(
-            feature_spec=feature_spec,
-            preprocess_config=preprocess_config,
-        ).fit(df)
-        expanded_df = tk.get_expanded_df(df)
-
-        dcontainer = ProductModelDataContainer(
-            df, expanded_df, response=df['y'], feature_groups=tk.feature_groups,
-        )
-
+        dcontainer = _interaction_spec().prepare(df, response='y', weights=weights, dtype=np.float64)
         model = LinearProductRegressor()
         model.fit(
             dcontainer,
-            feature_groups=tk.feature_groups,
-            interactions={'x1': 'x2'},
             n_iterations=10,
             early_stopping_rounds=5,
-            weights=weights,
             loss='poisson',
         )
 

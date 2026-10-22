@@ -170,9 +170,9 @@ def test_fit_rejects_unsupported_loss_and_keeps_the_fitted_model():
 
 
 def test_toolkit_aggregation_takes_a_form_or_a_loss_name():
-    from quantbullet.model.feature import DataType, Feature, FeatureRole, FeatureSpec
-    toolkit = LinearProductModelToolkit(FeatureSpec([
-        Feature("x", DataType.FLOAT, FeatureRole.MODEL_INPUT), Feature("y", DataType.FLOAT, FeatureRole.TARGET)]))
+    from quantbullet.linear_product_model import ModelSpec
+    from quantbullet.linear_product_model.terms import TentTerm
+    toolkit = LinearProductModelToolkit(ModelSpec([TentTerm("x", (0., 1.))]))
     raw = {"x": pd.DataFrame({"feature_value": [1, 1, 2], "y": [0., 1., 0.], "m": [.2, .4, .3],
                               "model_pred": [1., 2., 1.5], "w": [1., 3., 1.]})}
     by_name = toolkit._aggregate_implied_data(raw, {"x": "discrete"}, 100, loss="poisson")["x"]

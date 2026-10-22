@@ -42,11 +42,11 @@ pred_turnover = global_scalar × product(numeric blocks) × product(categorical 
 完整 one-hot 的普通 Poisson blocks 使用 category codes + grouped sums 更新，保留原 IRLS epsilon-floor 和 ridge=1e-8；
 其他 design matrices、numeric / interaction curves 和 MSE 路径仍使用原 solver。Codes 仅在当前 fit 中缓存，不写入 artifacts。
 `model.fit_timing_` 记录 setup、各 block 累计时间、每个 sweep 时间和总 fit 时间。
-Metadata 的 `timing_seconds` 分别记录 read_frame、model_data、toolkit、container、fit、predict、metrics 和 metadata，
+Metadata 的 `timing_seconds` 分别记录 read_frame、model_data、prepare、fit、predict、metrics 和 metadata，
 `actual_sweeps` 是实际执行轮数（log 形式为接受的 Newton 步数加初始点），`solver_passes` 是 solver 的数据遍历次数；`fit_seconds` 仍只计 `model.fit()`。Artifact write 和全流程总时间完成后打印，不回写 pickle。
 
 Prepared frame 保留 raw values。Fit 按 [fit](../fit_turnover.py) 的 `CLIP` 生成 `_fit` inputs：age、incentive、SATO、original FICO、original LTV、updated LTV、real original balance、balance factor 和 HPI ratio。改 clip 或 knots 不重写 frame。
-同一文件的 `KNOTS` 给出对应 FlatRamp knots。Implied-actual bin widths 在 [report](../report_turnover.py) 的 `IMPLIED_BIN_CONFIG`。
+同一文件的 `KNOTS` 给出对应 FlatRamp knots；`build_spec` 把它们写成 `ModelSpec`：numeric 为 `BasisTerm(FlatRampTransformer(include_bias=True))`，age 为按 purpose 分开的 `ByTerm`。Implied-actual bin widths 在 [report](../report_turnover.py) 的 `IMPLIED_BIN_CONFIG`。
 Updated LTV 是 first-lien estimate；`c_hpi_ratio = c_hpi_lag1 / c_orig_hpi`，表示 origination→lag1 的 ZHVI 倍数，不年化，也不是 trailing 24-month HPA。
 `1.00` 表示持平，`1.10` 表示累计上涨 10%；fit clip 为 `[0.8, 2.0]`，knots 为 `0.95, 1.0, 1.1, 1.25, 1.5, 1.75`，report bin width 为 `0.1`。
 `c_orig_balance_real = c_orig_balance × CPI(2025-01) / c_orig_cpi`，单位为 2025 年 1 月美元；CPIAUCNS 2025-01 = 317.671，即 [prepare](../prepare_turnover.py) 的 `CPI_BASE`，prepare 会校验 panel 中该月的 `c_orig_cpi` 与之相等。
@@ -56,22 +56,22 @@ Updated LTV 是 first-lien estimate；`c_hpi_ratio = c_hpi_lag1 / c_orig_hpi`，
 Original LTV clip `[20, 97]`（>100 的 relief 类贷款截到 97），knots `50, 70, 80, 90, 95`。
 注意 `updated LTV = original LTV × factor / HPI ratio` 恒成立（log 空间线性相关）。四者都进入模型时，FlatRamp 的分段线性仍可分辨它们，但单条曲线可能吸收其他三者的部分效应，解读时应同时看四条曲线。
 
-Categorical blocks：purpose、occupancy、property type、first-time buyer、month、state，采用 OneHotEncoder(drop=None)。
+Categorical blocks：purpose、occupancy、property type、first-time buyer、month、state，采用 `CategoricalTerm`（完整 one-hot，列与 OneHotEncoder(drop=None) 相同）。
 Missing categories 为 MISSING；未知类别报错。Numeric missing rows 排除，不 impute。
 Burnout、current balance/status 和 current macro 不作为 predictors；vintage 只作 diagnostics。Current balance 仍用于权重和 balance facets。
 
 Polars 负责 filtering、target、categorical labels 和 artifacts。Clip 在 `to_model_data` 中完成，prepared frame 不保存 `_fit` 列。Model inputs 按列通过 NumPy 转入 pandas，不依赖 PyArrow。
-每个 expanded block 先 cast float32 再拼接，避免 full-cohort one-hot matrix 被 numeric ramps 提升为 float64。
+`ModelSpec.prepare(..., dtype=np.float32)` 让每个 expanded block 先 cast float32 再拼接，避免 full-cohort one-hot matrix 被 numeric ramps 提升为 float64。
 
 ## 3. Report 与迭代
 
-Fit 保存 model/toolkit、feature configuration、categories、cohort/fit 参数和 aligned predictions。
+Fit 保存 model（带着拟合后的 `spec_`）、feature configuration、categories、cohort/fit 参数和 aligned predictions。
 Frame / prediction hashes 在 report 时确认 artifacts 相互匹配；这是简单的输入一致性检查，不是 build cache。
 Fit metadata 记录 fit 参数和 frame、prediction hashes，不记录个人绝对路径。Report 只替换 PDF，其他 artifacts 保持不变。
 
 Report 展示收敛、components / implied actuals、actual vs predicted、reporting month、age×purpose，以及 age×vintage year 与 age×incentive bucket。
-Report 参考既有 turnover report，重建 saved toolkit 的 float32 design container，不重新 fit。
-收敛、numeric/categorical implied actuals 直接调用 `LinearProductModelToolkit` 的标准绘图方法。
+Report 参考既有 turnover report，用 saved model 的 `spec_` 重建 float32 design，不重新 fit；`spec_` 之前保存的 model 需要重新 fit。
+收敛、numeric/categorical implied actuals 直接调用 `LinearProductModelToolkit(model.spec_)` 的标准绘图方法。
 Actual-vs-predicted 直接使用 `MortgageDiagnostics` / `MortgageColnames`，包括 reporting month、incentive / age 及 purpose、current balance facets、LTV、factor 和 FICO。
 Age 另按 vintage year 和 raw incentive bucket（≤−3、−3~−2、−2~−1、>−1 pp）分面：同一 age bin 混合了不同 vintage 和利率环境，且数据截止月限制了每个 vintage 可观察的最大 age，这两组 facets 用于区分 age 本身与样本构成的变化。
 HPI ratio、original LTV 没有 mortgage role，按源列名调用同一个 `MortgageDiagnostics.plot()`，不在 project 重写统计或绘图。

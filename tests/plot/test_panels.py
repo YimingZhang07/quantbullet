@@ -98,10 +98,9 @@ def test_facet_panels_keep_one_count_scale_across_pages():
 
 def test_implied_actual_panels_draw_a_subset_with_one_figure_legend():
     from quantbullet.linear_product_model import LinearProductModelToolkit
-    from quantbullet.model.feature import DataType, Feature, FeatureRole, FeatureSpec
-    toolkit = LinearProductModelToolkit(FeatureSpec([
-        Feature("x", DataType.FLOAT, FeatureRole.MODEL_INPUT), Feature("z", DataType.FLOAT, FeatureRole.MODEL_INPUT),
-        Feature("y", DataType.FLOAT, FeatureRole.TARGET)]))
+    from quantbullet.linear_product_model import ModelSpec
+    from quantbullet.linear_product_model.terms import TentTerm
+    toolkit = LinearProductModelToolkit(ModelSpec([TentTerm("x", (0., 1.)), TentTerm("z", (0., 1.))]))
     frame = pd.DataFrame({"feature_value": [1, 1, 2], "y": [0., 1., 0.], "m": [.2, .4, .3],
                           "model_pred": [1., 2., 1.5], "w": [1., 3., 1.]})
     with patch.object(toolkit, "compute_implied_actual_data", return_value={"x": frame, "z": frame.copy()}):

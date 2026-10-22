@@ -6,12 +6,11 @@ import pandas as pd
 import pytest
 from sklearn.preprocessing import OneHotEncoder
 
-from quantbullet.linear_product_model import (InteractionCoef, LinearProductModelToolkit, LinearProductRegressor,
+from quantbullet.linear_product_model import (InteractionCoef, LinearProductRegressor,
                                               ModelSpec)
 from quantbullet.linear_product_model.datacontainer import ProductModelDataContainer
 from quantbullet.linear_product_model.terms import (BasisTerm, ByTerm, CategoricalTerm, FrozenTerm, ModelData,
                                                     TentTerm)
-from quantbullet.model.feature import DataType, Feature, FeatureRole, FeatureSpec
 from quantbullet.preprocessing import FlatRampTransformer, TentTransformer
 
 AGE_KNOTS = (12., 36., 60.)
@@ -36,22 +35,26 @@ def frame(n=6000, seed=3):
     return df
 
 
-def toolkit_data(df, age_transformer, raw=()):
-    """The container path, built as ``fit_turnover`` builds it: toolkit transformers, float32 blocks."""
-    config = {name: OneHotEncoder(drop=None, handle_unknown="error", dtype=np.float32) for name in ("purpose", "state")}
-    config["age"] = age_transformer
-    features = [Feature(name, DataType.CATEGORY, FeatureRole.MODEL_INPUT) for name in ("purpose", "state")]
-    features += [Feature(name, DataType.FLOAT, FeatureRole.MODEL_INPUT) for name in ("age", *raw)]
-    toolkit = LinearProductModelToolkit(FeatureSpec(features + [Feature("y", DataType.FLOAT, FeatureRole.TARGET)]),
-                                        preprocess_config=config).fit(df)
-    blocks = []
-    for name, columns in toolkit.feature_groups.items():
-        values = config[name].transform(df[[name]]) if name in config else df[[name]].to_numpy()
+def container_data(df, age_transformer, raw=()):
+    """The container path as ``fit_turnover`` built it before specs: a transformer per column, float32 blocks.
+
+    Returns the fitted transformers, the feature groups and the container; ``raw`` columns are their own block.
+    """
+    transformers = {name: OneHotEncoder(drop=None, handle_unknown="error", dtype=np.float32)
+                    for name in ("purpose", "state")}
+    transformers["age"] = age_transformer
+    groups, blocks = {}, []
+    for name in ("purpose", "state", "age", *raw):
+        if name in transformers:
+            values = transformers[name].fit_transform(df[[name]])
+            groups[name] = transformers[name].get_feature_names_out([name]).tolist()
+        else:
+            values, groups[name] = df[[name]].to_numpy(), [name]
         values = values.toarray() if hasattr(values, "toarray") else values
-        blocks.append(pd.DataFrame(np.asarray(values, dtype=np.float32), columns=columns))
+        blocks.append(pd.DataFrame(np.asarray(values, dtype=np.float32), columns=groups[name]))
     container = ProductModelDataContainer(df, pd.concat(blocks, axis=1), response=df["y"].to_numpy(),
-                                          feature_groups=toolkit.feature_groups, as_float32=True)
-    return toolkit, container
+                                          feature_groups=groups, as_float32=True)
+    return transformers, groups, container
 
 
 def fit(data, block_link, loss, **options):
@@ -75,15 +78,15 @@ def assert_same_fit(model, reference):
 @pytest.mark.parametrize("interaction", [False, True])
 def test_a_spec_fits_exactly_as_the_container_path(block_link, loss, interaction):
     df = frame()
-    toolkit, container = toolkit_data(df, FlatRampTransformer(knots=list(AGE_KNOTS), include_bias=True))
-    reference = LinearProductRegressor().fit(container, toolkit.feature_groups, loss=loss, block_link=block_link,
+    _, groups, container = container_data(df, FlatRampTransformer(knots=list(AGE_KNOTS), include_bias=True))
+    reference = LinearProductRegressor().fit(container, groups, loss=loss, block_link=block_link,
                                              weights=df["weight"].to_numpy(), verbose=0,
                                              interactions={"age": "purpose"} if interaction else None)
     purpose, state = CategoricalTerm("purpose"), CategoricalTerm("state")
     age = BasisTerm("age", FlatRampTransformer(knots=list(AGE_KNOTS), include_bias=True))
     spec = ModelSpec([purpose, state, ByTerm(age, by=purpose, drop=("age",)) if interaction else age])
     data = spec.prepare(df, response="y", weights="weight")
-    assert isinstance(data, ModelData) and data.feature_groups == toolkit.feature_groups
+    assert isinstance(data, ModelData) and data.feature_groups == groups
     model = fit(data, block_link, loss)
     assert_same_fit(model, reference)
     np.testing.assert_array_equal(model.predict(df), model.predict(data))
@@ -105,12 +108,15 @@ def test_prepare_leaves_the_spec_unfitted_and_the_model_keeps_a_fitted_copy():
         spec.transform(new)
 
 
-def test_term_references_match_reference_rows_of_the_toolkit():
+def test_term_references_match_reference_rows_on_the_container_path():
     df = frame()
-    toolkit, container = toolkit_data(df, TentTransformer(TENT_KNOTS))
-    rows = toolkit.reference_rows({"age": 24, "purpose": "P", "state": 2})
+    transformers, groups, container = container_data(df, TentTransformer(TENT_KNOTS))
+    rows = {}
+    for name, value in {"age": 24, "purpose": "P", "state": 2}.items():
+        row = transformers[name].transform(pd.DataFrame({name: [value]}))
+        rows[name] = np.asarray(row.toarray() if hasattr(row, "toarray") else row, dtype=float).ravel()
     for interaction in (False, True):
-        reference = LinearProductRegressor().fit(container, toolkit.feature_groups, loss="poisson", block_link="log",
+        reference = LinearProductRegressor().fit(container, groups, loss="poisson", block_link="log",
                                                  interactions={"age": "purpose"} if interaction else None,
                                                  references=rows, verbose=0)
         purpose = CategoricalTerm("purpose", reference="P")
@@ -124,9 +130,10 @@ def test_term_references_match_reference_rows_of_the_toolkit():
 
 def test_a_frozen_term_is_a_frozen_submodel():
     df = frame()
-    toolkit, container = toolkit_data(df, FlatRampTransformer(knots=list(AGE_KNOTS), include_bias=True), raw=("sato",))
+    _, groups, container = container_data(df, FlatRampTransformer(knots=list(AGE_KNOTS), include_bias=True),
+                                          raw=("sato",))
     frozen = FrozenCurve()
-    reference = LinearProductRegressor().fit(container, toolkit.feature_groups, submodels={"sato": frozen},
+    reference = LinearProductRegressor().fit(container, groups, submodels={"sato": frozen},
                                              loss="poisson", verbose=0)
     spec = ModelSpec([CategoricalTerm("purpose"), CategoricalTerm("state"),
                       BasisTerm("age", FlatRampTransformer(knots=list(AGE_KNOTS), include_bias=True)),
@@ -177,6 +184,69 @@ def test_fit_takes_groups_from_the_spec_or_the_arguments_but_not_both():
                                (dict(weights=np.ones(len(df))), "weights come from the spec")]:
         with pytest.raises(ValueError, match=message):
             fit(data, "log", "poisson", **arguments)
-    _, container = toolkit_data(df, FlatRampTransformer(knots=list(AGE_KNOTS), include_bias=True))
+    _, _, container = container_data(df, FlatRampTransformer(knots=list(AGE_KNOTS), include_bias=True))
     with pytest.raises(ValueError, match="fit needs feature_groups"):
         fit(container, "log", "poisson")
+
+
+def test_reference_rows_put_raw_values_through_the_fitted_terms():
+    df = frame()
+    spec = ModelSpec([TentTerm("age", TENT_KNOTS), CategoricalTerm("purpose"),
+                      BasisTerm("sato", FlatRampTransformer(knots=[0.], include_bias=True))])
+    fitted = spec.prepare(df, response="y").spec
+    rows = fitted.reference_rows({"age": 30., "purpose": "P", "sato": .5})
+    np.testing.assert_allclose(rows["age"], [0, 0, 5 / 6, 1 / 6, 0])
+    np.testing.assert_array_equal(rows["purpose"], [0, 0, 1])
+    np.testing.assert_allclose(rows["sato"], fitted.term_dict()["sato"].transformer.transform(
+        pd.DataFrame({"sato": [.5]}))[0])
+    with pytest.raises(ValueError, match=r"No terms \['income'\]"):
+        fitted.reference_rows({"income": 1.})
+    with pytest.raises(ValueError, match="needs a spec fitted by prepare"):
+        spec.reference_rows({"age": 30.})
+
+
+@pytest.mark.parametrize("block_link", ["identity", "log"])
+def test_model_terms_read_coefficients_curves_and_tables(block_link):
+    df = frame()
+    purpose = CategoricalTerm("purpose", reference="P")
+    sato = BasisTerm("sato", FlatRampTransformer(knots=[0.], include_bias=True))
+    spec = ModelSpec([purpose, ByTerm(TentTerm("age", TENT_KNOTS, reference=24), by=purpose, drop=("age",)), sato])
+    model = fit(spec.prepare(df, response="y"), block_link, "poisson")
+    one = 1. if block_link == "identity" else 0.
+
+    age = model.term("age")
+    assert list(age.coef.columns) == ["C", "N", "P"] and list(age.coef.index) == model.spec_.feature_groups()["age"]
+    table = age.table()
+    assert list(table.index) == list(TENT_KNOTS) and list(table.columns) == ["C", "N", "P"]
+    np.testing.assert_allclose(table.loc[24.], 1., rtol=1e-12)
+    np.testing.assert_allclose(age.curve([12., 60.], level="N"), table.loc[[12., 60.], "N"].to_numpy())
+    with pytest.raises(ValueError, match="needs level= one of"):
+        age.curve([12.])
+
+    levels = model.term("purpose")
+    assert levels.coef["purpose_P"] == pytest.approx(one, abs=1e-12)
+    np.testing.assert_allclose(levels.table().to_numpy(), model.term("purpose").curve(["C", "N", "P"]))
+    assert levels.table()["P"] == pytest.approx(1., rel=1e-12)
+
+    x = np.array([-.5, 0., .5])
+    np.testing.assert_array_equal(model.term("sato").curve(x), model.block_factor(
+        "sato", model.spec_.term_dict()["sato"].basis(pd.DataFrame({"sato": x}), float)))
+    with pytest.raises(ValueError, match="no knots or levels"):
+        model.term("sato").table()
+    with pytest.raises(KeyError, match="No term 'income'"):
+        model.term("income")
+    _, groups, container = container_data(df, FlatRampTransformer(knots=list(AGE_KNOTS), include_bias=True))
+    with pytest.raises(ValueError, match="needs a model fitted on data from ModelSpec.prepare"):
+        LinearProductRegressor().fit(container, groups, loss="poisson", verbose=0).term("age")
+
+
+def test_describe_lines_name_the_basis_and_the_reference():
+    purpose = CategoricalTerm("purpose", reference="P")
+    age = TentTerm("age", (1, 12, 120), reference=24)
+    assert age.describe() == "knots=[1, 12, 120], reference=24"
+    assert purpose.describe() == "levels from data, reference='P'"
+    assert BasisTerm("sato", FlatRampTransformer(knots=[0.])).describe() == "FlatRampTransformer knots=[0]"
+    assert ByTerm(age, by=purpose, drop=("age",)).describe() == (
+        "knots=[1, 12, 120], reference=24; one curve per purpose level, drop=('age',)")
+    fitted = ModelSpec([purpose]).prepare(frame(), response="y").spec
+    assert fitted.terms[0].describe() == "3 levels, reference='P'"

@@ -11,17 +11,17 @@ matplotlib.use("Agg")
 
 import polars as pl
 
+from quantbullet.linear_product_model import LinearProductModelToolkit
 from quantbullet.linear_product_model.forms import resolve_form
 from quantbullet.linear_product_model.mortgage_diagnostics import MortgageColnames, MortgageDiagnostics
 from quantbullet.plot.formatter import compact_number
 from quantbullet.plot.binned_means import PRINT_BINNED_MEANS_STYLE
 from quantbullet.plot.theme import PRINT_THEME
-from quantbullet.preprocessing.transformers import FlatRampTransformer
 from quantbullet.reporting import PdfTextReport
 from quantbullet.utils.files import file_sha256, temporary_output
 
 from .config import Config, read_config
-from .fit_turnover import FIT_NUMERIC, make_container, to_model_data
+from .fit_turnover import FIT_NUMERIC, to_model_data
 
 
 MIN_COUNT = 500
@@ -89,11 +89,14 @@ def load_artifacts(config: Config):
 
 def report(config: Config) -> dict:
     bundle, frame = load_artifacts(config)
-    model, toolkit, meta = bundle["model"], bundle["toolkit"], bundle["meta"]
+    model, meta = bundle["model"], bundle["meta"]
+    if getattr(model, "spec_", None) is None:
+        raise ValueError("The saved model predates ModelSpec; rerun fit before reporting")
     model_data = to_model_data(frame)
-    container = make_container(model_data, toolkit)
+    container = model.spec_.transform(model_data, response=TARGET)
     weights = model_data["weight"].to_numpy()
-    print(f"[report] rebuilt saved toolkit design for {frame.height:,} rows; no refit", flush=True)
+    toolkit = LinearProductModelToolkit(model.spec_)
+    print(f"[report] rebuilt the fitted spec's design for {frame.height:,} rows; no refit", flush=True)
 
     with temporary_output(config.output_root / "turnover_report.pdf") as path:
         pdf = PdfTextReport(path, report_title="Freddie Turnover | Multiplicative Diagnostics", page_numbering=True)
@@ -151,10 +154,9 @@ def report(config: Config) -> dict:
         pdf.add_page_break()
         pdf.add_heading("2. Feature configuration")
         config_lines = []
-        for name, columns in toolkit.feature_groups.items():
-            transformer = toolkit.preprocess_config[name]
-            detail = f"FlatRamp knots={transformer.knots.tolist()}" if isinstance(transformer, FlatRampTransformer) else type(transformer).__name__
-            config_lines.append(f"<b>{name}</b> ({len(columns)} terms): {detail}")
+        for term in model.spec_.terms:
+            config_lines.append(f"<b>{term.name}</b> ({len(term.columns())} columns): "
+                                f"{type(term).__name__}, {term.describe()}")
         pdf.add_list(config_lines)
         pdf.add_body("Model-numeric actual-vs-predicted charts and implied actuals use clipped _fit fields. Reporting month and current balance are diagnostics without a fit column. SATO is the original rate minus the origination-month national PMMS, in percentage points (no LLPA adjustment). Original balance is in January-2025 dollars (CPIAUCNS at the origination month; October 2025 interpolated). Balance factor is previous balance / original balance. The age ramp is estimated separately by f_purpose. Burnout is excluded. Numeric missing values are dropped; categorical missing values become MISSING.", font_size=9)
         pdf.add_body("HPI ratio is lag1 ZHVI / origination ZHVI: 1.0 means unchanged, 1.1 means a cumulative 10% increase. Ratio axes show multiples, not percentages.", font_size=9)

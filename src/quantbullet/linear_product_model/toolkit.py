@@ -1,14 +1,13 @@
 # ===== Standard Library Imports =====
 import os
 import warnings
-from collections import namedtuple, defaultdict
+from collections import namedtuple
 from dataclasses import dataclass, field
 
 # ===== Third-Party Imports =====
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from sklearn.preprocessing import OneHotEncoder
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak, Table, TableStyle
 from reportlab.lib.pagesizes import landscape, letter
 from reportlab.lib import colors
@@ -17,8 +16,8 @@ from reportlab.lib import colors
 from quantbullet.linear_product_model.base import LinearProductModelBase
 from quantbullet.linear_product_model.datacontainer import ProductModelDataContainer
 from quantbullet.linear_product_model.forms import ModelForm, form_of, resolve_form
+from quantbullet.linear_product_model.terms import CategoricalTerm, ModelSpec
 from quantbullet.linear_product_model._acceleration import vector_product_numexpr_dict_values
-from quantbullet.model.core import FeatureSpec
 from quantbullet.plot.formatter import PlotFormatter
 from quantbullet.plot.binned_means import (DEFAULT_BINNED_MEANS_STYLE, BinnedMeans, BinnedMeansStyle,
                                            draw_binned_means)
@@ -26,7 +25,6 @@ from quantbullet.plot.panels import label_outer_panels
 from quantbullet.plot.colors import EconomistBrandColor
 from quantbullet.plot.panels import PanelSet, panel_grid
 from quantbullet.plot.theme import MINIMAL_THEME, PlotTheme
-from quantbullet.preprocessing.transformers import FlatRampTransformer, TentTransformer
 from quantbullet.reporting import AdobeSourceFontStyles, PdfPageReport
 from quantbullet.reporting.utils import register_fonts_from_package, merge_pdfs
 from quantbullet.reporting.formatters import numberarray2string
@@ -81,126 +79,46 @@ class ImpliedActualDataCache:
         self.bin_count = self.agg_df['count'].values
 
 class LinearProductModelToolkit( LinearProductModelReportMixin ):
-    """A toolkit for building, fitting, evaluating, and reporting linear product models."""
+    """Diagnostics and reports of a linear product model, organized by the terms of its ``ModelSpec``.
 
-    __slots__ = ( 'feature_spec', 'preprocess_config', 'feature_groups_', 'additional_plots', 'subfeatures_',
-                  'implied_actual_bin_config',
+    The toolkit reads only the terms' names and which of them are categorical, so the spec may be the
+    unfitted one or the fitted ``model.spec_``; whatever needs fitted terms comes from the model.
+    Data are prepared by ``ModelSpec.prepare``, not here.
+    """
+
+    __slots__ = ( 'spec', 'additional_plots', 'implied_actual_bin_config',
                   'implied_actual_plot_axes', 'implied_actual_data_caches', 'perf_plots_incentive_axes' )
 
-    """
-    feature_groups_ : Dict[str, List[str]]
-        A dictionary mapping each feature name to the list of expanded feature names after preprocessing.
-        For example, if the original feature is 'age' and it is transformed into 5 spline basis functions,
-        then feature_groups_['age'] = ['age_spline_1', 'age_spline_2', 'age_spline_3', 'age_spline_4', 'age_spline_5'].
-
-        For features that do not has any expansion, the list will be the feature name itself, e.g.
-        feature_groups_['age'] = ['age'].
-
-    subfeatures_ : List[str]
-        A flat list of all expanded feature names across all feature groups.
-        This is the concatenation of all lists in feature_groups_.
-    """
-
-    def __init__( self, feature_spec: FeatureSpec, preprocess_config: dict = None ):
-        self.feature_spec = feature_spec
-        self.preprocess_config = preprocess_config
-        self.feature_groups_ = defaultdict( list )
-        for feature in feature_spec.x:
-            self.feature_groups_[ feature ] = []
+    def __init__( self, spec: ModelSpec ):
+        if not isinstance( spec, ModelSpec ):
+            raise TypeError( "LinearProductModelToolkit takes a ModelSpec, such as a fitted model's spec_" )
+        self.spec = spec
         self.additional_plots = []
         self.implied_actual_bin_config: dict = {}
 
-    def clone( self, exclude_preprocess_features: list=None ):
-        """Create a copy of the toolkit, optionally excluding certain features from the preprocessing config."""
-        # remove the excluded features the preprocess_config
-        new_preprocess_config = self.preprocess_config.copy()
-        if exclude_preprocess_features is not None:
-            for feature in exclude_preprocess_features:
-                if feature in new_preprocess_config:
-                    new_preprocess_config.pop( feature )
-        return LinearProductModelToolkit( feature_spec=self.feature_spec, preprocess_config=new_preprocess_config )
-
-    def fit( self, X ):
-        """Fit the preprocessing transformers to the data and prepare for feature expansion."""
-        subfeatures = []
-        for feature_name in self.feature_groups_.keys():
-            if feature_name not in X.columns:
-                raise ValueError(f"Feature {feature_name} not found in input DataFrame columns")
-
-            if feature_name in self.preprocess_config:
-                transformer = self.preprocess_config[ feature_name ]
-                transformer.fit( X[ [ feature_name ] ] )
-                subfeatures_for_this_feature = transformer.get_feature_names_out( [ feature_name ] ).tolist()
-                self.feature_groups_[ feature_name ] = subfeatures_for_this_feature
-                subfeatures.extend( subfeatures_for_this_feature )
-            else:
-                # if no transformer is given, indicating the feature do not need to be expanded.
-                self.feature_groups_[ feature_name ] = [ feature_name ]
-                subfeatures.append( feature_name )
-        self.subfeatures_ = subfeatures
-        return self
-
-    def get_expanded_df( self, X ):
-        """Transform the original DataFrame X into the expanded feature DataFrame for model training."""
-        dfs = []
-        for feature_name in self.feature_groups_.keys():
-            if feature_name in self.preprocess_config:
-                transformer = self.preprocess_config[ feature_name ]
-                if isinstance(transformer, OneHotEncoder):
-                    df_transformed = transformer.transform(X[[feature_name]]).toarray()
-                else:
-                    df_transformed = transformer.transform(X[[feature_name]])
-            else:
-                df_transformed = X[[feature_name]].to_numpy()
-            dfs.append(df_transformed)
-        return pd.DataFrame(np.concatenate(dfs, axis=1), columns=self.subfeatures_)
+    @property
+    def feature_group_names( self ):
+        return [ term.name for term in self.spec.terms ]
 
     @property
     def n_feature_groups( self ):
-        return len( self.feature_groups_ )
-    
+        return len( self.spec.terms )
+
     @property
     def categorical_feature_group_names(self):
-        return [ feature_name for feature_name in self.feature_groups_.keys() if self.feature_spec[ feature_name].dtype.is_category() ]
+        return [ term.name for term in self.spec.terms if isinstance( term, CategoricalTerm ) ]
 
     @property
     def numerical_feature_group_names(self):
-        return [ feature_name for feature_name in self.feature_groups_.keys() if self.feature_spec[ feature_name].dtype.is_numeric() ]
+        return [ term.name for term in self.spec.terms if not isinstance( term, CategoricalTerm ) ]
 
     @property
     def feature_groups(self):
-        """Public accessor for the feature group mapping (``{name: [expanded_names]}``)."""
-        return self.feature_groups_
+        """``{name: [columns]}``; needs a fitted spec, such as ``model.spec_``."""
+        return self.spec.feature_groups()
 
-    @property
-    def categorical_feature_groups(self):
-        return { feature_name: self.feature_groups_[ feature_name ] for feature_name in self.categorical_feature_group_names }
-    
-    @property
-    def numerical_feature_groups(self):
-        return { feature_name: self.feature_groups_[ feature_name ] for feature_name in self.numerical_feature_group_names }
-    
     def has_feature_group( self, feature_name ):
-        return feature_name in self.feature_groups_.keys()
-
-    def reference_rows( self, values: dict ) -> dict:
-        """Basis rows of reference values, for ``LinearProductRegressor.fit(references=...)``.
-
-        ``values`` maps a feature to its reference: an x value for a numeric feature (not necessarily a
-        knot) or a level label for a categorical one. Each row is that value through the feature's own
-        transformer; a feature without a transformer is its own one-column row.
-        """
-        rows = {}
-        for feature_name, value in values.items():
-            if not self.has_feature_group( feature_name ):
-                raise ValueError(f"Feature {feature_name} not found in feature_groups_")
-            frame = pd.DataFrame( { feature_name: [ value ] } )
-            transformer = ( self.preprocess_config or {} ).get( feature_name, None )
-            row = transformer.transform( frame ) if transformer is not None else frame.to_numpy()
-            if hasattr( row, "toarray" ):
-                row = row.toarray()
-            rows[ feature_name ] = np.asarray( row, dtype=float ).ravel()
-        return rows
+        return feature_name in self.feature_group_names
 
     def get_feature_grid_and_predictions( self, feature_series, model, n_points=200 ):
         """Get a grid of feature values and the corresponding model predictions for that feature."""
@@ -208,33 +126,12 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         x_grid = np.linspace(x_min, x_max, n_points).reshape(-1, 1)
         y_grid = self.get_single_feature_pred_given_values( feature_series.name, x_grid, model )
         return x_grid, y_grid
-    
+
     def get_single_feature_pred_given_values( self, feature_name, feature_values, model ):
-        """Get model predictions for specific feature values."""
+        """The factor of one term at raw values, read from the fitted model (``model.term(name).curve``)."""
         if not self.has_feature_group( feature_name ):
-            raise ValueError(f"Feature {feature_name} not found in feature_groups_")
-
-        feature_values = np.array( feature_values ).reshape( -1, 1 )
-        transformer = self.preprocess_config.get( feature_name, None )
-        if transformer is not None:
-            transformed_values = transformer.transform( feature_values )
-            # make a data container
-            single_feature_container = ProductModelDataContainer(
-                orig_df = pd.DataFrame( { feature_name : feature_values.ravel() } ),
-                expanded_df=pd.DataFrame( transformed_values, columns = model.feature_groups_.get( feature_name ) ),
-                feature_groups={ feature_name: model.feature_groups_.get( feature_name ) }
-            )
-
-        else:
-            # if no transformer is given, indicating the feature do not need to be expanded.
-            single_feature_container = ProductModelDataContainer(
-                orig_df = pd.DataFrame( { feature_name : feature_values.ravel() } ),
-                expanded_df=pd.DataFrame( feature_values, columns = model.feature_groups_.get( feature_name ) ),
-                feature_groups={ feature_name: model.feature_groups_.get( feature_name ) }
-            )
-
-        y_values = model.single_feature_group_predict( group_to_include = feature_name, X=single_feature_container, ignore_global_scale=True )
-        return y_values
+            raise ValueError(f"Feature {feature_name} is not a term of the spec")
+        return model.term( feature_name ).curve( np.asarray( feature_values ).ravel() )
 
     def get_implied_actual_caches( self, feature_name ):
         return self.implied_actual_data_caches.get( feature_name, None )
@@ -295,11 +192,11 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
 
         block_preds = {
             feat: model.single_feature_group_predict(feat, dc, ignore_global_scale=True)
-            for feat in self.feature_groups_.keys()
+            for feat in self.feature_group_names
         }
 
         result: dict[str, pd.DataFrame] = {}
-        for feature in self.numerical_feature_groups:
+        for feature in self.numerical_feature_group_names:
             m = model.global_scalar_ * vector_product_numexpr_dict_values(
                 data=block_preds, exclude=feature,
             )
@@ -580,9 +477,9 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
         w = np.asarray(sample_weights, dtype=float).ravel() if sample_weights is not None else np.ones(len(y_sample))
         form = form_of(model)
 
-        block_preds = { feature: model.single_feature_group_predict( feature, X_sample, ignore_global_scale=True ) for feature in self.feature_groups_.keys() }
+        block_preds = { feature: model.single_feature_group_predict( feature, X_sample, ignore_global_scale=True ) for feature in self.feature_group_names }
         per_feature = {}
-        for feature, subfeatures in self.categorical_feature_groups.items():
+        for feature in self.categorical_feature_group_names:
             m = model.global_scalar_ * vector_product_numexpr_dict_values( data=block_preds, exclude=feature )
             p = block_preds[ feature ]
             numer, denom = form.implied_actual_terms(y_sample, m, p, w)
@@ -609,7 +506,7 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
                 agg_df["_sum_numer"] / agg_df["_sum_denom"],
             )
             agg_df.drop(columns=["_sum_numer", "_sum_denom"], inplace=True)
-            per_feature[feature] = (agg_df, len(subfeatures))
+            per_feature[feature] = (agg_df, len(agg_df))
 
         def render(features, n_cols, panel_size):
             fig, grid = panel_grid(len(features), n_cols, panel_size)
@@ -760,31 +657,10 @@ class LinearProductModelToolkit( LinearProductModelReportMixin ):
 
         # ========== Table of Feature Configurations ==========
         feature_config_data = []
-        for feature_group_name in self.feature_groups_.keys():
-            transformer = self.preprocess_config.get( feature_group_name, None )
-            if transformer is None:
-                submodel = model.submodels_.get( feature_group_name, None )
-                model_name = submodel.model_name
-                model_repr = submodel.math_repr()
-                feature_config_data.append( [ feature_group_name, 
-                                              Paragraph(model_name, AdobeSourceFontStyles.MonoCode),
-                                              Paragraph(model_repr, AdobeSourceFontStyles.MonoCode) ] )
-            elif isinstance(transformer, OneHotEncoder):
-                feature_config_data.append( [ feature_group_name, 
-                                              Paragraph("OneHotEncoder", AdobeSourceFontStyles.MonoCode),
-                                              Paragraph("", AdobeSourceFontStyles.MonoCode) ] )
-            elif isinstance(transformer, FlatRampTransformer):
-                text = f"knots={ numberarray2string( transformer.knots ) }"
-                feature_config_data.append( [ feature_group_name, 
-                                              Paragraph("FlatRampTransformer", AdobeSourceFontStyles.MonoCode),
-                                              Paragraph(text, AdobeSourceFontStyles.MonoCode ) ] )
-            elif isinstance(transformer, TentTransformer):
-                text = f"knots={ numberarray2string( transformer.knots_ ) }"
-                feature_config_data.append( [ feature_group_name,
-                                              Paragraph("TentTransformer", AdobeSourceFontStyles.MonoCode),
-                                              Paragraph(text, AdobeSourceFontStyles.MonoCode ) ] )
-            else:
-                raise ValueError(f"Unknown transformer type: {type(transformer)}")
+        for term in self.spec.terms:
+            feature_config_data.append( [ term.name,
+                                          Paragraph( type( term ).__name__, AdobeSourceFontStyles.MonoCode ),
+                                          Paragraph( term.describe(), AdobeSourceFontStyles.MonoCode ) ] )
 
         feature_config_table = Table( feature_config_data, colWidths=[150, 200, 300] )
         feature_config_table.setStyle( self.feature_config_table_style )

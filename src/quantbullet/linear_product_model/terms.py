@@ -43,7 +43,18 @@ class Term(ABC):
 
     def reference_row(self):
         """Basis row of ``reference``: after ``fit`` the factor is 1 there."""
-        return self.basis(pd.DataFrame({self.column: [self.reference]}), np.float64)[0]
+        return self.row(self.reference)
+
+    def row(self, value):
+        """Basis row of one raw value."""
+        return self.basis(pd.DataFrame({self.column: [value]}), np.float64)[0]
+
+    def describe(self):
+        """One line for reports: the basis, and the reference when there is one."""
+        return self._detail() + ("" if self.reference is None else f", reference={self.reference!r}")
+
+    def _detail(self):
+        return ""
 
     def __repr__(self):
         return f"{type(self).__name__}({self.name!r})"
@@ -67,6 +78,9 @@ class TentTerm(Term):
 
     def columns(self):
         return self.transformer_.get_feature_names_out().tolist()
+
+    def _detail(self):
+        return f"knots={_numbers(self.knots)}"
 
 
 class CategoricalTerm(Term):
@@ -100,6 +114,11 @@ class CategoricalTerm(Term):
     def columns(self):
         return [f"{self.column}_{level}" for level in self.levels_]
 
+    def _detail(self):
+        if hasattr(self, "levels_"):
+            return f"{len(self.levels_)} levels"
+        return "levels from data" if self.levels is None else f"levels={list(self.levels)}"
+
 
 class BasisTerm(Term):
     """Any sklearn transformer of one column, such as ``FlatRampTransformer``; sparse output is made dense."""
@@ -116,6 +135,10 @@ class BasisTerm(Term):
     def columns(self):
         return list(self.transformer.get_feature_names_out([self.column]))
 
+    def _detail(self):
+        knots = getattr(self.transformer, "knots", None)
+        return type(self.transformer).__name__ + ("" if knots is None else f" knots={_numbers(knots)}")
+
 
 class FrozenTerm(Term):
     """A fitted model whose ``predict`` of the column is the factor; it is not refitted and has no reference."""
@@ -128,6 +151,10 @@ class FrozenTerm(Term):
 
     def columns(self):
         return [self.column]
+
+    def _detail(self):
+        name = getattr(self.model, "model_name", type(self.model).__name__)
+        return f"{name} {self.model.math_repr()}" if hasattr(self.model, "math_repr") else name
 
 
 class ByTerm(Term):
@@ -159,6 +186,9 @@ class ByTerm(Term):
     def columns(self):
         return self.term.columns()
 
+    def describe(self):
+        return f"{self.term.describe()}; one curve per {self.by.name} level, drop={self.drop!r}"
+
     def __repr__(self):
         return f"ByTerm({self.term.name!r} by {self.by.name!r})"
 
@@ -174,6 +204,10 @@ def _dropped(term, variables):
     if unknown:
         raise ValueError(f"{term!r}: drop names {unknown}, which are not its terms {list(variables)}")
     return dropped
+
+
+def _numbers(values):
+    return "[" + ", ".join(np.format_float_positional(float(value), trim="-") for value in values) + "]"
 
 
 def _dense(basis, dtype):
@@ -253,9 +287,27 @@ class ModelSpec:
 
     def transform(self, frame, response=None, weights=None):
         """Data for new rows; the spec must be one fitted by ``prepare``, such as ``model.spec_``."""
-        if not hasattr(self, "dtype_"):
-            raise ValueError("transform needs a spec fitted by prepare, such as model.spec_")
+        self._check_fitted("transform")
         return self._data(frame, [term.basis(frame, self.dtype_) for term in self.terms], response, weights)
+
+    def reference_rows(self, values):
+        """``{name: basis row}`` of ``{name: raw value}``, for ``fit(references=...)`` on a container.
+
+        The spec must be one fitted by ``prepare``; a value need not be a knot.
+        """
+        self._check_fitted("reference_rows")
+        terms = self.term_dict()
+        unknown = sorted(set(values) - set(terms))
+        if unknown:
+            raise ValueError(f"No terms {unknown}; the terms are {list(terms)}")
+        return {name: terms[name].row(value) for name, value in values.items()}
+
+    def term_dict(self):
+        return {term.name: term for term in self.terms}
+
+    def _check_fitted(self, method):
+        if not hasattr(self, "dtype_"):
+            raise ValueError(f"{method} needs a spec fitted by prepare, such as model.spec_")
 
     def _data(self, frame, bases, response, weights):
         expanded = pd.concat([pd.DataFrame(basis, columns=term.columns(), index=frame.index)
@@ -285,3 +337,56 @@ class ModelData(ProductModelDataContainer):
     def __init__(self, spec, orig_df, expanded_df, response=None, weights=None):
         super().__init__(orig_df, expanded_df, response=response, feature_groups=spec.feature_groups())
         self.spec, self.weights = spec, weights
+
+
+class FittedTerm:
+    """A term of a fitted model (``model.term(name)``): its coefficients and its factor at raw values."""
+
+    def __init__(self, model, term):
+        self.model, self.term = model, term
+
+    @property
+    def name(self):
+        return self.term.name
+
+    @property
+    def coef(self):
+        """Coefficients named by the term's columns; a ``ByTerm`` has one column per level of ``by``."""
+        coef = self.model.coef_[self.name]
+        if isinstance(self.term, ByTerm):
+            return pd.DataFrame(dict(coef.categories), index=self.term.columns())
+        return pd.Series(coef, index=self.term.columns(), name=self.name)
+
+    def curve(self, values, level=None):
+        """The factor at raw ``values``; a ``ByTerm`` needs the ``level`` of ``by`` whose curve to read."""
+        values = np.atleast_1d(np.asarray(values, dtype=object if isinstance(values, str) else None))
+        basis = self.term.basis(pd.DataFrame({self.term.column: values}), np.float64)
+        if not isinstance(self.term, ByTerm):
+            if level is not None:
+                raise ValueError(f"{self.term!r} has no levels; curve takes no level")
+            return self.model.block_factor(self.name, basis)
+        levels = list(self.model.coef_[self.name].categories)
+        if level not in levels:
+            raise ValueError(f"{self.term!r}: curve needs level= one of {levels}")
+        return self.model.block_factor(self.name, basis, cat_series=pd.Series([level] * len(values)))
+
+    def table(self):
+        """Factors at the term's own points: a tent's knots or a categorical term's levels.
+
+        A ``ByTerm`` gives one column per level of ``by``. Other terms have no such points; use ``curve``.
+        """
+        inner = self.term.term if isinstance(self.term, ByTerm) else self.term
+        if isinstance(inner, TentTerm):
+            points = inner.transformer_.knots_.tolist()
+        elif isinstance(inner, CategoricalTerm):
+            points = list(inner.levels_)
+        else:
+            raise ValueError(f"{self.term!r} has no knots or levels to tabulate; use curve(values)")
+        index = pd.Index(points, name=inner.column)
+        if isinstance(self.term, ByTerm):
+            return pd.DataFrame({level: self.curve(points, level) for level in self.model.coef_[self.name].categories},
+                                index=index)
+        return pd.Series(self.curve(points), index=index, name=self.name)
+
+    def __repr__(self):
+        return f"FittedTerm({self.term!r})"
