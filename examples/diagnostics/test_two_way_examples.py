@@ -40,6 +40,10 @@ INCENTIVE_BINS = BinSpec.edges([-5, -4, -3, -2, -1, 0])
 # Knots for the correction examples: D is bilinear between knots and flat beyond the end knots.
 BALANCE_KNOTS = (50_000, 150_000, 250_000, 450_000, 800_000)
 INCENTIVE_KNOTS = (-5, -4, -3, -2, -1, 0)
+# Fixed scales for figures that are compared side by side, e.g. before and after a correction: colours saturate
+# at x and / color_range, and the slices share y_range. Otherwise each figure fits its own data.
+AE_COLOR_RANGE, AE_Y_RANGE = 1.3, (0.7, 1.35)
+D_COLOR_RANGE, D_Y_RANGE = 1.45, (0.6, 1.55)
 
 
 def fake_loan_months(n_rows: int, seed: int) -> pl.DataFrame:
@@ -241,18 +245,51 @@ class TestTwoWayExamples(unittest.TestCase):
         self.assertLess(spread_after, spread_before)
 
     # ---------------------------------------------------------------- output
-    def test_pdf_report(self):
-        """Both figures drawn at print size into one PDF."""
-        diag = TwoWayDiagnostic(self.loans, **self.columns)
-        ae = diag.ae(x_bins=BALANCE_BINS, z_bins=INCENTIVE_BINS)
-        fit = diag.correction(x_knots=BALANCE_KNOTS, z_knots=INCENTIVE_KNOTS, x_reference=250_000,
-                              z_reference=-3, loss="poisson", ridge=0.01)
-        path = output_path("two_way_report.pdf")
+    def test_before_and_after_report(self):
+        """Four PDF pages: A/E and D for the model, then for the model corrected by D (in sample)."""
+        # Before: diagnose the model, and fit the correction it needs.
+        before = TwoWayDiagnostic(self.loans, **self.columns)
+        before_ae = before.ae(x_bins=BALANCE_BINS, z_bins=INCENTIVE_BINS)
+        before_fit = before.correction(x_knots=BALANCE_KNOTS, z_knots=INCENTIVE_KNOTS, x_reference=250_000,
+                                       z_reference=-3, loss="poisson", ridge=0.01)
+        # After: multiply the model by D, then run the same two diagnostics on the corrected prediction.
+        corrected = self.loans.with_columns(
+            pl.Series("corrected_smm", self.loans["model_smm"].to_numpy() * before_fit.predict(self.loans)))
+        after = TwoWayDiagnostic(corrected, **{**self.columns, "pred": "corrected_smm"})
+        after_ae = after.ae(x_bins=BALANCE_BINS, z_bins=INCENTIVE_BINS)
+        after_fit = after.correction(x_knots=BALANCE_KNOTS, z_knots=INCENTIVE_KNOTS, x_reference=250_000,
+                                     z_reference=-3, loss="poisson", ridge=0.01)
+
+        def spread(ae):  # how far A/E strays from 1 across cells
+            return float(np.nanstd(ae.pivot("ae").to_numpy()))
+
+        pages = [
+            (before_ae, AE_COLOR_RANGE, AE_Y_RANGE,
+             f"1. Before: actual / model\nA/E spread across cells {spread(before_ae):.3f}"),
+            (before_fit, D_COLOR_RANGE, D_Y_RANGE,
+             f"2. Before: the correction D the model needs\n"
+             f"deviance change from applying D {before_fit.deviance['change']:+.3%}"),
+            (after_ae, AE_COLOR_RANGE, AE_Y_RANGE,
+             f"3. After: actual / corrected model (model x D)\nA/E spread across cells {spread(after_ae):.3f}"),
+            (after_fit, D_COLOR_RANGE, D_Y_RANGE,
+             f"4. After: D fitted again on the corrected model\n"
+             f"deviance change from applying it {after_fit.deviance['change']:+.3%}"),
+        ]
+        path = output_path("before_and_after.pdf")
         with PdfPages(path) as pdf:
-            for result, title in ((ae, "Actual / model by balance and incentive"),
-                                  (fit, "Fitted interaction D(balance, incentive)")):
-                plot = result.plot(slices="x", ci=0.95, n_cols=3, panel_size=(2.5, 1.9), heatmap_height=2.8,
-                                   title=title, theme=PRINT_THEME)   # PRINT_THEME: font sizes for print
+            for result, color_range, y_range, title in pages:
+                plot = result.plot(
+                    slices="x", ci=0.95, n_cols=3, panel_size=(2.6, 1.9), heatmap_height=2.8,
+                    color_range=color_range,   # the same scales on the before and after pages,
+                    y_range=y_range,           # so colours and heights compare directly
+                    title=title, theme=PRINT_THEME,   # PRINT_THEME: font sizes for print
+                )
                 pdf.savefig(plot.fig)
-        print(f"\nwritten: {path}")
-        self.assertGreater(path.stat().st_size, 0)
+        print(f"\nA/E spread across cells: before {spread(before_ae):.3f}, after {spread(after_ae):.3f}")
+        print(f"largest |D - 1|: before {np.abs(before_fit.nodes - 1).max():.3f}, "
+              f"after {np.abs(after_fit.nodes - 1).max():.3f}")
+        print(f"written: {path}")
+
+        self.assertLess(spread(after_ae), spread(before_ae))
+        self.assertGreater(np.abs(before_fit.nodes - 1).max(), 0.2)   # the model misses the interaction ...
+        self.assertLess(np.abs(after_fit.nodes - 1).max(), 0.05)      # ... and the corrected model does not

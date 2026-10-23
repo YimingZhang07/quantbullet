@@ -141,6 +141,9 @@ fit.plot(overlays=None, slices="x", ci=.95, label="fit", ...)
 - **D̂ 切片**：每个 x 节点一个 panel（reference 行全为 1，不画），画节点值和 CI，节点间的连线就是该 x 上 D 的精确取值。
   `overlays` 把其他拟合（同样的 x、z 列和 scale，knots 可以不同）沿同一条线叠加。
 - `slices="z"` 时两个维度互换。字号和文字颜色跟随 `theme`（例如 `PRINT_THEME`），色阶和线宽在 `TwoWayStyle` 里。
+- 默认情况下，热力图色阶和切片的 y 轴按各自的数据定范围。要把两张图放在一起比较（例如修正前和修正后）时，用
+  `color_range`（颜色在 ×、÷ 这个倍数处饱和，例如 1.4）和 `y_range=(low, high)` 固定刻度。否则修正后接近 1 的小偏差
+  也会被画成和修正前一样深的颜色、一样高的起伏。
 
 ## 结构
 

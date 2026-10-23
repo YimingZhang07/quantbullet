@@ -116,7 +116,7 @@ def _value_axis(axes, scale: str) -> None:
 
 
 # ---------------------------------------------------------------- layout, heatmap, slices
-def _check(slices, ci, n_cols, panel_size, heatmap_height):
+def _check(slices, ci, n_cols, panel_size, heatmap_height, color_range, y_range):
     if slices not in ("x", "z"):
         raise ValueError("slices must be 'x' or 'z'")
     if not 0 < ci < 1:
@@ -127,6 +127,11 @@ def _check(slices, ci, n_cols, panel_size, heatmap_height):
         raise ValueError("panel_size must contain two positive finite values")
     if not np.isfinite(heatmap_height) or heatmap_height <= 0:
         raise ValueError("heatmap_height must be positive")
+    if color_range is not None and not (np.isscalar(color_range) and np.isfinite(color_range) and color_range > 1):
+        raise ValueError("color_range must be a finite number above 1, or None")
+    if y_range is not None and not (np.shape(y_range) == (2,) and np.isfinite(y_range).all()
+                                    and y_range[0] < y_range[1]):
+        raise ValueError("y_range must be (low, high) with finite low < high, or None")
 
 
 def _layout(n_slices: int, n_cols: int, panel_size, heatmap_height: float):
@@ -144,12 +149,18 @@ def _layout(n_slices: int, n_cols: int, panel_size, heatmap_height: float):
 
 
 def _heatmap(fig, ax, values, half_widths, fixed, row_labels, col_labels, row_title, col_title,
-             colorbar_label, theme: PlotTheme, style: TwoWayStyle):
-    """Log-coloured cells, x rows from the bottom; each cell shows its value and the CI half-width."""
+             colorbar_label, color_range, theme: PlotTheme, style: TwoWayStyle):
+    """Log-coloured cells, x rows from the bottom; each cell shows its value and the CI half-width.
+
+    Colours saturate at x color_range and / color_range; without it, at the largest value in the table.
+    """
     with np.errstate(divide="ignore", invalid="ignore"):
         logs = np.where(values > 0, np.log(values), np.nan)
-    finite = np.abs(logs[np.isfinite(logs)])
-    limit = max(np.log(style.min_color_range), finite.max() if finite.size else 0.)
+    if color_range is not None:
+        limit = np.log(color_range)
+    else:
+        finite = np.abs(logs[np.isfinite(logs)])
+        limit = max(np.log(style.min_color_range), finite.max() if finite.size else 0.)
     cmap = LinearSegmentedColormap.from_list(
         "two_way", [style.low_color, style.mid_color, style.high_color]).with_extremes(bad="white")
     image = ax.imshow(np.ma.masked_invalid(logs), cmap=cmap, vmin=-limit, vmax=limit, origin="lower",
@@ -223,6 +234,8 @@ def draw_two_way_ae(
     n_cols: int = 4,
     panel_size: tuple[float, float] = (3.2, 2.6),
     heatmap_height: float = 3.6,
+    color_range: float | None = None,
+    y_range: tuple[float, float] | None = None,
     title: str | None = None,
     theme: PlotTheme = MINIMAL_THEME,
     style: TwoWayStyle = DEFAULT_TWO_WAY_STYLE,
@@ -231,9 +244,11 @@ def draw_two_way_ae(
 
     Each slice shows A/E with ``ci`` error bars from ``ae_se`` against the other variable, a line at 1 and
     background bars of row counts; all slices share the A/E and the count scales. Cells with fewer than
-    ``min_rows`` rows are left blank in the heatmap and break the slice curves.
+    ``min_rows`` rows are left blank in the heatmap and break the slice curves. ``color_range`` (colours
+    saturate at x / divided by it) and ``y_range`` (the slices' A/E axis) fix the scales, e.g. so a figure
+    before a correction and one after it compare directly; by default both follow the data.
     """
-    _check(slices, ci, n_cols, panel_size, heatmap_height)
+    _check(slices, ci, n_cols, panel_size, heatmap_height, color_range, y_range)
     if isinstance(min_rows, bool) or not isinstance(min_rows, (int, np.integer)) or min_rows < 0:
         raise ValueError("min_rows must be a nonnegative integer")
     q = NormalDist().inv_cdf(.5 + ci / 2)
@@ -251,7 +266,7 @@ def draw_two_way_ae(
     fig, heatmap, grid = _layout(len(panel_levels), n_cols, panel_size, heatmap_height)
     axes = [ax for ax in grid.flat if ax is not None]
     _heatmap(fig, heatmap, values, half, np.zeros(values.shape, dtype=bool), x_labels, z_labels,
-             ae.label(ae.x), ae.label(ae.z), "A/E", theme, style)
+             ae.label(ae.x), ae.label(ae.z), "A/E", color_range, theme, style)
 
     positions, left, right = _bin_edges(list(across_levels), across_scale, across_range)
     bar_left, bar_right = _shrink(left, right, across_scale, style.bar_width_ratio)
@@ -277,7 +292,7 @@ def draw_two_way_ae(
                     marker="o", markersize=style.marker_size, capsize=style.capsize, elinewidth=.9, zorder=3)
     _value_axis(axes + [twin for twin in twins.flat if twin is not None], across_scale)
     if axes:
-        axes[0].set_ylim(*_y_limits(values))
+        axes[0].set_ylim(*(_y_limits(values) if y_range is None else y_range))
         axes[0].set_xlim(left.min(), right.max())
     label_outer_panels(grid, twins, y_titles=True, bar_titles=True)
     handles = [Line2D([], [], color=color, linewidth=style.line_width, marker="o", markersize=style.marker_size,
@@ -298,6 +313,8 @@ def draw_two_way_correction(
     n_cols: int = 4,
     panel_size: tuple[float, float] = (3.2, 2.6),
     heatmap_height: float = 3.6,
+    color_range: float | None = None,
+    y_range: tuple[float, float] | None = None,
     title: str | None = None,
     theme: PlotTheme = MINIMAL_THEME,
     style: TwoWayStyle = DEFAULT_TWO_WAY_STYLE,
@@ -307,9 +324,10 @@ def draw_two_way_correction(
     A reference line is all ones and gets no panel. Each slice shows the nodes with ``ci`` error bars joined by
     straight lines, which is D exactly along that knot, plus a line at 1 and a mark at the other axis's
     reference. ``overlays`` maps labels to other fits of the same x and z columns and scales (e.g. a subset),
-    drawn along each slice; their knots may differ.
+    drawn along each slice; their knots may differ. ``color_range`` and ``y_range`` fix the heatmap colours and
+    the slices' D axis, as in ``draw_two_way_ae``.
     """
-    _check(slices, ci, n_cols, panel_size, heatmap_height)
+    _check(slices, ci, n_cols, panel_size, heatmap_height, color_range, y_range)
     overlays = dict(overlays or {})
     for name, other in overlays.items():
         if (other.x, other.z, other.x_scale, other.z_scale) != (correction.x, correction.z, correction.x_scale,
@@ -332,7 +350,7 @@ def draw_two_way_correction(
     axes = [ax for ax in grid.flat if ax is not None]
     _heatmap(fig, heatmap, correction.nodes, q * correction.se, ~correction.free,
              [_number(k) for k in correction.x_knots], [_number(k) for k in correction.z_knots],
-             correction.label(correction.x), correction.label(correction.z), "multiplier D", theme, style)
+             correction.label(correction.x), correction.label(correction.z), "multiplier D", color_range, theme, style)
 
     spacing = np.geomspace if across_scale == "log" else np.linspace
     along = spacing(across_knots[0], across_knots[-1], 200)
@@ -353,7 +371,8 @@ def draw_two_way_correction(
             ax.plot(along, curve, color=colors[k % len(colors)], linewidth=style.overlay_line_width, zorder=2)
     _value_axis(axes, across_scale)
     if axes:
-        axes[0].set_ylim(*_y_limits(np.concatenate([np.ravel(c) for c in curves])))
+        drawn = np.concatenate([np.ravel(c) for c in curves])
+        axes[0].set_ylim(*(_y_limits(drawn) if y_range is None else y_range))
     label_outer_panels(grid, y_titles=True)
     handles = [Line2D([], [], color=colors[0], linewidth=style.line_width, marker="o",
                       markersize=style.marker_size, label=f"{label} (±{ci:.0%})")]

@@ -80,3 +80,20 @@ def test_overlays_must_share_columns_and_the_theme_sets_fonts(frame):
     assert plot.heatmap_ax.get_yticklabels()[0].get_fontsize() == PRINT_THEME.tick_labelsize
     with pytest.raises(ValueError, match="slices"):
         fit.plot(slices="y")
+
+
+def test_fixed_color_and_y_ranges_let_two_figures_compare(frame):
+    diag = diagnostic(frame)
+    ae = diag.ae(x_bins=BinSpec.edges([3e4, 1e5, 3e5, 1e6]), z_bins=BinSpec.edges([-6., -4., -2., 0.]))
+    fit = diag.correction(x_knots=X_KNOTS, z_knots=Z_KNOTS, x_reference=2.5e5, z_reference=-3)
+    for plot in (ae.plot(color_range=1.5, y_range=(.6, 1.6)), fit.plot(color_range=1.5, y_range=(.6, 1.6))):
+        image = plot.heatmap_ax.images[0]
+        assert image.get_clim() == pytest.approx((-np.log(1.5), np.log(1.5)))
+        colorbar_ticks = image.colorbar.ax.get_yticks()
+        assert np.all(np.abs(colorbar_ticks) <= np.log(1.5) + 1e-12)
+        assert all(ax.get_ylim() == pytest.approx((.6, 1.6)) for ax in plot.slice_axes)
+    # Without them, both follow the data.
+    assert fit.plot().heatmap_ax.images[0].get_clim()[1] == pytest.approx(np.abs(np.log(fit.nodes)).max())
+    for bad in (dict(color_range=1.), dict(color_range=np.inf), dict(y_range=(1.5, .5)), dict(y_range=(0, np.nan))):
+        with pytest.raises(ValueError, match="color_range|y_range"):
+            ae.plot(**bad)
