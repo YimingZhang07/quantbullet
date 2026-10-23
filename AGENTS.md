@@ -21,6 +21,10 @@
 - Use environment variables or generic placeholders for local paths. Keep raw data, generated Parquet files, and manifests outside the repository.
 - Before committing, inspect the staged file list and diff for personal paths, secrets, and generated data.
 
+## Examples
+
+- Use the repository skill [`runnable-examples`](.agents/skills/runnable-examples/SKILL.md) when writing or reviewing usage examples under `examples/`; it can be invoked as `$runnable-examples`.
+
 ## Process documentation
 
 - Use the repository skill [`process-readme`](.agents/skills/process-readme/SKILL.md) when writing or restructuring workflow READMEs; it can be invoked as `$process-readme`.
