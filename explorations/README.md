@@ -17,4 +17,4 @@
 | 日期 | 主题 | 状态 |
 |---|---|---|
 | 2026-10-12 | LPM BCD 与 log-link GLM：offset、速度、可替代性，form / solver 分层设计 | 已实施：`linear_product_model` 的 `forms` 与 `solvers`（`block_link="log"` 由 Newton 拟合），turnover 通过 `[fit] block_link` 选择。文件夹已删除，报告、设计与脚本见 commit `39365b0` 及之后的实施 commit |
-| 2026-10-20 | LPM 的 Term 抽象：tent basis、reference 与 pivot、cross term（含张量积）、参数化 term、solver 的推广与分期 | 设计草案：[design.md](2026-10-20-lpm-terms/design.md)。P0 已实施：`TentTransformer`、`fit(references=...)`、Newton 识别常数方向；P1 起未实施（尚无实验，故暂无 `report.md`） |
+| 2026-10-20 | LPM 的 Term 抽象：tent basis、reference 与 pivot、cross term（含张量积）、参数化 term、solver 的推广与分期 | 设计与部分实施：[design.md](2026-10-20-lpm-terms/design.md)，P0–P2 已实施，P3 起未实施。turnover 改用 tent 的对比见 [report.md](2026-10-20-lpm-terms/report.md)：拟合相同，是否采用待定 |

@@ -700,7 +700,8 @@ P3 测试：
 6. **identity 下的非线性求解**：在 BCD 里做阻尼 GN 步（建议先这样），还是新增联合 GN solver（6.4 节）。
 7. **Jacobian**：P3 先用差分，库里的形状逐个补解析式，还是一开始就要求解析式。
 8. **P0 的常数方向**：已定，P0 按数据检测两种情况（9.3 节）；P1 起改为由 term 声明、按数据校验。
-9. **turnover 是否改用 tent、设哪些 reference**：这是独立的建模决定。在 P0 的等价验证之后，单独做一次报告对比再决定。
+9. **turnover 是否改用 tent、设哪些 reference**：已做全量对比，见 [report.md](report.md)：拟合相同，差别只在读法；是否采用，
+   以及 reference 取单个常见值还是一组自洽的 reference state，仍待定。
 10. **`extrapolation="linear"`**：已定，不做，tent 只做平的外推（9.1 节）。
 11. **类名**：已定，用 `TentTransformer`；`FlatRampTransformer` 保持现状。
 12. **pivot 与 reference**：已定，两者分开；声明了 reference 时 Newton 用它当 pivot，多个 reference 合并列再做 gauge（3.2 节）。
