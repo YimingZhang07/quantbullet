@@ -1,6 +1,6 @@
 # Design：LPM 的 Term 抽象（tent basis、reference、cross term 与参数化 term）
 
-日期：2026-10-20 · 状态：设计草案；P0（第 9 节）、P1 与 P2 已实施，P3 起未实施
+日期：2026-10-20 · 状态：设计草案；P0（第 9 节）、P1 与 P2 已实施，P3 暂缓（2026-10-22），P4 未实施；暂缓事项见 [followups.md](followups.md)
 
 ## 目标与非目标
 
@@ -464,7 +464,8 @@ sato      = FrozenTerm("c_sato_fit", fitted_submodel)
   `form.implied_actual_terms`，不改。特征配置表改用 `term.describe()`，去掉 `isinstance` 分支。toolkit 只接收
   `ModelSpec`，取代 `FeatureSpec` + `preprocess_config`（待决问题 19，已定）。
 - **`MortgageDiagnostics`**：只读预测，不改。
-- **`fit_turnover`**：P1 继续走 `feature_groups` 路径。数值特征改用 tent 是独立的建模决定，需要单独的报告对比。
+- **`fit_turnover`**：P1(b) 起由 `ModelSpec` 构造。数值特征改用 tent 是独立的建模决定，对比见 [report.md](report.md)；
+  2026-10-22 起改用 `TentTerm`，不设 reference（待决问题 9）。
 - **`ComponentManager`**：`ParametricModel` 子类成为 `ParametricTerm` 的形状；序列化 term 配置留到 P3 之后再考虑。
 
 ## 9. P0 的接口
@@ -700,8 +701,8 @@ P3 测试：
 6. **identity 下的非线性求解**：在 BCD 里做阻尼 GN 步（建议先这样），还是新增联合 GN solver（6.4 节）。
 7. **Jacobian**：P3 先用差分，库里的形状逐个补解析式，还是一开始就要求解析式。
 8. **P0 的常数方向**：已定，P0 按数据检测两种情况（9.3 节）；P1 起改为由 term 声明、按数据校验。
-9. **turnover 是否改用 tent、设哪些 reference**：已做全量对比，见 [report.md](report.md)：拟合相同，差别只在读法；是否采用，
-   以及 reference 取单个常见值还是一组自洽的 reference state，仍待定。
+9. **turnover 是否改用 tent、设哪些 reference**：已定（2026-10-22），改用 `TentTerm`，暂不设 reference，各 block 按 mean-1
+   归一化；全量对比见 [report.md](report.md)，log 下拟合相同。reference 取单个常见值还是一组自洽的 reference state，以后再定。
 10. **`extrapolation="linear"`**：已定，不做，tent 只做平的外推（9.1 节）。
 11. **类名**：已定，用 `TentTransformer`；`FlatRampTransformer` 保持现状。
 12. **pivot 与 reference**：已定，两者分开；声明了 reference 时 Newton 用它当 pivot，多个 reference 合并列再做 gauge（3.2 节）。

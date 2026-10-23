@@ -1,7 +1,8 @@
 """Fit and report one turnover variant in an output root of its own; the production artifacts are not touched.
 
-The variant is the basis of the numeric features (``--basis``: the production FlatRamp spec, or the tent spec of
-compare_tent_turnover.py with its references, or none with ``--mean-one``) and the config's form (``block_link``
+The variant is the basis of the numeric features (``--basis``: the FlatRamp spec the turnover used before tents, or
+the tent spec of compare_tent_turnover.py with its references, or none with ``--mean-one``, which is the production
+spec) and the config's form (``block_link``
 and its solver settings). The prepared frame of the config's output_root is linked (or copied) into --out, which
 must be outside the repository; the turnover fit and report then run there.
 
@@ -47,6 +48,8 @@ def main():
     if args.basis == "tent":
         references = {} if args.mean_one else compare.REFERENCES
         fit_turnover.build_spec = lambda: compare.tent_spec(references)   # fit() builds its spec through this name
+    else:
+        fit_turnover.build_spec = compare.flat_ramp_spec
     fit_turnover.fit(variant)
     report_turnover.report(variant)
     print(f"[variant] report written to {out / 'turnover_report.pdf'}", flush=True)

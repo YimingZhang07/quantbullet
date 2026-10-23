@@ -1,6 +1,6 @@
 # Report：turnover 改用 tent + reference，与 FlatRamp 的对比
 
-日期：2026-10-21 · 状态：实验完成，是否采用待定 · 设计见 [design.md](design.md)（待决问题 9）
+日期：2026-10-21 · 状态：实验完成；2026-10-22 起 turnover 改用 tent，暂不设 reference（mean-1）· 设计见 [design.md](design.md)（待决问题 9）
 
 ## 问题
 
@@ -26,7 +26,8 @@ turnover 的数值特征现在用 `BasisTerm(FlatRampTransformer(include_bias=Tr
 
 - cohort 与现有 turnover 相同：`turnover.example.toml` 的 prepared frame，按余额加权，`block_link = "log"`，`[fit.newton]` 为
   `design_cache = "auto"`、`max_cache_gb = 16`，`l2 = 0`。
-- FlatRamp：生产代码的 `build_spec()`，也就是 `CategoricalTerm` 加 `BasisTerm(FlatRamp)`，age 用按 purpose 分开的 `ByTerm`。
+- FlatRamp：当时生产代码的 `build_spec()`（现在是对比脚本的 `flat_ramp_spec()`），也就是 `CategoricalTerm` 加 `BasisTerm(FlatRamp)`，
+  age 用按 purpose 分开的 `ByTerm`。
 - tent：分类部分不变；每个数值特征换成 `TentTerm`，knots 为 `(clip 下界, *KNOTS, clip 上界)`。输入在 `to_model_data` 里已经截断，
   所以 tent 与 FlatRamp(+bias) 张成同一个曲线空间（design 5.1 节）。分类特征不设 reference，仍按 mean-1 归一化。
 - reference 都取在 knot 上：age 24、incentive −1、SATO 0、FICO 740、original LTV 80、updated LTV 80、real original balance 300k、
@@ -184,7 +185,8 @@ early stopping 10，ftol 1e-5）。
 对比脚本输出 `summary.json`（各项指标和 pivot）与 `knot_tables.csv`（两种 basis 在每个 knot 上的乘数）。小样本用
 `--smoke-rows 100000 --l2 1e-8`，但按注意事项第 3 条，小样本只能检查流程，不能检查两者是否等价。
 
-## 待决问题
+## 决定
 
-1. 是否把 turnover 的数值特征改成 tent。改动只在 `build_spec`，拟合不变。
-2. reference 怎么取：每个特征各自取一个常见值（本次的做法），还是取一组自洽的 reference state；分类特征是否也设。
+1. turnover 的数值特征改成 tent（2026-10-22）：`fit_turnover.build_spec` 用 `TentTerm`，knots 为 `(clip 下界, *KNOTS, clip 上界)`。
+2. 暂不设 reference，各 block 仍按 mean-1 归一化，即上表的 `tent_mean1`：log 下与 FlatRamp 的拟合相同。
+   reference 怎么取（每个特征各取一个常见值，还是一组自洽的 reference state；分类特征是否也设）以后再定。

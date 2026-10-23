@@ -26,10 +26,11 @@ import polars as pl
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from projects.freddie_prepayment.config import REPOSITORY, read_config  # noqa: E402
-from projects.freddie_prepayment.fit_turnover import (CATEGORICAL, CLIP, KNOTS, TARGET, build_spec,  # noqa: E402
+from projects.freddie_prepayment.fit_turnover import (CATEGORICAL, CLIP, KNOTS, TARGET,  # noqa: E402
                                                       prediction_metrics, solver_arguments, to_model_data)
 from quantbullet.linear_product_model import LinearProductRegressor, ModelSpec  # noqa: E402
-from quantbullet.linear_product_model.terms import ByTerm, CategoricalTerm, TentTerm  # noqa: E402
+from quantbullet.linear_product_model.terms import BasisTerm, ByTerm, CategoricalTerm, TentTerm  # noqa: E402
+from quantbullet.preprocessing.transformers import FlatRampTransformer  # noqa: E402
 
 # A 24-month-old loan 1pp out of the money, at zero SATO, FICO 740, original and updated LTV 80, $300k (2025
 # dollars), 90% of its original balance and unchanged home prices. Every reference is a knot.
@@ -37,8 +38,17 @@ REFERENCES = {"c_age": 24, "c_incentive": -1., "c_sato": 0., "c_orig_fico": 740,
               "c_updated_ltv": 80, "c_orig_balance_real": 300000, "c_factor": .9, "c_hpi_ratio": 1.}
 
 
+def flat_ramp_spec() -> ModelSpec:
+    """The turnover spec before it moved to tents: FlatRamp (with bias) numeric terms on the interior knots."""
+    categorical = {name: CategoricalTerm(name) for name in CATEGORICAL}
+    numeric = {name + "_fit": BasisTerm(name + "_fit", FlatRampTransformer(knots=knots, include_bias=True))
+               for name, knots in KNOTS.items()}
+    numeric["c_age_fit"] = ByTerm(numeric["c_age_fit"], by=categorical["f_purpose"], drop=("c_age_fit",))
+    return ModelSpec([*categorical.values(), *numeric.values()])
+
+
 def tent_spec(references=REFERENCES) -> ModelSpec:
-    """``build_spec`` with each FlatRamp replaced by a tent whose end knots are the clip bounds, plus ``references``
+    """The turnover spec (``build_spec``: tents whose end knots are the clip bounds) plus ``references``
     (features without one keep the mean-1 scale)."""
     categorical = {name: CategoricalTerm(name) for name in CATEGORICAL}
     numeric = {name + "_fit": TentTerm(name + "_fit", (CLIP[name][0], *KNOTS[name], CLIP[name][1]),
@@ -106,7 +116,7 @@ def main():
     del frame
     print(f"[compare] {len(data):,} rows; {config.block_link} form", flush=True)
 
-    flat, flat_pred, flat_info = run(build_spec(), data, config, args.l2)
+    flat, flat_pred, flat_info = run(flat_ramp_spec(), data, config, args.l2)
     print(f"[compare] FlatRamp: {flat_info['steps']} steps, deviance {flat_info['deviance']}, "
           f"{flat_info['fit_seconds']:.0f}s", flush=True)
     tent, tent_pred, tent_info = run(tent_spec(), data, config, args.l2)

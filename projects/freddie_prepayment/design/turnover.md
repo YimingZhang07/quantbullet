@@ -24,8 +24,8 @@ Fitting cohort 为 `c_incentive <= -0.5`，数值 features 要求非空且有限
 pred_turnover = global_scalar × product(numeric blocks) × product(categorical blocks)
 ```
 
-使用 `LinearProductRegressor(loss="poisson")`。`c_age_fit` 按 `f_purpose` 各估一条 ramp，其余 block 是 main effects。
-每个 block 在 fit 中归一化，global scalar 表示整体 response level。
+使用 `LinearProductRegressor(loss="poisson")`。`c_age_fit` 按 `f_purpose` 各估一条曲线，其余 block 是 main effects。
+每个 block 在 fit 中归一化到加权均值 1（不设 reference），global scalar 表示整体 response level。
 
 `[fit] block_link` 选择 factor 形式；两种形式用同一 cohort、knots、weights 与 interaction，归一化与 report 相同：
 
@@ -46,7 +46,8 @@ Metadata 的 `timing_seconds` 分别记录 read_frame、model_data、prepare、f
 `actual_sweeps` 是实际执行轮数（log 形式为接受的 Newton 步数加初始点），`solver_passes` 是 solver 的数据遍历次数；`fit_seconds` 仍只计 `model.fit()`。Artifact write 和全流程总时间完成后打印，不回写 pickle。
 
 Prepared frame 保留 raw values。Fit 按 [fit](../fit_turnover.py) 的 `CLIP` 生成 `_fit` inputs：age、incentive、SATO、original FICO、original LTV、updated LTV、real original balance、balance factor 和 HPI ratio。改 clip 或 knots 不重写 frame。
-同一文件的 `KNOTS` 给出对应 FlatRamp knots；`build_spec` 把它们写成 `ModelSpec`：numeric 为 `BasisTerm(FlatRampTransformer(include_bias=True))`，age 为按 purpose 分开的 `ByTerm`。Implied-actual bin widths 在 [report](../report_turnover.py) 的 `IMPLIED_BIN_CONFIG`。
+同一文件的 `KNOTS` 给出内部 knots；`build_spec` 把它们写成 `ModelSpec`：numeric 为 `TentTerm`，knots 为 `(clip 下界, *KNOTS, clip 上界)`，系数即曲线在各 knot 上的值；age 为按 purpose 分开的 `ByTerm`。
+截断后的输入上，这组 tent 与带 bias 的 FlatRamp（同一组内部 knots）张成同一组曲线，全量 log 拟合两者预测相差 < 1e-6，对比见 [tent 对比报告](../../../explorations/2026-10-20-lpm-terms/report.md)。Implied-actual bin widths 在 [report](../report_turnover.py) 的 `IMPLIED_BIN_CONFIG`。
 Updated LTV 是 first-lien estimate；`c_hpi_ratio = c_hpi_lag1 / c_orig_hpi`，表示 origination→lag1 的 ZHVI 倍数，不年化，也不是 trailing 24-month HPA。
 `1.00` 表示持平，`1.10` 表示累计上涨 10%；fit clip 为 `[0.8, 2.0]`，knots 为 `0.95, 1.0, 1.1, 1.25, 1.5, 1.75`，report bin width 为 `0.1`。
 `c_orig_balance_real = c_orig_balance × CPI(2025-01) / c_orig_cpi`，单位为 2025 年 1 月美元；CPIAUCNS 2025-01 = 317.671，即 [prepare](../prepare_turnover.py) 的 `CPI_BASE`，prepare 会校验 panel 中该月的 `c_orig_cpi` 与之相等。
@@ -54,7 +55,7 @@ Updated LTV 是 first-lien estimate；`c_hpi_ratio = c_hpi_lag1 / c_orig_hpi`，
 `c_factor = c_prev_balance / c_orig_balance`（t−1）替代 previous balance 作为 model input；previous balance 与 original balance 相关系数约 0.98，factor 与之约 0.12。
 `c_sato = c_orig_rate − c_orig_pmms`，单位为百分点，基准为 origination month 的全国 PMMS，不含 LLPA；clip `[-1.5, 1.5]`，knots `-0.5, -0.25, 0, 0.25, 0.5, 1.0`。
 Original LTV clip `[20, 97]`（>100 的 relief 类贷款截到 97），knots `50, 70, 80, 90, 95`。
-注意 `updated LTV = original LTV × factor / HPI ratio` 恒成立（log 空间线性相关）。四者都进入模型时，FlatRamp 的分段线性仍可分辨它们，但单条曲线可能吸收其他三者的部分效应，解读时应同时看四条曲线。
+注意 `updated LTV = original LTV × factor / HPI ratio` 恒成立（log 空间线性相关）。四者都进入模型时，分段线性曲线仍可分辨它们，但单条曲线可能吸收其他三者的部分效应，解读时应同时看四条曲线。
 
 Categorical blocks：purpose、occupancy、property type、first-time buyer、month、state，采用 `CategoricalTerm`（完整 one-hot，列与 OneHotEncoder(drop=None) 相同）。
 Missing categories 为 MISSING；未知类别报错。Numeric missing rows 排除，不 impute。

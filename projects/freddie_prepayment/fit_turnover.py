@@ -9,8 +9,7 @@ import numpy as np
 import pandas as pd
 import polars as pl
 from quantbullet.linear_product_model import LinearProductRegressor, ModelSpec
-from quantbullet.linear_product_model.terms import BasisTerm, ByTerm, CategoricalTerm
-from quantbullet.preprocessing.transformers import FlatRampTransformer
+from quantbullet.linear_product_model.terms import ByTerm, CategoricalTerm, TentTerm
 from quantbullet.utils.files import file_sha256, temporary_output
 
 from .config import Config, read_config
@@ -60,9 +59,10 @@ def to_model_data(frame: pl.DataFrame) -> pd.DataFrame:
 
 
 def build_spec() -> ModelSpec:
-    """One-hot categorical terms, then FlatRamp (with bias) numeric terms; the age ramp is fitted per f_purpose level."""
+    """One-hot categorical terms, then tent numeric terms whose end knots are the clip bounds (KNOTS are the
+    interior knots); the age curve is fitted per f_purpose level. No references: every block keeps mean 1."""
     categorical = {name: CategoricalTerm(name) for name in CATEGORICAL}
-    numeric = {name + "_fit": BasisTerm(name + "_fit", FlatRampTransformer(knots=knots, include_bias=True))
+    numeric = {name + "_fit": TentTerm(name + "_fit", (CLIP[name][0], *knots, CLIP[name][1]))
                for name, knots in KNOTS.items()}
     numeric["c_age_fit"] = ByTerm(numeric["c_age_fit"], by=categorical["f_purpose"], drop=("c_age_fit",))
     return ModelSpec([*categorical.values(), *numeric.values()])
