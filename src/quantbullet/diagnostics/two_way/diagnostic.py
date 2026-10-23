@@ -111,7 +111,7 @@ class TwoWayDiagnostic:
     def correction(self, *, x_knots: Sequence[float], z_knots: Sequence[float],
                    x_reference: float | None = None, z_reference: float | None = None,
                    loss: Literal["poisson", "mse"] = "poisson", ridge: float = 0.01,
-                   max_iter: int = 50, tol: float = 1e-10) -> TwoWayCorrection:
+                   max_iter: int = 500, tol: float = 1e-14) -> TwoWayCorrection:
         """Fit a multiplier surface D(x, z) on the prediction; see ``TwoWayCorrection``.
 
         ``mu = pred * D``, with D bilinear between the knots (in each variable's scale) and constant beyond the
@@ -119,7 +119,9 @@ class TwoWayDiagnostic:
         holds only the interaction; with neither, D is a smoothed two-way A/E surface relative to pred.
         ``loss`` is ``"poisson"`` (y, pred >= 0) or ``"mse"``. ``ridge`` shrinks free nodes toward 1 and has
         no unit: a node with Fisher information I is pulled toward 1 by about ridge * Ibar / (ridge * Ibar + I),
-        where Ibar is the mean information of the free nodes at D = 1.
+        where Ibar is the mean information of the free nodes at D = 1. The nodes are fitted by L-BFGS-B
+        (``scipy.optimize.minimize``): ``max_iter`` caps its iterations and ``tol`` is its ``ftol``, on the
+        penalized loss per unit of weight.
         """
         from .correction import fit_correction
         return fit_correction(self, x_knots=x_knots, z_knots=z_knots, x_reference=x_reference,

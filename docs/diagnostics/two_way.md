@@ -111,9 +111,14 @@ $$D(x,z) \approx \frac{\text{A/E}(x,z)\,/\,\text{A/E}(x,z^*)}{\text{A/E}(x^*,z)\
   MSE 为 ½Σw(y − μ)²。
 - **罚项**：½ · ridge · Ī · ‖d − 1‖²，只作用于自由节点。Ī（`penalty_scale`）是 D = 1 时自由节点 Fisher 信息的均值，
   所以 ridge 无量纲：信息量为 I 的节点大约被拉向 1 的比例为 ridge·Ī / (ridge·Ī + I)。默认的 0.01 只明显影响数据很少的节点。
-- **求解**：Fisher scoring，加 step-halving。Poisson 下节点保持为正；某个区域没有事件时，那里的节点会贴近 0。
-  法方程按每行所在格子的四个角累加，不构造按行展开的设计矩阵。在 1700 万行上一次拟合约 20 秒。
-- **SE**：penalized sandwich，把行当作相互独立，不按贷款聚类。
+- **设计矩阵**：每个轴的 tent basis 用 `scipy.interpolate.BSpline.design_matrix`（一次 B-spline）生成，两轴逐行相乘得到
+  稀疏矩阵 Z，每行 4 个非零元素。Z 的每行之和为 1，所以 D = 1 + Z[:, free] δ：pred 是固定的 offset，
+  reference 线上的节点不进入 `free`，ridge 把 δ 拉向 0。
+- **求解**：`scipy.optimize.minimize`（L-BFGS-B），用解析梯度。Poisson 下用 bounds 保证每个节点为正；
+  某个区域没有事件时，那里的节点会贴到下界附近。每个节点先按自己的 Fisher 信息缩放，迭代次数大约减半。
+  `max_iter` 和 `tol`（L-BFGS-B 的 `ftol`）一般用默认值即可。在 1700 万行上一次拟合约 23 秒。
+- **SE**：penalized sandwich，用稀疏矩阵乘法算出；把行当作相互独立，不按贷款聚类。
+- **deviance**：`sklearn.metrics.mean_poisson_deviance` / `mean_squared_error`，带 `sample_weight`。
 
 ### 注意事项
 
@@ -132,7 +137,7 @@ fit.plot(overlays=None, slices="x", ci=.95, label="fit", ...)
 - **热力图**：按 log 值着色，以 1 为中心的对称 diverging 色阶（蓝 < 1，红 > 1）。每格标注"值 ± CI 半宽"；D̂ 的 reference 格子标"1 · ref"；
   A/E 中行数少于 `min_rows` 的格子留空。
 - **A/E 切片**：每个 x bin 一个 panel，画 A/E 对 z 的曲线（带 CI 误差棒）、1 的参考线和行数柱（右轴）。所有 panel 共用刻度。
-  log 轴上各 bin 放在 log 中点，刻度标原始单位。
+  log 尺度的变量画在 matplotlib 的 log 轴上：各 bin 的点放在几何中点，柱子按 bin 的边界画，刻度在 1、2、5 这类整值上。
 - **D̂ 切片**：每个 x 节点一个 panel（reference 行全为 1，不画），画节点值和 CI，节点间的连线就是该 x 上 D 的精确取值。
   `overlays` 把其他拟合（同样的 x、z 列和 scale，knots 可以不同）沿同一条线叠加。
 - `slices="z"` 时两个维度互换。字号和文字颜色跟随 `theme`（例如 `PRINT_THEME`），色阶和线宽在 `TwoWayStyle` 里。
@@ -143,7 +148,7 @@ fit.plot(overlays=None, slices="x", ci=.95, label="fit", ...)
 |---|---|
 | `diagnostics/two_way/diagnostic.py` | `TwoWayDiagnostic`：取数、剔除、校验，两个方法的入口 |
 | `diagnostics/two_way/ae.py` | `TwoWayAE`：用 `summarize_binned_means` 做二维加权汇总 |
-| `diagnostics/two_way/correction.py` | `TwoWayCorrection`：二维 tent 网格、Fisher scoring、SE |
+| `diagnostics/two_way/correction.py` | `TwoWayCorrection`：稀疏的二维 tent 设计矩阵（scipy B-spline）、L-BFGS-B 拟合、SE |
 | `plot/two_way.py` | `draw_two_way_ae`、`draw_two_way_correction`、`TwoWayStyle` |
 
 构造 `TwoWayDiagnostic` 和拟合 `correction` 都不加载 matplotlib。`.ae()` 用 binned means 的汇总，那个包会带上 matplotlib；

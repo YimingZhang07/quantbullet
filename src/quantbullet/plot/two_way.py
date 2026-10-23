@@ -3,6 +3,7 @@
 ``draw_two_way_ae`` draws a ``TwoWayAE`` (actual / expected per bin, with row-count bars in each slice);
 ``draw_two_way_correction`` draws a ``TwoWayCorrection`` (the fitted multiplier D at the knots, with other
 fits overlaid). The heatmap colours log values on a diverging scale centred at 1: blue below, red above.
+Slices put a log-scale variable on a matplotlib log axis with ticks at 1-2-5 values.
 """
 from __future__ import annotations
 
@@ -18,9 +19,10 @@ from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
-from matplotlib.ticker import FixedLocator, FuncFormatter, MaxNLocator
+from matplotlib.ticker import FuncFormatter, LogLocator, MaxNLocator, NullFormatter
 
 from .formatter import PlotFormatter, compact_number
+from .panels import label_outer_panels
 from .theme import MINIMAL_THEME, PlotTheme
 
 if TYPE_CHECKING:
@@ -63,7 +65,7 @@ class TwoWayPlot:
 
 
 # ---------------------------------------------------------------- labels and positions
-def _number(value: float) -> str:
+def _number(value: float, _pos=None) -> str:
     return compact_number(value) if abs(value) >= 1e4 else f"{value:g}"
 
 
@@ -74,56 +76,43 @@ def _level_label(level, first: bool = False) -> str:
     return _number(level) if isinstance(level, (int, float, np.number)) else str(level)
 
 
-def _scale_transform(scale: str):
-    return np.log10 if scale == "log" else (lambda values: np.asarray(values, dtype=float))
-
-
-def _level_geometry(levels, scale: str, value_range) -> tuple[np.ndarray, np.ndarray]:
-    """Centres and widths of bins in plot coordinates (log10 on a log scale), clipped to the observed range."""
-    transform = _scale_transform(scale)
+def _bin_edges(levels, scale: str, value_range) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Marker positions and bar edges of bins in data units, clipped to the observed range of the variable."""
     if levels and all(isinstance(level, pd.Interval) for level in levels):
         left = np.array([max(level.left, value_range[0]) for level in levels], dtype=float)
         right = np.array([min(level.right, value_range[1]) for level in levels], dtype=float)
         outside = left >= right   # bins beyond the data keep their own edges
         left[outside] = [levels[i].left for i in np.flatnonzero(outside)]
         right[outside] = [levels[i].right for i in np.flatnonzero(outside)]
+    else:   # BinSpec.round values: half a step on each side
+        centres = np.asarray(levels, dtype=float)
         if scale == "log":
-            left = np.maximum(left, value_range[0])
-            right = np.maximum(right, left * 1.000001)
-        a, b = transform(left), transform(right)
-        return (a + b) / 2, b - a
-    centres = transform(np.asarray(levels, dtype=float))
-    width = np.min(np.diff(centres)) if len(centres) > 1 else 1.
-    return centres, np.full(len(centres), width)
-
-
-def _log_ticks(low: float, high: float) -> np.ndarray:
-    """log10 positions of round values (1-2-5 per decade, thinned or refined) between low and high."""
-    def ticks(mantissas):
-        exponents = range(int(np.floor(low)) - 1, int(np.ceil(high)) + 1)
-        positions = np.log10([m * 10. ** k for k in exponents for m in mantissas])
-        return positions[(positions >= low - 1e-9) & (positions <= high + 1e-9)]
-
-    for mantissas in ((1, 2, 5), (1, 3), (1,)):
-        found = ticks(mantissas)
-        if len(found) <= 6:
-            break
-    return found if len(found) >= 3 else ticks((1, 2, 3, 5, 7))
-
-
-def _format_value_axis(axes, scale: str, positions: np.ndarray):
-    """Label the shared horizontal axis in original units; a log axis gets ticks at round values."""
-    if not axes:
-        return
+            step = np.sqrt(np.min(centres[1:] / centres[:-1])) if len(centres) > 1 else 2.
+            return centres, centres / step, centres * step
+        half = np.min(np.diff(centres)) / 2 if len(centres) > 1 else .5
+        return centres, centres - half, centres + half
     if scale == "log":
-        axes[0].xaxis.set_major_locator(FixedLocator(_log_ticks(*axes[0].get_xlim())))
-        formatter = FuncFormatter(lambda value, _pos=None: _number(10 ** value))
-    elif len(positions) and np.nanmax(np.abs(positions)) >= 1e4:
-        formatter = FuncFormatter(compact_number)
-    else:
-        return
+        left = np.where(left > 0, left, value_range[0])
+        return np.sqrt(left * right), left, right
+    return (left + right) / 2, left, right
+
+
+def _shrink(left: np.ndarray, right: np.ndarray, scale: str, ratio: float) -> tuple[np.ndarray, np.ndarray]:
+    """Narrow bars around their centre, in the axis scale, so neighbours do not touch."""
+    to_axis, from_axis = (np.log, np.exp) if scale == "log" else (np.asarray, np.asarray)
+    a, b = to_axis(left), to_axis(right)
+    centre, half = (a + b) / 2, (b - a) * ratio / 2
+    return from_axis(centre - half), from_axis(centre + half)
+
+
+def _value_axis(axes, scale: str) -> None:
+    """The slices' shared horizontal axis in original units; a log scale gets ticks at 1-2-5 values."""
     for ax in axes:
-        ax.xaxis.set_major_formatter(formatter)
+        if scale == "log":
+            ax.set_xscale("log")
+            ax.xaxis.set_major_locator(LogLocator(subs=(1, 2, 5)))
+            ax.xaxis.set_minor_formatter(NullFormatter())
+        ax.xaxis.set_major_formatter(FuncFormatter(_number))
 
 
 # ---------------------------------------------------------------- layout, heatmap, slices
@@ -141,16 +130,17 @@ def _check(slices, ci, n_cols, panel_size, heatmap_height):
 
 
 def _layout(n_slices: int, n_cols: int, panel_size, heatmap_height: float):
+    """A full-width heatmap above a grid of slices; the grid is returned padded with None."""
     columns = max(1, min(n_cols, n_slices))
     rows = int(np.ceil(n_slices / columns))
     fig = plt.figure(figsize=(panel_size[0] * columns, heatmap_height + panel_size[1] * rows), layout="constrained")
-    grid = fig.add_gridspec(1 + rows, columns, height_ratios=[heatmap_height] + [panel_size[1]] * rows)
-    heatmap = fig.add_subplot(grid[0, :])
-    axes = []
+    spec = fig.add_gridspec(1 + rows, columns, height_ratios=[heatmap_height] + [panel_size[1]] * rows)
+    heatmap = fig.add_subplot(spec[0, :])
+    grid = np.full((rows, columns), None, dtype=object)
     for i in range(n_slices):
-        axes.append(fig.add_subplot(grid[1 + i // columns, i % columns],
-                                    sharex=axes[0] if axes else None, sharey=axes[0] if axes else None))
-    return fig, heatmap, axes
+        first = grid.flat[0]
+        grid.flat[i] = fig.add_subplot(spec[1 + i // columns, i % columns], sharex=first, sharey=first)
+    return fig, heatmap, grid
 
 
 def _heatmap(fig, ax, values, half_widths, fixed, row_labels, col_labels, row_title, col_title,
@@ -178,8 +168,9 @@ def _heatmap(fig, ax, values, half_widths, fixed, row_labels, col_labels, row_ti
                 strong = abs(logs[r, c]) > .6 * limit
                 ax.text(c, r, text, ha="center", va="center", fontsize=size,
                         color="white" if strong else theme.label_color)
-    ax.set_xticks(range(len(col_labels)), col_labels, rotation=30 if max(map(len, col_labels)) > 6 else 0,
-                  ha="right" if max(map(len, col_labels)) > 6 else "center")
+    long_labels = max(map(len, col_labels)) > 6
+    ax.set_xticks(range(len(col_labels)), col_labels, rotation=30 if long_labels else 0,
+                  ha="right" if long_labels else "center")
     ax.set_yticks(range(len(row_labels)), row_labels)
     ax.tick_params(length=0, labelsize=theme.tick_labelsize, colors=theme.tick_label_color)
     for spine in ax.spines.values():
@@ -194,15 +185,14 @@ def _heatmap(fig, ax, values, half_widths, fixed, row_labels, col_labels, row_ti
     bar.outline.set_visible(False)
 
 
-def _style_slice(ax, title: str, x_label: str, y_label: str, show_y_label: bool, theme: PlotTheme,
-                 style: TwoWayStyle):
+def _style_slice(ax, title: str, x_label: str, y_label: str, theme: PlotTheme, style: TwoWayStyle):
     PlotFormatter.apply_theme(ax, theme)
     ax.set_axisbelow(theme.grid_below)
     ax.axhline(1, color=style.reference_color, linewidth=.8, zorder=1)
     # Slice titles name a bin such as "current balance: (100K, 150K]"; label size keeps them inside the panel.
     ax.set_title(title, fontsize=theme.label_fontsize, pad=theme.title_pad, loc="left", color=theme.title_color)
     ax.set_xlabel(x_label, fontsize=theme.label_fontsize, color=theme.label_color)
-    ax.set_ylabel(y_label if show_y_label else "", fontsize=theme.label_fontsize, color=theme.label_color)
+    ax.set_ylabel(y_label, fontsize=theme.label_fontsize, color=theme.label_color)
     ax.tick_params(axis="x", labelbottom=True)
     ax.tick_params(axis="y", labelleft=True)
 
@@ -258,37 +248,38 @@ def draw_two_way_ae(
         (ae.x_levels, x_labels, ae.z_levels, ae.z_scale, ae.z_range, ae.x, ae.z) if slices == "x" else
         (ae.z_levels, z_labels, ae.x_levels, ae.x_scale, ae.x_range, ae.z, ae.x))
     oriented = (lambda array: array) if slices == "x" else (lambda array: array.T)
-    fig, heatmap, axes = _layout(len(panel_levels), n_cols, panel_size, heatmap_height)
+    fig, heatmap, grid = _layout(len(panel_levels), n_cols, panel_size, heatmap_height)
+    axes = [ax for ax in grid.flat if ax is not None]
     _heatmap(fig, heatmap, values, half, np.zeros(values.shape, dtype=bool), x_labels, z_labels,
              ae.label(ae.x), ae.label(ae.z), "A/E", theme, style)
 
-    positions, widths = _level_geometry(list(across_levels), across_scale, across_range)
+    positions, left, right = _bin_edges(list(across_levels), across_scale, across_range)
+    bar_left, bar_right = _shrink(left, right, across_scale, style.bar_width_ratio)
     bar_top = max(float(rows.max()), 1.) * 1.05
     color = theme.palette[0]
+    twins = np.full(grid.shape, None, dtype=object)
     for i, ax in enumerate(axes):
-        panel_values, panel_half, panel_rows = oriented(values)[i], oriented(half)[i], oriented(rows)[i]
-        twin = ax.twinx()
+        twin = twins.flat[i] = ax.twinx()
         ax.set_zorder(twin.get_zorder() + 1)
         ax.patch.set_visible(False)
-        twin.bar(positions, panel_rows, width=widths * style.bar_width_ratio, color=style.bar_color,
+        twin.bar(bar_left, oriented(rows)[i], width=bar_right - bar_left, align="edge", color=style.bar_color,
                  alpha=style.bar_alpha, edgecolor="none")
         twin.set_ylim(0, bar_top)
         twin.grid(False)
         twin.yaxis.set_major_locator(MaxNLocator(nbins=4, integer=True))
         twin.yaxis.set_major_formatter(FuncFormatter(compact_number))
         twin.tick_params(axis="y", labelsize=theme.tick_labelsize, colors=theme.muted_text_color)
+        twin.set_ylabel("Rows", fontsize=theme.label_fontsize, color=theme.muted_text_color)
         for spine in twin.spines.values():
             spine.set_visible(False)
-        last_in_row = (i % max(1, min(n_cols, len(axes)))) == min(n_cols, len(axes)) - 1 or i == len(axes) - 1
-        twin.set_ylabel("Rows" if last_in_row else "", fontsize=theme.label_fontsize, color=theme.muted_text_color)
-        _style_slice(ax, f"{ae.label(panel_name)}: {panel_labels[i]}", ae.label(across_name), "A/E",
-                     i % max(1, min(n_cols, len(axes))) == 0, theme, style)
-        ax.errorbar(positions, panel_values, yerr=panel_half, color=color, linewidth=style.line_width,
+        _style_slice(ax, f"{ae.label(panel_name)}: {panel_labels[i]}", ae.label(across_name), "A/E", theme, style)
+        ax.errorbar(positions, oriented(values)[i], yerr=oriented(half)[i], color=color, linewidth=style.line_width,
                     marker="o", markersize=style.marker_size, capsize=style.capsize, elinewidth=.9, zorder=3)
+    _value_axis(axes + [twin for twin in twins.flat if twin is not None], across_scale)
     if axes:
         axes[0].set_ylim(*_y_limits(values))
-        axes[0].set_xlim(np.min(positions - widths / 2), np.max(positions + widths / 2))
-    _format_value_axis(axes, across_scale, positions)
+        axes[0].set_xlim(left.min(), right.max())
+    label_outer_panels(grid, twins, y_titles=True, bar_titles=True)
     handles = [Line2D([], [], color=color, linewidth=style.line_width, marker="o", markersize=style.marker_size,
                       label=f"A/E (±{ci:.0%})"),
                Patch(facecolor=style.bar_color, alpha=style.bar_alpha, label="Rows (right axis)")]
@@ -325,9 +316,6 @@ def draw_two_way_correction(
                                                                  correction.z_scale):
             raise ValueError(f"overlay {name!r} must use the same x and z columns and scales")
     q = NormalDist().inv_cdf(.5 + ci / 2)
-    fixed = ~correction.free
-    x_labels = [_number(k) for k in correction.x_knots]
-    z_labels = [_number(k) for k in correction.z_knots]
 
     if slices == "x":
         panel_knots, panel_name, panel_ref = correction.x_knots, correction.x, correction.x_reference
@@ -340,34 +328,33 @@ def draw_two_way_correction(
                                                                correction.x_scale, correction.x_reference)
         nodes, se = correction.nodes.T, correction.se.T
     shown = [i for i, knot in enumerate(panel_knots) if panel_ref is None or not np.isclose(knot, panel_ref)]
-    fig, heatmap, axes = _layout(len(shown), n_cols, panel_size, heatmap_height)
-    _heatmap(fig, heatmap, correction.nodes, q * correction.se, fixed, x_labels, z_labels,
+    fig, heatmap, grid = _layout(len(shown), n_cols, panel_size, heatmap_height)
+    axes = [ax for ax in grid.flat if ax is not None]
+    _heatmap(fig, heatmap, correction.nodes, q * correction.se, ~correction.free,
+             [_number(k) for k in correction.x_knots], [_number(k) for k in correction.z_knots],
              correction.label(correction.x), correction.label(correction.z), "multiplier D", theme, style)
 
-    transform = _scale_transform(across_scale)
-    positions = transform(across_knots)
-    grid = np.linspace(positions[0], positions[-1], 200)
-    grid_values = 10 ** grid if across_scale == "log" else grid
+    spacing = np.geomspace if across_scale == "log" else np.linspace
+    along = spacing(across_knots[0], across_knots[-1], 200)
     colors = theme.palette
-    columns = max(1, min(n_cols, len(axes)))
     curves = [nodes[shown]]
-    for slot, (ax, i) in enumerate(zip(axes, shown)):
+    for ax, i in zip(axes, shown):
         _style_slice(ax, f"{correction.label(panel_name)} = {_number(panel_knots[i])}",
-                     correction.label(across_name), "multiplier D", slot % columns == 0, theme, style)
+                     correction.label(across_name), "multiplier D", theme, style)
         if across_ref is not None:
-            ax.axvline(transform(across_ref), color=theme.grid_color, linewidth=.8, zorder=1)
-        ax.errorbar(positions, nodes[i], yerr=np.where(se[i] > 0, q * se[i], np.nan), color=colors[0],
+            ax.axvline(across_ref, color=theme.grid_color, linewidth=.8, zorder=1)
+        ax.errorbar(across_knots, nodes[i], yerr=np.where(se[i] > 0, q * se[i], np.nan), color=colors[0],
                     linewidth=style.line_width, marker="o", markersize=style.marker_size, capsize=style.capsize,
                     elinewidth=.9, zorder=3)
         for k, other in enumerate(overlays.values(), start=1):
-            fixed_value = np.full(len(grid_values), panel_knots[i])
-            curve = (other.surface(fixed_value, grid_values) if slices == "x"
-                     else other.surface(grid_values, fixed_value))
+            fixed = np.full(len(along), panel_knots[i])
+            curve = other.surface(fixed, along) if slices == "x" else other.surface(along, fixed)
             curves.append(curve)
-            ax.plot(grid, curve, color=colors[k % len(colors)], linewidth=style.overlay_line_width, zorder=2)
+            ax.plot(along, curve, color=colors[k % len(colors)], linewidth=style.overlay_line_width, zorder=2)
+    _value_axis(axes, across_scale)
     if axes:
         axes[0].set_ylim(*_y_limits(np.concatenate([np.ravel(c) for c in curves])))
-    _format_value_axis(axes, across_scale, positions)
+    label_outer_panels(grid, y_titles=True)
     handles = [Line2D([], [], color=colors[0], linewidth=style.line_width, marker="o",
                       markersize=style.marker_size, label=f"{label} (±{ci:.0%})")]
     handles += [Line2D([], [], color=colors[k % len(colors)], linewidth=style.overlay_line_width, label=name)

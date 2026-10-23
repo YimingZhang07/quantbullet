@@ -5,7 +5,7 @@ import polars as pl
 import pytest
 
 from quantbullet.diagnostics import TwoWayDiagnostic
-from quantbullet.diagnostics.two_way.correction import _Axis, _corners
+from quantbullet.diagnostics.two_way.correction import _Axis, _design
 from tests.diagnostics.helpers import X_KNOTS, Z_KNOTS, tensor_basis, tilt_nodes, two_way_frame
 
 
@@ -14,23 +14,15 @@ def diagnostic(frame, **kwargs):
                             **kwargs)
 
 
-def dense(x, z):
-    """The tool's corner weights as a dense (rows, nodes) matrix."""
-    x_axis, z_axis = _Axis(X_KNOTS, "log", "x_knots"), _Axis(Z_KNOTS, "linear", "z_knots")
-    cx, u, _ = x_axis.locate(x)
-    cz, v, _ = z_axis.locate(z)
-    matrix = np.zeros((len(x), len(X_KNOTS) * len(Z_KNOTS)))
-    for index, weight in _corners(cx, u, cz, v, len(Z_KNOTS)):
-        np.add.at(matrix, (np.arange(len(x)), index), weight)
-    return matrix
-
-
-def test_corner_weights_are_the_tensor_product_of_tent_bases():
+def test_the_design_is_the_tensor_product_of_tent_bases():
     rng = np.random.default_rng(0)
     x = np.exp(rng.uniform(np.log(2e4), np.log(2e6), 2_000))   # beyond both end knots
     z = rng.uniform(-7, 1, 2_000)
-    np.testing.assert_allclose(dense(x, z), tensor_basis(x, z), atol=1e-12)
-    _, _, clamped = _Axis(Z_KNOTS, "linear", "z").locate(z)
+    x_basis, _ = _Axis(X_KNOTS, "log", "x_knots").basis(x)
+    z_basis, clamped = _Axis(Z_KNOTS, "linear", "z_knots").basis(z)
+    design = _design(x_basis, z_basis)
+    assert design.shape == (2_000, len(X_KNOTS) * len(Z_KNOTS)) and (np.diff(design.indptr) == 4).all()
+    np.testing.assert_allclose(design.toarray(), tensor_basis(x, z), atol=1e-12)
     assert clamped == int(((z < -5) | (z > -.5)).sum())
 
 
@@ -78,7 +70,7 @@ def test_mse_equals_the_penalized_least_squares_solution():
     solved = np.linalg.solve(gram + ridge * scale * np.eye(free.sum()),
                              design[:, free].T @ (w * target) + ridge * scale)
     assert fit.penalty_scale == pytest.approx(scale, rel=1e-10)
-    np.testing.assert_allclose(fit.nodes.ravel()[free], solved, rtol=1e-8)
+    np.testing.assert_allclose(fit.nodes.ravel()[free], solved, rtol=1e-7)   # L-BFGS-B, not a direct solve
 
 
 def test_a_large_ridge_pulls_every_node_to_one():
@@ -119,7 +111,7 @@ def test_tables_prediction_and_deviance():
     x, z, y, m, w = (frame[name].to_numpy() for name in ("balance", "incentive", "y", "pred", "w"))
     as_pandas = pd.DataFrame({"balance": x, "incentive": z})
     D = fit.predict(as_pandas)
-    np.testing.assert_allclose(D, dense(x, z) @ fit.nodes.ravel(), rtol=1e-12)
+    np.testing.assert_allclose(D, tensor_basis(x, z) @ fit.nodes.ravel(), rtol=1e-12)
     np.testing.assert_allclose(fit.predict(pl.from_dict({"balance": x, "incentive": z})), D)
     for mu, key in ((m, "baseline"), (m * D, "fitted")):
         deviance = 2 * np.sum(w * (np.where(y > 0, y * np.log(np.where(y > 0, y, 1) / mu), 0) - (y - mu))) / w.sum()

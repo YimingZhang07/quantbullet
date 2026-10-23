@@ -149,8 +149,8 @@ class TestTwoWayExamples(unittest.TestCase):
             z_reference=-3,       # ... and this column, so D cannot redo the model's main effects
             loss="poisson",       # y is a count (0/1 here); use "mse" for a continuous y
             ridge=0.01,           # shrinks nodes with little data toward 1
-            max_iter=50,
-            tol=1e-10,
+            max_iter=500,         # L-BFGS-B iteration cap ...
+            tol=1e-14,            # ... and its ftol; both are the defaults
         )
         show("D at the knots (1 = the model is right)", fit.table("nodes").round(3))
         show("standard errors", fit.table("se").round(3))

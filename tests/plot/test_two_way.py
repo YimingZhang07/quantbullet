@@ -47,10 +47,11 @@ def test_ae_figure_has_a_heatmap_and_one_slice_per_bin(frame):
     assert len(plot.fig.legends) == 1
     by_z = ae.plot(slices="z")
     assert len(by_z.slice_axes) == 4
-    # On a log axis slices sit at log10 positions; ticks fall on round values, labelled in original units.
-    formatter = by_z.slice_axes[0].xaxis.get_major_formatter()
-    assert formatter(5.0) == "100K"
-    labels = [formatter(tick) for tick in by_z.slice_axes[0].get_xticks()]
+    # Balance runs along these slices on a log axis, with ticks at round 1-2-5 values.
+    axis = by_z.slice_axes[0]
+    assert axis.get_xscale() == "log"
+    low, high = axis.get_xlim()
+    labels = [axis.xaxis.get_major_formatter()(tick) for tick in axis.get_xticks() if low <= tick <= high]
     assert labels == ["50K", "100K", "200K", "500K"]   # the axis ends at the largest balance, just under 1M
 
 

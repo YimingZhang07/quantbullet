@@ -1,9 +1,11 @@
 """A multiplier surface D(x, z) on a model's predictions, fitted with the predictions held fixed.
 
-D is the tensor product of two tent bases (degree-1 B-splines): bilinear between the knots, in each variable's
-scale, and constant beyond the end knots. That is ``TentTransformer(x) ⊗ TentTransformer(z)``. Each row touches
-the four corners of its cell, so the normal equations are accumulated with ``np.bincount`` over those corners
-and no row-by-node design matrix is built.
+D is the tensor product of two degree-1 B-spline (tent) bases: bilinear between the knots, in each variable's
+scale, and constant beyond the end knots (the same basis as ``TentTransformer``). Each axis's basis comes from
+``scipy.interpolate.BSpline.design_matrix``; their row-wise product is a sparse design ``Z`` with four entries
+per row. Because each row of ``Z`` sums to 1, D = 1 + Z[:, free] @ delta: the prediction is a fixed offset, a
+reference line is simply left out of ``free``, and the ridge pulls delta toward 0. ``scipy.optimize.minimize``
+(L-BFGS-B) fits delta; for Poisson, bounds keep every node positive.
 """
 from __future__ import annotations
 
@@ -14,18 +16,21 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
+import scipy.sparse as sp
+from scipy.interpolate import BSpline
+from scipy.optimize import minimize
 
 if TYPE_CHECKING:
     from .diagnostic import TwoWayDiagnostic
 
 LOSSES = ("poisson", "mse")
-_BOUND = 1e-6   # Poisson nodes at or below this are treated as on the positivity bound
 SUPPORT = ("rows", "weight", "actual", "expected", "information")
 TABLE_VALUES = ("nodes", "se", "lower", "upper", "z_score") + SUPPORT
+_FLOOR = 1e-10   # Poisson nodes stay at or above this, so mu stays positive
 
 
 class _Axis:
-    """Knots of one variable in its scale; locates values in their knot cell."""
+    """Knots of one variable in its scale, and the tent basis of values on them."""
 
     def __init__(self, knots, scale: str, name: str):
         knots = np.asarray(knots, dtype=float)
@@ -33,11 +38,11 @@ class _Axis:
             raise ValueError(f"{name} must contain at least two finite, strictly increasing values")
         if scale == "log" and knots[0] <= 0:
             raise ValueError(f"{name} must be positive on a log scale")
-        self.knots, self.scale, self.name = knots, scale, name
+        self.knots, self.scale = knots, scale
         self.t = self.transform(knots)
 
     def transform(self, values: np.ndarray) -> np.ndarray:
-        return np.log(values) if self.scale == "log" else values
+        return np.log(values) if self.scale == "log" else np.asarray(values, dtype=float)
 
     def reference_index(self, reference, name: str) -> int | None:
         if reference is None:
@@ -49,47 +54,22 @@ class _Axis:
             raise ValueError(f"{name}={reference!r} must be one of the knots {self.knots.tolist()}")
         return int(match[0])
 
-    def locate(self, values: np.ndarray) -> tuple[np.ndarray, np.ndarray, int]:
-        """Cell index, position within the cell in [0, 1], and how many values were clamped to the end knots."""
+    def basis(self, values: np.ndarray) -> tuple[sp.csr_array, int]:
+        """Tent basis (rows, knots), two entries per row, and the number of values clamped to the end knots."""
         t = self.transform(values)
         clamped = int(((t < self.t[0]) | (t > self.t[-1])).sum())
-        t = np.clip(t, self.t[0], self.t[-1])
-        cell = np.clip(np.searchsorted(self.t, t, side="right") - 1, 0, len(self.t) - 2)
-        frac = (t - self.t[cell]) / (self.t[cell + 1] - self.t[cell])
-        return cell, frac, clamped
+        knots = np.r_[self.t[0], self.t, self.t[-1]]   # degree 1: one repeated knot at each end
+        return BSpline.design_matrix(np.clip(t, self.t[0], self.t[-1]), knots, 1), clamped
 
 
-def _corners(cx, u, cz, v, n_z: int) -> list[tuple[np.ndarray, np.ndarray]]:
-    """(flat node index, bilinear weight) for the four corners of each row's cell; nodes are x-major."""
-    base = cx * n_z + cz
-    return [(base, (1 - u) * (1 - v)), (base + n_z, u * (1 - v)), (base + 1, (1 - u) * v),
-            (base + n_z + 1, u * v)]
-
-
-class _Grid:
-    """Sums over rows of corner-weighted quantities, as node vectors and node-by-node matrices."""
-
-    def __init__(self, corners, n_nodes: int):
-        self.corners, self.n = corners, n_nodes
-
-    def surface(self, nodes: np.ndarray) -> np.ndarray:
-        return sum(weight * nodes[index] for index, weight in self.corners)
-
-    def project(self, row_values: np.ndarray) -> np.ndarray:
-        return sum(np.bincount(index, weights=row_values * weight, minlength=self.n)
-                   for index, weight in self.corners)
-
-    def diagonal(self, row_weights: np.ndarray) -> np.ndarray:
-        return sum(np.bincount(index, weights=row_weights * weight ** 2, minlength=self.n)
-                   for index, weight in self.corners)
-
-    def gram(self, row_weights: np.ndarray) -> np.ndarray:
-        n = self.n
-        total = np.zeros(n * n)
-        for a, wa in self.corners:
-            for b, wb in self.corners:
-                total += np.bincount(a * n + b, weights=row_weights * wa * wb, minlength=n * n)
-        return total.reshape(n, n)
+def _design(x_basis: sp.csr_array, z_basis: sp.csr_array) -> sp.csr_array:
+    """Row-wise tensor product of two tent bases: four entries per row, nodes in x-major order."""
+    n, n_z = x_basis.shape[0], z_basis.shape[1]
+    xi, xv = x_basis.indices.reshape(n, 2), x_basis.data.reshape(n, 2)
+    zi, zv = z_basis.indices.reshape(n, 2), z_basis.data.reshape(n, 2)
+    indices = (xi[:, :, None] * n_z + zi[:, None, :]).ravel()
+    data = (xv[:, :, None] * zv[:, None, :]).ravel()
+    return sp.csr_array((data, indices, np.arange(0, 4 * n + 1, 4)), shape=(n, x_basis.shape[1] * n_z))
 
 
 @dataclass(frozen=True, eq=False)
@@ -137,26 +117,22 @@ class TwoWayCorrection:
     def surface(self, x_values, z_values) -> np.ndarray:
         """D at paired x and z values (broadcast); NaN where a value is nonfinite or not positive on a log axis."""
         xv, zv = np.broadcast_arrays(np.asarray(x_values, dtype=float), np.asarray(z_values, dtype=float))
-        x_axis = _Axis(self.x_knots, self.x_scale, "x_knots")
-        z_axis = _Axis(self.z_knots, self.z_scale, "z_knots")
         valid = np.isfinite(xv) & np.isfinite(zv)
         if self.x_scale == "log":
             valid &= xv > 0
         if self.z_scale == "log":
             valid &= zv > 0
         out = np.full(xv.shape, np.nan)
-        cx, u, _ = x_axis.locate(xv[valid])
-        cz, v, _ = z_axis.locate(zv[valid])
-        flat = self.nodes.ravel()
-        out[valid] = sum(weight * flat[index] for index, weight in _corners(cx, u, cz, v, len(self.z_knots)))
+        if valid.any():
+            x_basis, _ = _Axis(self.x_knots, self.x_scale, "x_knots").basis(xv[valid])
+            z_basis, _ = _Axis(self.z_knots, self.z_scale, "z_knots").basis(zv[valid])
+            out[valid] = _design(x_basis, z_basis) @ self.nodes.ravel()
         return out
 
     def predict(self, df) -> np.ndarray:
         """D for each row of ``df`` (pandas or Polars), read from its x and z columns."""
         from .diagnostic import _float_column
-        x = _float_column(df, self.x).to_numpy()
-        z = _float_column(df, self.z).to_numpy()
-        return self.surface(x, z)
+        return self.surface(_float_column(df, self.x).to_numpy(), _float_column(df, self.z).to_numpy())
 
     def table(self, value: str = "nodes", ci: float = .95) -> pd.DataFrame:
         """``value`` at the nodes: x knots down the index, z knots across the columns.
@@ -186,18 +162,12 @@ class TwoWayCorrection:
         return draw_two_way_correction(self, **kwargs)
 
 
-def _deviance(loss: str, y, mu, w) -> float:
-    if loss == "poisson":
-        with np.errstate(divide="ignore", invalid="ignore"):
-            terms = np.where(y > 0, y * np.log(y / mu), 0.) - (y - mu)
-        return float(2 * np.sum(w * terms) / np.sum(w))
-    return float(np.sum(w * (y - mu) ** 2) / np.sum(w))
-
-
 def fit_correction(diag: TwoWayDiagnostic, *, x_knots, z_knots, x_reference=None, z_reference=None,
-                   loss: str = "poisson", ridge: float = 0.01, max_iter: int = 50,
-                   tol: float = 1e-10) -> TwoWayCorrection:
-    """Penalized Fisher scoring for the free nodes; see ``TwoWayDiagnostic.correction``."""
+                   loss: str = "poisson", ridge: float = 0.01, max_iter: int = 500,
+                   tol: float = 1e-14) -> TwoWayCorrection:
+    """L-BFGS-B on the free nodes with the prediction fixed; see ``TwoWayDiagnostic.correction``."""
+    from sklearn.metrics import mean_poisson_deviance, mean_squared_error
+
     if loss not in LOSSES:
         raise ValueError(f"loss must be one of {LOSSES}")
     if isinstance(ridge, bool) or not np.isscalar(ridge) or not np.isfinite(ridge) or ridge < 0:
@@ -206,6 +176,7 @@ def fit_correction(diag: TwoWayDiagnostic, *, x_knots, z_knots, x_reference=None
         raise ValueError("max_iter must be a positive integer")
     if not np.isscalar(tol) or not np.isfinite(tol) or tol < 0:
         raise ValueError("tol must be a finite nonnegative number")
+    poisson = loss == "poisson"
     x_axis = _Axis(x_knots, diag.x_scale, "x_knots")
     z_axis = _Axis(z_knots, diag.z_scale, "z_knots")
     x_ref = x_axis.reference_index(x_reference, "x_reference")
@@ -214,7 +185,7 @@ def fit_correction(diag: TwoWayDiagnostic, *, x_knots, z_knots, x_reference=None
     y, pred, w = diag._array("y"), diag._array("pred"), diag._array("weight")
     xv, zv = diag._array("x"), diag._array("z")
     excluded = dict(diag.excluded)
-    if loss == "poisson":
+    if poisson:
         if (y < 0).any() or (pred < 0).any():
             raise ValueError("loss='poisson' needs y >= 0 and pred >= 0")
         zero = pred == 0
@@ -224,100 +195,81 @@ def fit_correction(diag: TwoWayDiagnostic, *, x_knots, z_knots, x_reference=None
             excluded["zero_pred"] = int(zero.sum())
             keep = ~zero
             y, pred, w, xv, zv = y[keep], pred[keep], w[keep], xv[keep], zv[keep]
-    if not len(y) or not np.sum(w) > 0:
+    total_weight = float(np.sum(w))
+    if not len(y) or not total_weight > 0:
         raise ValueError("no weighted rows to fit")
 
-    n_x, n_z = len(x_axis.knots), len(z_axis.knots)
-    cx, u, x_clamped = x_axis.locate(xv)
-    cz, v, z_clamped = z_axis.locate(zv)
-    grid = _Grid(_corners(cx, u, cz, v, n_z), n_x * n_z)
-    del cx, u, cz, v
-    free = np.ones((n_x, n_z), dtype=bool)
+    x_basis, x_clamped = x_axis.basis(xv)
+    z_basis, z_clamped = z_axis.basis(zv)
+    Z = _design(x_basis, z_basis)
+    del x_basis, z_basis
+    shape = (len(x_axis.knots), len(z_axis.knots))
+    free = np.ones(shape, dtype=bool)
     if x_ref is not None:
         free[x_ref, :] = False
     if z_ref is not None:
         free[:, z_ref] = False
-    free_flat = free.ravel()
+    free_index = np.flatnonzero(free)
+    A = sp.csr_array(Z[:, free_index].multiply(pred[:, None]))   # mu = pred + A @ delta
 
-    def curvature(D):
-        """Fisher weights per row: d2 loss / dD2 contributions."""
-        return w * pred / D if loss == "poisson" else w * pred ** 2
-
-    def score(D, mu):
-        """Per-row derivative of the loss with respect to D (to be spread over the corners)."""
-        return w * (mu - y) / D if loss == "poisson" else w * pred * (mu - y)
-
-    def data_loss(mu):
-        if loss == "poisson":
-            return float(np.sum(w * (mu - y * np.log(mu))))
-        return float(.5 * np.sum(w * (y - mu) ** 2))
-
-    information = grid.diagonal(curvature(np.ones(len(y))))
-    penalty_scale = float(information[free_flat].mean())
+    # Fisher information of each free node at D = 1 sets the unit of the ridge.
+    information = A.multiply(A).T @ (w / pred if poisson else w)
+    penalty_scale = float(information.mean())
     if not penalty_scale > 0:
         raise ValueError("the free nodes have no information; check the knots against the data")
-    if ridge == 0 and (empty := ~(information > 0) & free_flat).any():
-        cells = [(float(x_axis.knots[i // n_z]), float(z_axis.knots[i % n_z])) for i in np.flatnonzero(empty)]
+    if ridge == 0 and (empty := ~(information > 0)).any():
+        cells = [(float(x_axis.knots[i // shape[1]]), float(z_axis.knots[i % shape[1]]))
+                 for i in free_index[empty]]
         raise ValueError(f"free nodes without data at (x, z) = {cells}; set ridge > 0 or move the knots")
     strength = ridge * penalty_scale
 
-    def objective(nodes):
-        return data_loss(pred * grid.surface(nodes)) + .5 * strength * np.sum((nodes[free_flat] - 1) ** 2)
+    # L-BFGS-B works on v = scale * delta: each node in units of its own information at D = 1 (plus the
+    # ridge), so the Hessian is near the identity and it needs about half the iterations.
+    scale = np.sqrt((information + strength) / penalty_scale)
+    wy, w_gap = w * y, w * (pred - y)
 
-    nodes = np.ones(n_x * n_z)
-    current = objective(nodes)
-    eye = np.eye(int(free_flat.sum()))
-    converged, iterations = False, 0
-    for iterations in range(1, max_iter + 1):
-        D = grid.surface(nodes)
-        gradient = grid.project(score(D, pred * D))[free_flat] + strength * (nodes[free_flat] - 1)
-        hessian = grid.gram(curvature(D))[np.ix_(free_flat, free_flat)] + strength * eye
-        # Poisson nodes sitting on the positivity bound that still want to fall stay put for this step;
-        # otherwise every step would have to shrink until that node stays positive, stalling the others.
-        moving = np.ones(len(gradient), dtype=bool)
-        if loss == "poisson":
-            moving = ~((nodes[free_flat] <= _BOUND) & (gradient > 0))
-        step = np.zeros(len(gradient))
-        try:
-            step[moving] = np.linalg.solve(hessian[np.ix_(moving, moving)], gradient[moving])
-        except np.linalg.LinAlgError as error:
-            raise ValueError("singular normal equations; set ridge > 0 or move the knots") from error
-        t, accepted = 1., False
-        if loss == "poisson" and (falling := step > 0).any():
-            # Start from the longest step that keeps every free node positive.
-            t = min(1., .99 * float(np.min(nodes[free_flat][falling] / step[falling])))
-        while t >= 1e-8:
-            trial = nodes.copy()
-            trial[free_flat] -= t * step
-            if loss != "poisson" or (trial[free_flat] > 0).all():
-                candidate = objective(trial)
-                if candidate <= current:
-                    accepted = True
-                    break
-            t /= 2
-        if not accepted:  # no step lowers the objective: numerically at the optimum
-            converged = True
-            break
-        gain = current - candidate
-        nodes, current = trial, candidate
-        if gain <= tol * max(abs(current), np.finfo(float).tiny):
-            converged = True
-            break
-    if not converged:
-        warnings.warn(f"two-way correction did not converge in {max_iter} iterations", RuntimeWarning, stacklevel=3)
+    def objective(v):
+        """Penalized loss minus its value at D = 1, in units of the mean node information, with its gradient.
 
-    D = grid.surface(nodes)
-    mu = pred * D
-    bread = np.linalg.inv(grid.gram(curvature(D))[np.ix_(free_flat, free_flat)] + strength * eye)
-    meat = grid.gram(score(D, mu) ** 2)[np.ix_(free_flat, free_flat)]
-    se = np.zeros(n_x * n_z)
-    se[free_flat] = np.sqrt(np.clip(np.diag(bread @ meat @ bread), 0, None))
-    support = {
-        "rows": grid.project(np.ones(len(y))), "weight": grid.project(w), "actual": grid.project(w * y),
-        "expected": grid.project(w * pred), "information": grid.diagonal(curvature(D)),
-    }
-    baseline, fitted = _deviance(loss, y, pred, w), _deviance(loss, y, mu, w)
-    shape = (n_x, n_z)
+        Summing each row's change (rather than differencing two large sums) keeps the value precise near the
+        optimum, and the units give a curvature near 1 for either loss, so L-BFGS-B's tolerances fit both.
+        """
+        delta = v / scale
+        change = A @ delta                                   # mu - pred
+        if poisson:
+            value = w @ change - wy @ np.log1p(change / pred)
+            d_mu = w - wy / (pred + change)
+        else:
+            value = .5 * (w @ change ** 2) + w_gap @ change
+            d_mu = w * change + w_gap
+        value += .5 * strength * delta @ delta
+        return value / penalty_scale, (A.T @ d_mu + strength * delta) / (penalty_scale * scale)
+
+    bounds = [((_FLOOR - 1) * s, None) for s in scale] if poisson else None
+    result = minimize(objective, np.zeros(len(free_index)), jac=True, method="L-BFGS-B", bounds=bounds,
+                      options={"maxiter": max_iter, "ftol": tol, "gtol": 1e-10})
+    if not result.success:
+        warnings.warn(f"two-way correction did not converge: {result.message}", RuntimeWarning, stacklevel=3)
+
+    delta = result.x / scale
+    mu = pred + A @ delta
+    curvature = w / mu if poisson else w            # Fisher weight per row on mu
+    score = w * (y - mu) / mu if poisson else w * (y - mu)
+    hessian = (A.T @ A.multiply(curvature[:, None])).toarray() + strength * np.eye(len(free_index))
+    meat = (A.T @ A.multiply((score ** 2)[:, None])).toarray()
+    try:
+        bread = np.linalg.inv(hessian)
+    except np.linalg.LinAlgError as error:
+        raise ValueError("singular information matrix; set ridge > 0 or move the knots") from error
+    nodes, se = np.ones(Z.shape[1]), np.zeros(Z.shape[1])
+    nodes[free_index] = 1 + delta
+    se[free_index] = np.sqrt(np.clip(np.diag(bread @ meat @ bread), 0, None))
+
+    sums = {"rows": np.ones(len(y)), "weight": w, "actual": w * y, "expected": w * pred}
+    support = {key: Z.T @ values for key, values in sums.items()}
+    support["information"] = Z.multiply(Z).T @ (curvature * pred ** 2)
+    deviance = mean_poisson_deviance if poisson else mean_squared_error
+    baseline, fitted = deviance(y, pred, sample_weight=w), deviance(y, mu, sample_weight=w)
     return TwoWayCorrection(
         x=diag.x, z=diag.z, x_scale=diag.x_scale, z_scale=diag.z_scale, labels=dict(diag.labels),
         x_knots=x_axis.knots, z_knots=z_axis.knots,
@@ -325,8 +277,8 @@ def fit_correction(diag: TwoWayDiagnostic, *, x_knots, z_knots, x_reference=None
         z_reference=None if z_ref is None else float(z_axis.knots[z_ref]),
         loss=loss, ridge=float(ridge), penalty_scale=penalty_scale,
         nodes=nodes.reshape(shape), se=se.reshape(shape), free=free,
-        support={key: value.reshape(shape) for key, value in support.items()},
-        deviance={"baseline": baseline, "fitted": fitted,
-                  "change": fitted / baseline - 1 if baseline > 0 else np.nan},
+        support={key: np.asarray(value, dtype=float).reshape(shape) for key, value in support.items()},
+        deviance={"baseline": float(baseline), "fitted": float(fitted),
+                  "change": float(fitted / baseline - 1) if baseline > 0 else np.nan},
         n_obs=len(y), excluded=excluded, clamped={"x": x_clamped, "z": z_clamped},
-        iterations=iterations, converged=converged)
+        iterations=int(result.nit), converged=bool(result.success))

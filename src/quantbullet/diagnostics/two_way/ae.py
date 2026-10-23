@@ -51,13 +51,10 @@ class TwoWayAE:
         """``value`` as a wide table: x bins down the index, z bins across the columns."""
         if value not in VALUE_COLUMNS:
             raise ValueError(f"value must be one of {VALUE_COLUMNS}")
-        x_index = pd.Index(list(self.x_levels), dtype=object, name=self.label(self.x))
-        z_index = pd.Index(list(self.z_levels), dtype=object, name=self.label(self.z))
-        values = np.full((len(x_index), len(z_index)), np.nan)
-        rows = [x_index.get_loc(level) for level in self.table["x_bin"]]
-        cols = [z_index.get_loc(level) for level in self.table["z_bin"]]
-        values[rows, cols] = self.table[value].to_numpy(dtype=float)
-        return pd.DataFrame(values, index=x_index, columns=z_index)
+        wide = self.table.pivot(index="x_bin", columns="z_bin", values=value).astype(float)
+        wide = wide.reindex(index=list(self.x_levels), columns=list(self.z_levels))  # every bin, in order
+        wide.index.name, wide.columns.name = self.label(self.x), self.label(self.z)
+        return wide
 
     def plot(self, **kwargs):
         """Heatmap of A/E above one slice per x bin; see ``quantbullet.plot.draw_two_way_ae``."""
