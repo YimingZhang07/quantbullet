@@ -21,4 +21,7 @@ docs/_safe/
 
 tests/_cache_dir/
 
+# files written by runnable examples
+examples/**/output/
+
 intex/
