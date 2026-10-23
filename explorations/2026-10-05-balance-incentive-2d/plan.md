@@ -1,9 +1,16 @@
 # Plan：CrossTerm 工具（在 offset 上拟合二维交互修正面）
 
-日期：2026-10-06 · 状态：计划，未实施 · 背景与证据见 [report.md](report.md)
+日期：2026-10-06 · 状态：已被取代。2026-10-22 实施为 `quantbullet.diagnostics.TwoWayDiagnostic`，说明见
+[docs/diagnostics/two_way.md](../../docs/diagnostics/two_way.md) · 背景与证据见 [report.md](report.md)
 
-这份计划写于 lpm-terms（[design.md](../2026-10-20-lpm-terms/design.md)）之前，原文保留在"原计划"一节。实施前先按下面的
-"与现状的关系"重新评估。
+实施时和这份计划的差别：
+
+- A/E 和 D̂ 拆成同一个 class 的两个方法（`.ae()`、`.correction()`），各自返回结果对象；新增了分箱 A/E。
+- 不再有 `constraint` 参数：每个轴的 reference 可选，两个都给时只拟合交互，都不给时是完整的二维面。
+- 只保留 ridge，没有 roughness 罚项；不做 cluster SE、`init` 和 `from_quantiles`。
+- 轴的 scale 放在 `TwoWayDiagnostic` 上，由两个方法共用；工具放在新包 `quantbullet.diagnostics`。
+
+这份计划写于 lpm-terms（[design.md](../2026-10-20-lpm-terms/design.md)）之前，原文保留在"原计划"一节作记录。
 
 ## 与现状的关系（2026-10-22 补记）
 

@@ -1,6 +1,7 @@
 # Report：balance × incentive 的二维修正面（2D cross-term fitting）
 
-日期：2026-10-05 · 状态：分析完成，结论未实施；2026-10-22 在当前产物上复现，结论不变 · 工具计划见 [plan.md](plan.md)（未实施）
+日期：2026-10-05 · 状态：分析完成，模型上的结论未实施；2026-10-22 在当前产物上复现，结论不变 · 两种诊断已做成
+`quantbullet.diagnostics.TwoWayDiagnostic`（[docs/diagnostics/two_way.md](../../docs/diagnostics/two_way.md)），原计划见 [plan.md](plan.md)
 
 ## 问题
 

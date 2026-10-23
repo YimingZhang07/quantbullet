@@ -16,5 +16,7 @@ __getattr__, __dir__, __all__ = lazy.attach(
         "binned_means": ["BinSpec", "BinnedMeans", "BinnedMeansPlot", "BinnedMeansStyle",
                          "DEFAULT_BINNED_MEANS_STYLE", "PRINT_BINNED_MEANS_STYLE",
                          "summarize_binned_means", "draw_binned_means", "plot_binned_means"],
+        "two_way": ["TwoWayPlot", "TwoWayStyle", "DEFAULT_TWO_WAY_STYLE",
+                    "draw_two_way_ae", "draw_two_way_correction"],
     },
 )
