@@ -50,6 +50,15 @@ P1(b) 之后 toolkit 只接收 `ModelSpec`，它们照原样跑不通。决定�
 - 常数方向仍由 Newton 按数据检测（`_constant_direction`），还没有改成"term 声明、按数据校验"（待决问题 8 的后半）。
 - `name=` 只有 `TensorTerm` 有；`ByTerm` 的 `by` term 的名字必须等于它的列名。
 - `ModelSpec` 的序列化以后再做（待决问题 18）。
+- 加法设计矩阵（`eta = Z @ beta`）另有 `quantbullet.preprocessing.Design`（2026-10-27，见
+  [docs/preprocessing/design.md](../../docs/preprocessing/design.md)）。它的设定是：
+  - reference、drop、intercept 都必须显式写出；
+  - 没有 tie；
+  - cross 的 `drop` 是条件列表，能写出 `TensorTerm` 写不出的层级（主效应 + 三阶、不要两两交互；每个 purpose 一张
+    age×incentive 曲面）。
+
+  它和 `ModelSpec` 是两个独立的工具：乘积模型是逐块优化的，用法不同，所以不把 `ModelSpec` 改建在 `Design` 上，terms.py 也不因此
+  删代码。两者只共用 `TentTransformer`。
 
 ## 6. 分期
 
