@@ -1,8 +1,8 @@
 """Two-way diagnostics on fake loan-month data: one runnable example per test method.
 
 These examples use ``quantbullet.diagnostics.TwoWayDiagnostic`` the way a user would. ``setUpClass`` runs once
-and holds only what every example starts from: the fake loans and the column settings for
-``TwoWayDiagnostic``. Each test method builds its own diagnostic and shows one usage.
+and holds only what every example starts from: the fake loans (``quantbullet.utils.data.generate_fake_loan_months``)
+and the column settings for ``TwoWayDiagnostic``. Each test method builds its own diagnostic and shows one usage.
 
 Run one example with the run button next to its method in the VS Code Test panel (``examples`` must be listed
 in ``python.testing.pytestArgs``); ``setUpClass`` runs first, then that method. From the repository root:
@@ -25,11 +25,11 @@ matplotlib.use("Agg")  # write image files; no plot windows
 
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
-import polars as pl  # noqa: E402
 from matplotlib.backends.backend_pdf import PdfPages  # noqa: E402
 
 from quantbullet.diagnostics import TwoWayDiagnostic  # noqa: E402
 from quantbullet.plot import PRINT_THEME, BinSpec  # noqa: E402
+from quantbullet.utils.data import generate_fake_loan_months  # noqa: E402
 
 # Where the examples write their files. Change it to write somewhere else.
 OUTPUT_DIR = Path(__file__).resolve().parent / "output" / "two_way"
@@ -44,28 +44,6 @@ INCENTIVE_KNOTS = (-5, -4, -3, -2, -1, 0)
 # at x and / color_range, and the slices share y_range. Otherwise each figure fits its own data.
 AE_COLOR_RANGE, AE_Y_RANGE = 1.3, (0.7, 1.35)
 D_COLOR_RANGE, D_Y_RANGE = 1.45, (0.6, 1.55)
-
-
-def fake_loan_months(n_rows: int, seed: int) -> pl.DataFrame:
-    """Fake loan-month rows, and model predictions that miss the balance x incentive interaction.
-
-    Columns: ``balance``, ``incentive`` (percentage points), ``year``, ``prepaid`` (1 if the loan paid off that
-    month), ``model_smm`` (the model's predicted monthly prepay rate), ``model_without_balance`` (a worse model
-    that also misses the balance effect) and ``upb`` (the weight, equal to balance).
-    """
-    rng = np.random.default_rng(seed)
-    balance = np.exp(rng.uniform(np.log(30_000), np.log(1_000_000), n_rows))
-    incentive = rng.uniform(-5.0, 0.0, n_rows)
-    year = rng.integers(2019, 2026, n_rows)
-    size = np.log(balance / 250_000)
-    # The model: one incentive slope for every balance, plus a small balance effect.
-    model_without_balance = 0.01 * np.exp(0.25 * (incentive + 3))
-    model_smm = model_without_balance * np.exp(-0.05 * size)
-    # The truth: the incentive slope grows with balance. This is what the diagnostics should find.
-    true_smm = model_smm * np.exp(0.06 * size * (incentive + 3))
-    prepaid = (rng.random(n_rows) < true_smm).astype(float)
-    return pl.DataFrame({"balance": balance, "incentive": incentive, "year": year, "prepaid": prepaid,
-                         "model_smm": model_smm, "model_without_balance": model_without_balance, "upb": balance})
 
 
 def show(title: str, table: pd.DataFrame) -> None:
@@ -83,7 +61,7 @@ class TestTwoWayExamples(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # Every example starts from the same fake loans ...
-        cls.loans = fake_loan_months(n_rows=2_000_000, seed=0)
+        cls.loans = generate_fake_loan_months(n_rows=2_000_000, seed=0)
         # ... and describes them to TwoWayDiagnostic the same way.
         cls.columns = dict(
             x="balance",          # heatmap rows; one slice panel per x bin or knot
@@ -210,8 +188,8 @@ class TestTwoWayExamples(unittest.TestCase):
         """Fit the same surface on two periods and overlay them on the full-sample fit."""
         fits = {}
         for name, loans in (("all years", self.loans),
-                            ("2019-2021", self.loans.filter(pl.col("year") <= 2021)),
-                            ("2022-2025", self.loans.filter(pl.col("year") >= 2022))):
+                            ("2019-2021", self.loans[self.loans["year"] <= 2021]),
+                            ("2022-2025", self.loans[self.loans["year"] >= 2022])):
             diag = TwoWayDiagnostic(loans, **self.columns)
             fits[name] = diag.correction(x_knots=BALANCE_KNOTS, z_knots=INCENTIVE_KNOTS, x_reference=250_000,
                                          z_reference=-3, loss="poisson", ridge=0.01)
@@ -231,8 +209,7 @@ class TestTwoWayExamples(unittest.TestCase):
         diag = TwoWayDiagnostic(self.loans, **self.columns)
         fit = diag.correction(x_knots=BALANCE_KNOTS, z_knots=INCENTIVE_KNOTS, x_reference=250_000,
                               z_reference=-3, loss="poisson", ridge=0.01)
-        corrected = self.loans.with_columns(
-            pl.Series("corrected_smm", self.loans["model_smm"].to_numpy() * fit.predict(self.loans)))
+        corrected = self.loans.assign(corrected_smm=self.loans["model_smm"].to_numpy() * fit.predict(self.loans))
 
         before = diag.ae(x_bins=BALANCE_BINS, z_bins=INCENTIVE_BINS)
         after = TwoWayDiagnostic(corrected, **{**self.columns, "pred": "corrected_smm"}).ae(
@@ -253,8 +230,8 @@ class TestTwoWayExamples(unittest.TestCase):
         before_fit = before.correction(x_knots=BALANCE_KNOTS, z_knots=INCENTIVE_KNOTS, x_reference=250_000,
                                        z_reference=-3, loss="poisson", ridge=0.01)
         # After: multiply the model by D, then run the same two diagnostics on the corrected prediction.
-        corrected = self.loans.with_columns(
-            pl.Series("corrected_smm", self.loans["model_smm"].to_numpy() * before_fit.predict(self.loans)))
+        corrected = self.loans.assign(
+            corrected_smm=self.loans["model_smm"].to_numpy() * before_fit.predict(self.loans))
         after = TwoWayDiagnostic(corrected, **{**self.columns, "pred": "corrected_smm"})
         after_ae = after.ae(x_bins=BALANCE_BINS, z_bins=INCENTIVE_BINS)
         after_fit = after.correction(x_knots=BALANCE_KNOTS, z_knots=INCENTIVE_KNOTS, x_reference=250_000,

@@ -188,3 +188,45 @@ def generate_fake_happiness_data(
     })
 
     return data
+def generate_fake_loan_months(n_rows: int, seed: int, incentive_range: tuple = (-5.0, 0.0)) -> pd.DataFrame:
+    """
+    Generate fake mortgage loan-month rows, and model predictions that miss a balance x incentive interaction.
+
+    The true monthly prepay rate is ``model_smm * exp(0.06 * log(balance / 250K) * (incentive + 3))``: larger
+    loans respond more strongly to incentive. So actual / model rises with incentive for large loans, falls for
+    small ones, and is 1 where balance is 250K or incentive is -3.
+
+    Parameters
+    ----------
+    n_rows : int
+        Number of loan-month rows.
+    seed : int
+        Seed of the random generator; the same seed gives the same rows.
+    incentive_range : tuple
+        Lowest and highest incentive (percentage points), drawn uniformly. The default, -5 to 0, has every loan
+        out of the money, as after rates rose. Changing it changes ``incentive`` and ``prepaid`` only.
+
+    Returns
+    -------
+    pd.DataFrame
+        ``balance``; ``incentive`` (percentage points, in ``incentive_range``); ``year`` (2019 to 2025); ``prepaid`` (1 if the
+        loan paid off that month); ``model_smm`` (a model's predicted monthly prepay rate); ``model_without_balance``
+        (a worse model that also misses the balance effect); ``upb`` (the weight, equal to balance); ``purpose``
+        (P purchase, C cash-out refi, N no-cash-out refi). ``purpose`` has no effect on ``prepaid`` and is drawn
+        last, so the other columns are the same as without it.
+    """
+    rng = np.random.default_rng(seed)
+    balance = np.exp(rng.uniform(np.log(30_000), np.log(1_000_000), n_rows))
+    incentive = rng.uniform(*incentive_range, n_rows)
+    year = rng.integers(2019, 2026, n_rows)
+    size = np.log(balance / 250_000)
+    # The model: one incentive slope for every balance, plus a small balance effect.
+    model_without_balance = 0.01 * np.exp(0.25 * (incentive + 3))
+    model_smm = model_without_balance * np.exp(-0.05 * size)
+    # The truth: the incentive slope grows with balance.
+    true_smm = model_smm * np.exp(0.06 * size * (incentive + 3))
+    prepaid = (rng.random(n_rows) < true_smm).astype(float)
+    purpose = rng.choice(np.array(["P", "C", "N"], dtype=object), size=n_rows, p=[0.5, 0.3, 0.2])
+    return pd.DataFrame({"balance": balance, "incentive": incentive, "year": year, "prepaid": prepaid,
+                         "model_smm": model_smm, "model_without_balance": model_without_balance, "upb": balance,
+                         "purpose": purpose})

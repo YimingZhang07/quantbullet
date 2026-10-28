@@ -42,7 +42,9 @@ Examples 是给 user 看的用法说明，不是 test suite。读者打开一个
 
 ## Fake data
 
-- 只用 synthetic data，在文件里用一个有 docstring 的 function 生成（例如 `fake_loan_months(n_rows, seed)`），固定 seed。
+- 只用 synthetic data，固定 seed。先看 `quantbullet.utils.data` 里有没有能复用的 generator
+  （例如 mortgage loan-months 用 `generate_fake_loan_months(n_rows, seed)`）；没有合适的，再在文件里写一个有 docstring 的 `fake_*` function。
+- 给共用的 generator 加列时，在 random 序列的最后抽取，这样已有的列不变，其他 examples 的输出也不变。
 - 不读本地数据，不依赖 `tests/` 里的 helpers。整个文件 self-contained，只 import library 的 public API 和常规依赖。
 - 数据里**埋一个已知的效应**（例如模型漏掉的一个 interaction），并在 module docstring 里写清楚。
   这样 output 有可解释的答案，example 可以把 fitted 结果和 truth 并排打印。
@@ -60,6 +62,8 @@ Examples 是给 user 看的用法说明，不是 test suite。读者打开一个
 - `OUTPUT_DIR = Path(__file__).resolve().parent / "output" / "<feature>"`，放在文件顶部并注释"Change it to write somewhere else"。
 - 只在写文件的 test 里通过 `output_path(name)` 创建 folder；只打印的 test 不碰它。
 - Figures 存 PNG（`dpi=150, bbox_inches="tight"`），tables 存 CSV，需要成品时写 PDF（例如 `PdfPages`，或 repo 的 report 工具）。写完打印路径。
+- 想把各个 example 的 tables 放在一起看时，写一个 Excel workbook，每个 example 一个 sheet。单独运行一个 example 只添加或替换它自己的
+  sheet，其他 sheet 保留（参考 [examples/preprocessing/test_design_examples.py](../../../examples/preprocessing/test_design_examples.py) 的 `write_sheet`）。
 - `matplotlib.use("Agg")`：不弹窗口，只写文件。
 - `.gitignore` 里已有 `examples/**/output/`，generated files 不进 git。
 
