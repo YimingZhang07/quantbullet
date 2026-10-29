@@ -15,6 +15,11 @@
 
 - Do not commit changes unless the user explicitly asks you to. Leave finished work uncommitted in the working tree.
 
+## Plans
+
+- List the files you will modify and the files you will create separately.
+- For each new or changed function, class or module, show its interface: the signature, the inputs (name, type and meaning) and the outputs.
+
 ## Public repository hygiene
 
 - Do not add personal information, user-specific absolute paths, credentials, or local dataset contents to tracked code, tests, documentation, or examples.
