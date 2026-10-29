@@ -212,8 +212,9 @@ def generate_fake_loan_months(n_rows: int, seed: int, incentive_range: tuple = (
         ``balance``; ``incentive`` (percentage points, in ``incentive_range``); ``year`` (2019 to 2025); ``prepaid`` (1 if the
         loan paid off that month); ``model_smm`` (a model's predicted monthly prepay rate); ``model_without_balance``
         (a worse model that also misses the balance effect); ``upb`` (the weight, equal to balance); ``purpose``
-        (P purchase, C cash-out refi, N no-cash-out refi). ``purpose`` has no effect on ``prepaid`` and is drawn
-        last, so the other columns are the same as without it.
+        (P purchase, C cash-out refi, N no-cash-out refi); ``fico`` (a whole-number credit score, about 740 +/- 45,
+        clipped to 580 to 850). ``purpose`` and ``fico`` have no effect on ``prepaid`` and are drawn last, so the
+        other columns are the same as without them.
     """
     rng = np.random.default_rng(seed)
     balance = np.exp(rng.uniform(np.log(30_000), np.log(1_000_000), n_rows))
@@ -227,6 +228,7 @@ def generate_fake_loan_months(n_rows: int, seed: int, incentive_range: tuple = (
     true_smm = model_smm * np.exp(0.06 * size * (incentive + 3))
     prepaid = (rng.random(n_rows) < true_smm).astype(float)
     purpose = rng.choice(np.array(["P", "C", "N"], dtype=object), size=n_rows, p=[0.5, 0.3, 0.2])
+    fico = np.clip(np.round(rng.normal(740, 45, n_rows)), 580, 850)
     return pd.DataFrame({"balance": balance, "incentive": incentive, "year": year, "prepaid": prepaid,
                          "model_smm": model_smm, "model_without_balance": model_without_balance, "upb": balance,
-                         "purpose": purpose})
+                         "purpose": purpose, "fico": fico})
