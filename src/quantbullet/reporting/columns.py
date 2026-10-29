@@ -1,10 +1,12 @@
 import re
 import pandas as pd
 from openpyxl.formatting.rule import ColorScaleRule
+from openpyxl.styles import Alignment
 from typing import Optional
 from dataclasses import dataclass, field
 from typing import List, Dict, Callable
 from .base import BaseColumnFormat, BaseColumnMeta
+from .formatters import flex_number_formatter
 
 _MONTHS = ("January", "February", "March", "April", "May", "June",
            "July", "August", "September", "October", "November", "December")
@@ -57,43 +59,24 @@ def _excel_date_text(value, date_format: str) -> str:
             parts.append(token)
     return "".join(parts)
 
+@dataclass
 class ColumnFormat( BaseColumnFormat ):
-    def __init__(
-        self,
-        decimals=2,
-        width=None,
-        percent=False,
-        comma=False,
-        parens_for_negative=False,
-        transformer=None,
-        color_scale=None,
-        higher_is_better=True,
-        date_format: Optional[str]=None,
-        formula_template: Optional[str] = None
-    ):
-        super().__init__(
-            decimals=decimals,
-            percent=percent,
-            comma=comma,
-            transformer=transformer
-        )
-        self.width = width
-        self.parens_for_negative = parens_for_negative
-        self.color_scale = color_scale
-        self.higher_is_better = higher_is_better
-        self.date_format = date_format or self._default_date_format
-        self.formula_template = formula_template  # e.g., "=SUM(A1:A10)" for Excel formulas
-        
-    @property
-    def _default_date_format(self):
-        """Set the default date format for the Excel file.
-        
-        The format here has to be compatible with openpyxl. It is not the same as the format in pandas.
-        For example, "yyyy-mm-dd" is the correct format for openpyxl, while "%Y-%m-%d" is not.
+    """How one column is written to Excel; ``decimals``, ``comma``, ``transformer`` and ``percent`` come from the base."""
+    width               : Optional[ float ] = None    # fixed width in characters; None fits values and header
+    parens_for_negative : bool              = False
+    color_scale         : bool              = False
+    higher_is_better    : bool              = True
+    # An Excel format code, not a strftime one: "yyyy-mm-dd", not "%Y-%m-%d"; None means "yyyy-mm-dd"
+    date_format         : Optional[ str ]   = "yyyy-mm-dd"
+    formula_template    : Optional[ str ]   = None    # e.g. "=D{row}*E{row}", filled per data row
+    # Horizontal alignment of the data cells, whatever their type: "left", "center", "right" or another openpyxl
+    # value; None uses the exporter's default
+    align               : Optional[ str ]   = None
 
-        Please check https://openpyxl.readthedocs.io/en/3.1.3/_modules/openpyxl/styles/numbers.html.
-        """
-        return "yyyy-mm-dd"
+    def __post_init__(self):
+        if self.date_format is None:
+            self.date_format = "yyyy-mm-dd"
+        Alignment(horizontal=self.align)   # raises ValueError for an unknown alignment
 
     def apply_transform(self, series):
         if self.transformer:
@@ -122,10 +105,6 @@ class ColumnFormat( BaseColumnFormat ):
         With ``decimals=None`` the values are shown in Excel's General format, about 10 significant digits.
         Dates are rendered with ``date_format``.
         """
-        decimals = self.decimals
-        use_comma = self.comma
-        use_parens = self.parens_for_negative
-        use_percent = self.percent
         is_date = pd.api.types.is_datetime64_any_dtype(series)
 
         def preview(val):
@@ -133,19 +112,14 @@ class ColumnFormat( BaseColumnFormat ):
                 return ""
             if is_date:
                 return _excel_date_text(val, self.date_format)
-            if decimals is None:
+            if self.decimals is None:
                 # General shows floats with up to about 10 significant digits
                 return f"{val:.10g}" if isinstance(val, float) else str(val)
             try:
-                v = round(val, decimals)
-                s = f"{v:,.{decimals}f}" if use_comma else f"{v:.{decimals}f}"
-                if use_parens and v < 0:
-                    s = f"({s.strip('-')})"
-                if use_percent:
-                    s += "%"
-                return s
-            except Exception:
+                text = flex_number_formatter(val, decimals=self.decimals, comma=self.comma, percent=self.percent)
+            except (TypeError, ValueError):
                 return str(val)
+            return f"({text.lstrip('-')})" if self.parens_for_negative and val < 0 else text
 
         max_data_len = int(series.map(preview).map(len).max()) if len(series) else 0
         return max(max_data_len, len(header))

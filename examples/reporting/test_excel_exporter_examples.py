@@ -4,7 +4,7 @@
 
 - ``Loans``: a schema that picks, renames, orders and formats columns (decimals, thousands separators, percent,
   negatives in parentheses, a transformer, a date format, Excel's General format, a fixed width, a formula and
-  color scales), with a wrapped header, and its header row and ID column frozen.
+  color scales, a column alignment), with a wrapped header, and its header row and ID column frozen.
 - ``Summary``: several tables on one sheet, stacked below each other, a Total row appended without a header, and
   a table without a schema placed beside them at an explicit position.
 
@@ -73,7 +73,8 @@ class TestExcelExporterExamples(unittest.TestCase):
             ColumnMeta("loan_id", "Loan ID", ColumnFormat(width=8)),          # width: fixed; None fits values and header
             ColumnMeta("orig_date", "Origination Date",
                        ColumnFormat(date_format="mmm yyyy")),                  # an Excel format code, not strftime
-            ColumnMeta("rating"),                                              # display_name defaults to the name
+            ColumnMeta("rating", format=ColumnFormat(align="center")),         # display_name defaults to the name;
+                                                                               # align: any value type, overrides set_alignment
             ColumnMeta("balance", "Balance", ColumnFormat(decimals=0, comma=True)),   # comma: thousands separators
             ColumnMeta("price", "Price", ColumnFormat(decimals=3)),
             ColumnMeta("market_value", "Market Value",
@@ -111,6 +112,7 @@ class TestExcelExporterExamples(unittest.TestCase):
             ExcelExporter(path)
             .set_overwrite(True)                                 # start a new workbook; False (default) keeps other sheets
             .set_font(name="Arial", size=10)                     # every written cell, on all sheets; None keeps Calibri 11
+            .set_alignment(None)                                 # every data cell, e.g. "right"; None: text left, numbers right
             .add_sheet("Loans", loans, schema=loans_schema,
                        wrap_header=True)                         # wrap long headers in a taller header row
             .set_freeze_panes("Loans", "B2")                     # rows above 2 and column A stay put; "A2" freezes the header only
@@ -131,6 +133,7 @@ class TestExcelExporterExamples(unittest.TestCase):
         self.assertEqual(workbook.sheetnames, ["Loans", "Summary"])
         loans_sheet, summary = workbook["Loans"], workbook["Summary"]
         self.assertEqual(loans_sheet.freeze_panes, "B2")
+        self.assertEqual(loans_sheet["C2"].alignment.horizontal, "center")
         self.assertEqual(summary["A2"].font.name, "Arial")
         self.assertEqual(loans_sheet["F2"].value, "=D2*E2/100")
         self.assertEqual(loans_sheet["I2"].number_format, "#,##0;(#,##0);#,##0")

@@ -13,7 +13,26 @@ class TestColumnMeta(unittest.TestCase):
         self.assertIsInstance(ColumnMeta(name="a").format, ColumnFormat)
 
 
+class TestColumnFormat(unittest.TestCase):
+    def test_repr_and_equality_include_excel_fields(self):
+        self.assertIn("width=12", repr(ColumnFormat(width=12)))
+        self.assertNotEqual(ColumnFormat(align="left"), ColumnFormat(align="right"))
+
+    def test_date_format_none_means_default(self):
+        self.assertEqual(ColumnFormat(date_format=None).date_format, "yyyy-mm-dd")
+
+    def test_unknown_align(self):
+        with self.assertRaises(ValueError):
+            ColumnFormat(align="middle")
+
+
 class TestEstimateDisplayWidth(unittest.TestCase):
+    def test_numbers_as_excel_shows_them(self):
+        self.assertEqual(ColumnFormat(decimals=2, percent=True).estimate_display_width(pd.Series([0.5]), ""),
+                         len("50.00%"))
+        self.assertEqual(ColumnFormat(decimals=0, comma=True, parens_for_negative=True)
+                         .estimate_display_width(pd.Series([-1234.0]), ""), len("(1,234)"))
+
     def test_series_is_not_transformed_again(self):
         fmt = ColumnFormat(transformer=lambda x: x * 1e6)
         written = fmt.apply_transform(pd.Series([1.0, 2.0]))

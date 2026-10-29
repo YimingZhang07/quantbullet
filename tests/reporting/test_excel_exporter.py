@@ -137,6 +137,21 @@ class TestExcelExporter(unittest.TestCase):
         self.assertEqual((ws["A2"].font.name, ws["A2"].font.b, ws["A2"].font.color.rgb), ("Arial", False, "001F4E79"))
         self.assertEqual(ws.column_dimensions["A"].width, (len("value") + 2) * 2)
 
+    def test_alignment(self):
+        path = self.path("align.xlsx")
+        df = pd.DataFrame({"text": ["x"], "number": [1.0], "date": [pd.Timestamp("2024-01-01")]})
+        ExcelExporter(path).add_sheet("default", df).save()
+        self.assertEqual([c.alignment.horizontal for c in load_workbook(path)["default"][2]], [None] * 3)
+
+        schema = ColumnSchema([ColumnMeta("text"), ColumnMeta("number", format=ColumnFormat(align="left")),
+                               ColumnMeta("date")])
+        ExcelExporter(path).set_alignment("center").add_sheet("set", df, schema=schema).save()
+        self.assertEqual([c.alignment.horizontal for c in load_workbook(path)["set"][2]],
+                         ["center", "left", "center"])
+
+        with self.assertRaises(ValueError):
+            ExcelExporter(path).set_alignment("middle")
+
     def test_save_without_tables(self):
         with self.assertRaisesRegex(ValueError, "No tables"):
             ExcelExporter(self.path("empty.xlsx")).save()

@@ -32,10 +32,10 @@ class ExcelExporter:
     def __init__(self, filename):
         self.filename = filename
         self._overwrite = False
-        self.default_alignment = Alignment(horizontal='right')
         self._blocks = []
         self._freeze_panes = {}
         self._font = {}
+        self._align = None
 
     @property
     def overwrite(self):
@@ -74,6 +74,16 @@ class ExcelExporter:
         height scale with ``size``.
         """
         self._font = {key: value for key, value in dict(name=name, size=size, color=color).items() if value is not None}
+        return self
+
+    def set_alignment(self, align: Optional[str]):
+        """Set the horizontal alignment of every data cell the tables write, on all sheets, whatever their type.
+
+        ``align`` is "left", "center", "right" or another openpyxl value. ``None`` keeps Excel's default: text
+        left, numbers and dates right. A column's ``ColumnFormat(align=...)`` overrides it.
+        """
+        Alignment(horizontal=align)   # raises ValueError for an unknown alignment
+        self._align = align
         return self
 
     @property
@@ -168,6 +178,8 @@ class ExcelExporter:
             col_index = block.start_col + j
             col_letter = get_column_letter(col_index)
             column_format = block.column_formats[col]
+            align = column_format.align or self._align
+            alignment = Alignment(horizontal=align) if align else None
 
             # Width: tables sharing a column on one sheet get the widest of their widths
             if column_format.width is not None:
@@ -181,7 +193,8 @@ class ExcelExporter:
             # Format data cells
             for i in range(len(df)):
                 cell = worksheet.cell(row=data_start_row + i, column=col_index)
-                cell.alignment = self.default_alignment
+                if alignment:
+                    cell.alignment = alignment
                 if data_font:
                     cell.font = data_font
                 if format_strings.get(col):
