@@ -5,6 +5,13 @@ from numba import njit
 import numexpr as ne
 import time
 
+# An uninstalled cupy can leave an empty site-packages/cupy that imports as a namespace package without cuda.
+try:
+    import cupy as cp
+    HAS_GPU = cp.cuda.is_available()
+except (ImportError, AttributeError):
+    cp, HAS_GPU = None, False
+
 # ========================================
 # 1. 原始 Python 循环乘法
 # ========================================
@@ -186,6 +193,7 @@ def gpu_step(X, y, f, ridge=1e-6):
     beta = cp.linalg.solve(XtX, Xty)
     return beta
 
+@unittest.skipUnless(HAS_GPU, "requires cupy and a CUDA GPU")
 class TestGPUSpeed(unittest.TestCase):
 
     def setUp(self):
