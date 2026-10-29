@@ -396,9 +396,9 @@ def test_tensor_log_fit_equals_the_design_with_the_reference_cells_dropped():
     age, sato = tensor_terms()
     spec = ModelSpec([CategoricalTerm("purpose"), age, sato, TensorTerm(age, sato, drop="any")])
     data = spec.prepare(df, response="y", weights="weight", dtype=np.float64)
-    assert "age×sato" in data.feature_groups and "age×sato" not in df.columns
+    assert "age_x_sato" in data.feature_groups and "age_x_sato" not in df.columns
     model = fit(data, "log", "poisson", **options)
-    assert model.convergence_info_["pivots"]["age×sato"] == {"column": "age×sato:reference", "from": "reference"}
+    assert model.convergence_info_["pivots"]["age_x_sato"] == {"column": "age_x_sato:reference", "from": "reference"}
 
     # The same model with the reference row and column of the node table, and the main references, deleted.
     tent_a, tent_s = (TentTransformer(knots).fit_transform(df[[name]]) for name, knots in
@@ -408,7 +408,7 @@ def test_tensor_log_fit_equals_the_design_with_the_reference_cells_dropped():
              if i != ia and j != js}
     blocks = {"purpose": pd.get_dummies(df["purpose"]).to_numpy(dtype=float),
               "age": np.delete(tent_a, ia, axis=1), "sato": np.delete(tent_s, js, axis=1),
-              "age×sato": np.column_stack(list(cells.values()))}
+              "age_x_sato": np.column_stack(list(cells.values()))}
     groups = {name: [f"{name}_{k}" for k in range(X.shape[1])] for name, X in blocks.items()}
     expanded = pd.concat([pd.DataFrame(X, columns=groups[name]) for name, X in blocks.items()], axis=1)
     deleted = LinearProductRegressor().fit(
@@ -424,11 +424,11 @@ def test_tensor_tables_are_one_on_the_reference_lines(block_link):
     age, sato = tensor_terms()
     model = fit(ModelSpec([age, sato, TensorTerm(age, sato, drop="any")]).prepare(df, response="y", dtype=np.float64),
                 block_link, "poisson")
-    table = model.term("age×sato").table()
+    table = model.term("age_x_sato").table()
     assert list(table.index) == list(TENT_KNOTS) and list(table.columns) == list(SATO_KNOTS)
     np.testing.assert_allclose(table.loc[24.], 1., rtol=1e-12)
     np.testing.assert_allclose(table[0.], 1., rtol=1e-12)
-    curve = model.term("age×sato").curve({"age": [12., 60.], "sato": [-.5, 1.]})
+    curve = model.term("age_x_sato").curve({"age": [12., 60.], "sato": [-.5, 1.]})
     np.testing.assert_allclose(curve, [table.loc[12., -.5], table.loc[60., 1.]], rtol=1e-12)
 
 
@@ -444,7 +444,7 @@ def test_a_categorical_tensor_term_matches_the_by_term():
                  "log", "poisson", **options)
     np.testing.assert_allclose(tensor.predict(df), by.predict(df), rtol=1e-10)
     # Same references, so the same tables: each level's age curve is 1 at age 24, and P's level is 1.
-    np.testing.assert_allclose(tensor.term("purpose×age").table().T.to_numpy(), by.term("age").table().to_numpy(),
+    np.testing.assert_allclose(tensor.term("purpose_x_age").table().T.to_numpy(), by.term("age").table().to_numpy(),
                                rtol=1e-8)
     np.testing.assert_allclose(tensor.term("purpose").table(), by.term("purpose").table(), rtol=1e-8)
 
@@ -457,5 +457,5 @@ def test_the_toolkit_skips_tensor_terms_in_one_dimensional_implied_actuals():
     model = fit(data, "log", "poisson")
     raw = LinearProductModelToolkit(model.spec_).compute_implied_actual_data(model, data, sample_frac=.5)
     assert sorted(raw) == ["age", "sato"]
-    np.testing.assert_allclose(model.leave_out_feature_group_predict("age×sato", data) *
-                               model.single_feature_group_predict("age×sato", data), model.predict(data), rtol=1e-12)
+    np.testing.assert_allclose(model.leave_out_feature_group_predict("age_x_sato", data) *
+                               model.single_feature_group_predict("age_x_sato", data), model.predict(data), rtol=1e-12)

@@ -131,7 +131,7 @@ class OneHot(Encoding):
 
 
 class Cross:
-    """The product of several encodings' bases: one column per cell of their knots and levels, named ``a×b``.
+    """The product of several encodings' bases: one column per cell of their knots and levels, named ``a_x_b``.
 
     Pass a main term's own object to share its knots and reference, or another object for the cross's own; its
     knots must then be the main term's or a subset of them. ``drop`` is a list of conditions, each a column or a
@@ -157,7 +157,7 @@ class Cross:
 
     @property
     def name(self):
-        return "×".join(self.variables)
+        return "_x_".join(self.variables)
 
     @property
     def variables(self):
@@ -171,7 +171,7 @@ class Cross:
     def columns(self):
         names = [""]
         for encoding in self.encodings:
-            names = [f"{a}×{b}" if a else b for a in names for b in encoding.columns()]
+            names = [f"{a}_x_{b}" if a else b for a in names for b in encoding.columns()]
         return names
 
     def dropped(self):
@@ -201,7 +201,7 @@ class Design:
     """Encodings and crosses checked together, and the full-rank matrix they make; ``fit`` learns on a copy.
 
     ``intercept`` says whether the first column is ``"intercept"``, the constant's carrier; it has no default.
-    Each term is named after its column, a cross ``a×b`` after its columns; the names must differ, and none may
+    Each term is named after its column, a cross ``a_x_b`` after its columns; the names must differ, and none may
     be ``"intercept"``.
     """
 

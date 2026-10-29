@@ -6,7 +6,7 @@ its ``reference``, where its factor is 1. ``ModelSpec`` combines terms, checks t
 spec and reads new rows with it.
 
 A spec compiles to the blocks the solvers fit: each term is a feature group named after its input column
-(a ``TensorTerm`` after its terms, ``a×b``), a ``ByTerm`` is the interaction of its term by its ``by`` term,
+(a ``TensorTerm`` after its terms, ``a_x_b``), a ``ByTerm`` is the interaction of its term by its ``by`` term,
 a ``FrozenTerm`` is a frozen submodel, and a term's reference becomes a ``fit(references=...)`` row.
 """
 import copy
@@ -229,7 +229,7 @@ class TensorTerm(Term):
     references are shared; a tent × tent term interpolates bilinearly on its node table. ``drop`` has no default
     (see ``ByTerm``): ``ModelSpec.check`` accepts only the rule the model's other terms determine. The cells it
     drops are fixed at the reference value: they are tied into one column, ``{name}:reference``, which ``fit``
-    sets to that value. The term is named ``a×b`` unless ``name`` is given.
+    sets to that value. The term is named ``a_x_b`` unless ``name`` is given.
 
     Tent × tent cells are products of float32 values when prepared in float32, so their rows sum to 1 only
     within float32 rounding; prepare in float64 when exact reparametrization matters.
@@ -242,7 +242,7 @@ class TensorTerm(Term):
 
     @property
     def name(self):
-        return self._name or "×".join(term.name for term in self.terms)
+        return self._name or "_x_".join(term.name for term in self.terms)
 
     @property
     def inputs(self):
@@ -266,7 +266,7 @@ class TensorTerm(Term):
     def columns(self):
         names = [""]
         for term in self.terms:
-            names = [f"{a}×{b}" if a else b for a in names for b in term.columns()]
+            names = [f"{a}_x_{b}" if a else b for a in names for b in term.columns()]
         tied = self.tied_
         return [f"{self.name}:reference" if j == tied[0] else name for j, name in enumerate(names) if j not in tied[1:]]
 
@@ -295,7 +295,7 @@ class TensorTerm(Term):
         return np.flatnonzero(fixed).tolist()
 
     def describe(self):
-        return f"{' × '.join(term.name for term in self.terms)}, drop={self.drop!r}"
+        return f"{' x '.join(term.name for term in self.terms)}, drop={self.drop!r}"
 
     def __repr__(self):
         return f"TensorTerm({self.name!r})"

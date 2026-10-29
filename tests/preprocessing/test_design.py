@@ -41,10 +41,10 @@ def test_a_cell_is_dropped_where_any_condition_holds():
     both = Design([age, incentive, Cross(age, incentive, drop=["age", "incentive"])], intercept=True).fit(df)
     grid = both.terms_[-1].dropped().reshape(5, 5)
     assert grid[2].all() and grid[:, 2].all() and grid.sum() == 9            # the age=24 row and the incentive=0 column
-    assert len(both.groups()["age×incentive"]) == 16
+    assert len(both.groups()["age_x_incentive"]) == 16
     alone = Design([Cross(age, incentive, drop=[("age", "incentive")])], intercept=True).fit(df)
-    kept = alone.groups()["age×incentive"]
-    assert len(kept) == 24 and "age_at_24×incentive_at_0" not in kept
+    kept = alone.groups()["age_x_incentive"]
+    assert len(kept) == 24 and "age_at_24_x_incentive_at_0" not in kept
 
 
 def test_the_design_is_full_rank_and_drops_nothing_it_needs():
@@ -59,7 +59,7 @@ def test_the_design_is_full_rank_and_drops_nothing_it_needs():
     assert groups["intercept"] == ["intercept"] and (Z["intercept"] == 1).all()
     assert groups["age"] == ["age_at_0", "age_at_12", "age_at_60", "age_at_120"]
     assert groups["purpose"] == ["purpose_C", "purpose_N"]
-    assert len(groups["age×incentive"]) == 3 * 4 and len(groups["purpose×age×incentive"]) == 2 * (3 + 4 + 3 * 4)
+    assert len(groups["age_x_incentive"]) == 3 * 4 and len(groups["purpose_x_age_x_incentive"]) == 2 * (3 + 4 + 3 * 4)
     assert rank(Z) == Z.shape[1]
     assert rank(Z, every_column(design, df)) == Z.shape[1]
 
@@ -113,7 +113,7 @@ def test_a_wrong_three_way_drop_lists_the_lower_cross_too():
              Cross(purpose, age, incentive, drop=["purpose", "age", "incentive"])]
     with pytest.raises(ValueError, match="removes the part that varies with purpose and age together") as error:
         Design(terms, intercept=True).check()
-    assert "Cross('age×incentive'): 'purpose'" in str(error.value)
+    assert "Cross('age_x_incentive'): 'purpose'" in str(error.value)
     assert "drop=['purpose', ('age', 'incentive')]" in str(error.value)
 
 
@@ -199,8 +199,8 @@ def test_a_cross_with_its_own_reference_spans_the_same_model_but_warns():
     with pytest.warns(UserWarning, match=r"age has different references \(24 in Tent\('age'\), 60 in Cross"):
         other = Design([age, incentive, Cross(age_60, incentive, drop=["age", "incentive"])], intercept=True)
         moved = other.fit_transform(df)
-    kept = other.groups()["age×incentive"]
-    assert "age_at_24×incentive_at_-3" in kept and "age_at_60×incentive_at_-3" not in kept
+    kept = other.groups()["age_x_incentive"]
+    assert "age_at_24_x_incentive_at_-3" in kept and "age_at_60_x_incentive_at_-3" not in kept
     assert rank(same) == rank(moved) == rank(same, moved) == same.shape[1]
 
 
@@ -215,7 +215,7 @@ def test_the_design_checks_its_terms_together():
         Design([age, Cross(OneHot("age", reference=24), incentive, drop=[("age", "incentive")])],
                intercept=True).check()
     with pytest.raises(ValueError, match="no drop fits this design. the part that varies with age and incentive "
-                                         "together is provided by Cross\\('age×incentive'\\), but no term provides "
+                                         "together is provided by Cross\\('age_x_incentive'\\), but no term provides "
                                          "the part that varies only with age"):
         Design([ltv, Cross(age, incentive, ltv, drop=["ltv"]), Cross(age, incentive, drop=["age", "incentive"])],
                intercept=True).check()
@@ -246,5 +246,5 @@ def test_fit_transform_warns_about_cells_without_data():
     df = frame()
     df.loc[(df["purpose"] == "N") & (df["age"] > 24), "purpose"] = "C"
     purpose, age, _, _ = encodings()
-    with pytest.warns(UserWarning, match=r"2 columns have no data.*'purpose_N×age_at_60', 'purpose_N×age_at_120'"):
+    with pytest.warns(UserWarning, match=r"2 columns have no data.*'purpose_N_x_age_at_60', 'purpose_N_x_age_at_120'"):
         Design([purpose, age, Cross(purpose, age, drop=["purpose", "age"])], intercept=True).fit_transform(df)

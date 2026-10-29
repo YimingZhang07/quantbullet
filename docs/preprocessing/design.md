@@ -74,7 +74,7 @@ Design([Tent("age", (0, 12, 24, 60, 120), reference=None)], intercept=False)
 ## Cross 和 `drop`
 
 `Cross(*encodings, drop=...)` 把几个编码的 basis 相乘，每个 knot 或 level 的组合（格）占一列。列名形如
-`age_at_60×incentive_at_-1`，term 名是 `age×incentive`。
+`age_at_60_x_incentive_at_-1`，term 名是 `age_x_incentive`。
 
 `drop` 是一个条件列表：
 - 每个条件是一个列名，或一个列名的 tuple，意思是"这些列同时在 reference 上"；
@@ -102,7 +102,7 @@ reference 上。这些效应包括：
 - 各主效应；
 - 更低阶的 cross。
 
-| 设计里已有的 | `age×incentive` 的 drop |
+| 设计里已有的 | `age_x_incentive` 的 drop |
 |---|---|
 | 常数 + age + incentive | `["age", "incentive"]`，删 9 格 |
 | 只有常数 | `[("age", "incentive")]`，只删 (24, 0) 一格 |
@@ -111,7 +111,7 @@ reference 上。这些效应包括：
 
 主效应也服从同一条规则，可以看成只有一列的 cross：常数由别的 term 承担时，常数给出的条件是"age 在 reference 上"，也就是删掉 reference 那一列。
 
-三阶也一样。例如 `purpose×age×incentive`，设计里已有常数、三个主效应和 `age×incentive`：
+三阶也一样。例如 `purpose_x_age_x_incentive`，设计里已有常数、三个主效应和 `age_x_incentive`：
 
 | 已有的效应 | 条件 |
 |---|---|
@@ -119,7 +119,7 @@ reference 上。这些效应包括：
 | purpose | `("age", "incentive")` |
 | age | `("purpose", "incentive")` |
 | incentive | `("purpose", "age")` |
-| `age×incentive` | `"purpose"` |
+| `age_x_incentive` | `"purpose"` |
 
 五条可以全部照写，也可以只写 `["purpose", ("age", "incentive")]`，因为其余三条已被 `"purpose"` 覆盖。两种写法删掉的格相同，都能通过检查。
 
@@ -132,7 +132,7 @@ reference 上。这些效应包括：
 写错时，报错会逐条列出上面那张表，并给出这个设计的正确写法：
 
 ```
-Cross('age×incentive') has drop=['age']: it keeps the part that varies only with age, also provided by Tent('age'), so the design is collinear.
+Cross('age_x_incentive') has drop=['age']: it keeps the part that varies only with age, also provided by Tent('age'), so the design is collinear.
 Each effect on its columns gives one condition, the cross's other columns all at their references:
   the intercept: ('age', 'incentive')
   Tent('age'): 'incentive'
