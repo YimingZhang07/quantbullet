@@ -31,6 +31,8 @@ FIRST_ROWS = 30                                  # rows of each matrix to print 
 INCENTIVE_RANGE = (-3.0, 3.0)                    # percentage points: loans in and out of the money
 INCENTIVE_KNOTS = (-3, -2, -1, 0, 1, 2, 3)
 BALANCE_KNOTS = (50_000, 250_000, 1_000_000)     # dollars; the fake data's balance x incentive effect is 0 at 250K
+FICO_KNOTS = (680, 740, 800)
+TRIPLE_INCENTIVE_KNOTS = (-3, 0, 3)              # coarser knots for the three-way crosses: fewer, smoother cells
 
 
 def first_rows(raw: pd.DataFrame, design: pd.DataFrame) -> pd.DataFrame:
@@ -154,3 +156,60 @@ class TestDesignExamples(unittest.TestCase):
         corner = "balance_at_1000000_x_incentive_at_3"
         self.assertTrue(np.allclose(Z[corner], Z["balance_at_1000000"] * Z["incentive_at_3"]))
         self.assertIn("continuous cross", pd.ExcelFile(path).sheet_names)
+
+    def test_cat_x_cont_x_cont(self):
+        """Purpose times incentive times balance: each purpose may bend the balance x incentive surface its own way."""
+        purpose = OneHot("purpose", reference="P")
+        incentive = Tent("incentive", knots=INCENTIVE_KNOTS, reference=0)
+        balance = Tent("balance", knots=BALANCE_KNOTS, reference=250_000)
+        triple_incentive = Tent("incentive", knots=TRIPLE_INCENTIVE_KNOTS,   # a subset of the main term's knots
+                                reference=0)                                 # and the same reference
+        design = Design(
+            [purpose, incentive, balance,                     # the main terms; the cross carries the pairs itself
+             Cross(purpose, triple_incentive, balance,
+                   drop=[("purpose", "incentive"),            # drop a cell only where two columns sit at their
+                         ("purpose", "balance"),              # references: the main terms and the intercept already
+                         ("incentive", "balance")])],         # span those; ["purpose", "incentive", "balance"] would
+                                                              # also drop the pairs, holding each at 0 at the third
+                                                              # column's reference, a constraint
+            intercept=True,
+        )
+        Z = design.fit_transform(self.loans)
+        print(design.groups())
+        cross = design.groups()["purpose_x_incentive_x_balance"]
+        table = first_rows(self.loans[["purpose", "incentive", "balance"]], Z).sort_values(["purpose", "incentive"])
+        show("purpose, incentive, balance and their three-way cross", table[["purpose", "incentive", "balance",
+                                                                               *cross]].round(4))
+        path = write_sheet("cat x cont x cont", table, decimals=4)
+
+        self.assertEqual(design.violations_, [])                                   # full rank, nothing constrained
+        self.assertEqual(len(cross), 3 * 3 * 3 - 7)    # every cell but the 7 with two or three columns at a reference
+        self.assertEqual(np.linalg.matrix_rank(Z.to_numpy()), Z.shape[1])
+        self.assertIn("purpose_P_x_incentive_at_3_x_balance_at_1000000", cross)    # at P: the incentive x balance pair
+        self.assertNotIn("purpose_P_x_incentive_at_0_x_balance_at_1000000", cross)  # at P and 0: balance's main term
+        self.assertIn("cat x cont x cont", pd.ExcelFile(path).sheet_names)
+
+    def test_cont_x_cont_x_cont(self):
+        """Balance times incentive times FICO: how the balance x incentive surface changes with credit score."""
+        balance = Tent("balance", knots=BALANCE_KNOTS, reference=250_000)
+        incentive = Tent("incentive", knots=INCENTIVE_KNOTS, reference=0)
+        fico = Tent("fico", knots=FICO_KNOTS, reference=740)
+        design = Design(
+            [balance, incentive, fico,
+             Cross(balance, Tent("incentive", knots=TRIPLE_INCENTIVE_KNOTS, reference=0), fico,
+                   drop=[("balance", "incentive"), ("balance", "fico"), ("incentive", "fico")])],   # as above: each
+                                                              # cell is the product of three tent weights
+            intercept=True,
+        )
+        Z = design.fit_transform(self.loans)
+        print(design.groups())
+        cross = design.groups()["balance_x_incentive_x_fico"]
+        table = first_rows(self.loans[["balance", "incentive", "fico"]], Z).sort_values("balance")
+        show("balance, incentive, FICO and their three-way cross", table[["balance", "incentive", "fico",
+                                                                            *cross]].round(4))
+        path = write_sheet("cont x cont x cont", table, decimals=4)
+
+        self.assertEqual(design.violations_, [])
+        self.assertEqual(len(cross), 3 * 3 * 3 - 7)
+        self.assertEqual(np.linalg.matrix_rank(Z.to_numpy()), Z.shape[1])
+        self.assertIn("cont x cont x cont", pd.ExcelFile(path).sheet_names)
