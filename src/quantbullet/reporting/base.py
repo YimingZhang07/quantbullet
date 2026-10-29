@@ -16,4 +16,4 @@ class BaseColumnMeta:
 
     def __post_init__(self):
         if self.display_name is None:
-            self.display_name = self.raw_name
+            self.display_name = self.name
