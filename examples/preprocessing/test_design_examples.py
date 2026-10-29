@@ -10,8 +10,9 @@ in ``python.testing.pytestArgs``); ``setUpClass`` runs first, then that method. 
     .venv/Scripts/python.exe -m pytest examples/preprocessing/test_design_examples.py -k categorical
 
 Every example prints its first rows and writes them to its own sheet of one workbook in OUTPUT_DIR, which git
-ignores: the raw column next to the matrix it becomes. Running an example adds its sheet, or replaces it, and
-leaves the other sheets as they are. Close the workbook in Excel before running, since Excel locks an open file.
+ignores: the raw column next to the matrix it becomes. The cross examples print only the cross's columns; their
+sheets hold the whole matrix. Running an example adds its sheet, or replaces it, and leaves the other sheets as they
+are. Close the workbook in Excel before running, since Excel locks an open file.
 """
 import unittest
 from pathlib import Path
@@ -19,7 +20,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from quantbullet.preprocessing import Design, OneHot, Tent
+from quantbullet.preprocessing import Cross, Design, OneHot, Tent
 from quantbullet.reporting import ColumnFormat, ColumnMeta, ColumnSchema, ExcelExporter
 from quantbullet.utils.data import generate_fake_loan_months
 
@@ -29,6 +30,7 @@ WORKBOOK = "design_examples.xlsx"
 FIRST_ROWS = 30                                  # rows of each matrix to print and write
 INCENTIVE_RANGE = (-3.0, 3.0)                    # percentage points: loans in and out of the money
 INCENTIVE_KNOTS = (-3, -2, -1, 0, 1, 2, 3)
+BALANCE_KNOTS = (50_000, 250_000, 1_000_000)     # dollars; the fake data's balance x incentive effect is 0 at 250K
 
 
 def first_rows(raw: pd.DataFrame, design: pd.DataFrame) -> pd.DataFrame:
@@ -105,3 +107,50 @@ class TestDesignExamples(unittest.TestCase):
                                            "incentive_at_1", "incentive_at_2", "incentive_at_3"])
         self.assertTrue(np.all(Z.drop(columns="intercept").sum(axis=1) <= 1 + 1e-12))  # 0's weight is the rest
         self.assertIn("continuous", pd.ExcelFile(path).sheet_names)
+
+    def test_categorical_cross(self):
+        """Two categorical columns and their cross: each purpose's effect may differ by year."""
+        purpose = OneHot("purpose", reference="P")
+        year = OneHot("year", reference=2019)          # integer levels work too: year_2020, ..., year_2025
+        design = Design(
+            [purpose, year,
+             Cross(purpose, year,                      # one column per (purpose, year) cell, e.g. purpose_C_x_year_2020;
+                                                       # the same objects share their levels and references
+                   drop=["purpose", "year"])],         # drop the cells at P or at 2019: the main terms and the
+                                                       # intercept already span them (Design.check names the drop needed)
+            intercept=True,
+        )
+        Z = design.fit_transform(self.loans)
+        print(design.groups())
+        cross = design.groups()["purpose_x_year"]
+        table = first_rows(self.loans[["purpose", "year"]], Z).sort_values(["purpose", "year"])
+        show("purpose, year and their cross columns", table[["purpose", "year", *cross]])
+        path = write_sheet("categorical cross", table, decimals=0)
+
+        self.assertEqual(len(cross), 2 * 6)                                        # (C, N) x (2020, ..., 2025)
+        off_reference = (self.loans["purpose"] != "P") & (self.loans["year"] != 2019)
+        self.assertTrue(np.all(Z[cross].sum(axis=1) == off_reference))            # one cell is 1, off the references
+        self.assertIn("categorical cross", pd.ExcelFile(path).sheet_names)
+
+    def test_continuous_cross(self):
+        """Two continuous columns and their cross: the incentive curve may bend with balance, as in the fake data."""
+        balance = Tent("balance", knots=BALANCE_KNOTS, reference=250_000)
+        incentive = Tent("incentive", knots=INCENTIVE_KNOTS, reference=0)
+        design = Design(
+            [balance, incentive,
+             Cross(balance, incentive,                 # one column per (balance knot, incentive knot), the product of
+                                                       # their tent weights
+                   drop=["balance", "incentive"])],    # drop the cells at 250K or at incentive 0, as above
+            intercept=True,
+        )
+        Z = design.fit_transform(self.loans)
+        print(design.groups())
+        cross = design.groups()["balance_x_incentive"]
+        table = first_rows(self.loans[["balance", "incentive"]], Z).sort_values("balance")   # small to large loans
+        show("balance, incentive and their cross columns", table[["balance", "incentive", *cross]].round(4))
+        path = write_sheet("continuous cross", table, decimals=4)
+
+        self.assertEqual(len(cross), 2 * 6)                                        # (50K, 1M) x 6 incentive knots
+        corner = "balance_at_1000000_x_incentive_at_3"
+        self.assertTrue(np.allclose(Z[corner], Z["balance_at_1000000"] * Z["incentive_at_3"]))
+        self.assertIn("continuous cross", pd.ExcelFile(path).sheet_names)
