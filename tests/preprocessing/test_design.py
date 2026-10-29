@@ -1,9 +1,11 @@
-"""Design: encodings and crosses with every choice written out, as one full-rank additive matrix."""
+"""Design: encodings and crosses with every choice written out, as one additive matrix, with its violations listed."""
+import warnings
+
 import numpy as np
 import pandas as pd
 import pytest
 
-from quantbullet.preprocessing import Cross, Design, OneHot, Tent
+from quantbullet.preprocessing import Cross, Design, DesignWarning, OneHot, Tent
 
 AGE_KNOTS = (0, 12, 24, 60, 120)
 INCENTIVE_KNOTS = (-3, -1, 0, 1, 3)
@@ -22,6 +24,13 @@ def encodings():
 
 def rank(*matrices):
     return np.linalg.matrix_rank(np.hstack([np.asarray(m, dtype=float) for m in matrices]))
+
+
+def only_violation(design, kind):
+    """The message of the design's one violation, which is of ``kind``."""
+    violations = design.check()
+    assert [violation.kind for violation in violations] == [kind], violations
+    return violations[0].message
 
 
 def every_column(design, df):
@@ -93,28 +102,31 @@ def test_conditions_that_others_imply_may_be_left_out():
 
 
 @pytest.mark.parametrize("drop, problem", [
-    (["age"], r"keeps the part that varies only with age, also provided by Tent\('age'\)"),
-    ([("age", "incentive")], r"keeps the part that varies only with age.*only with incentive"),
-    (["age", "incentive", "purpose"], r"drop names \['purpose'\]"),
+    (["age"], "keeps the part that varies only with age, also provided by Tent('age')"),
+    ([("age", "incentive")], "also provided by Tent('incentive'), so the design is collinear"),
 ])
 def test_a_wrong_drop_names_each_effect_and_the_right_drop(drop, problem):
     _, age, incentive, _ = encodings()
-    with pytest.raises(ValueError, match=problem) as error:
-        Design([age, incentive, Cross(age, incentive, drop=drop)], intercept=True).check()
-    if "drop names" not in problem:
-        message = str(error.value)
-        assert "the intercept: ('age', 'incentive')\n  Tent('age'): 'incentive'\n  Tent('incentive'): 'age'" in message
-        assert "drop=['age', 'incentive']" in message
+    message = only_violation(Design([age, incentive, Cross(age, incentive, drop=drop)], intercept=True), "collinear")
+    assert problem in message
+    assert "the intercept: ('age', 'incentive')\n  Tent('age'): 'incentive'\n  Tent('incentive'): 'age'" in message
+    assert "drop=['age', 'incentive']" in message
+
+
+def test_a_drop_naming_another_column_makes_no_matrix():
+    _, age, incentive, _ = encodings()
+    with pytest.raises(ValueError, match=r"drop names \['purpose'\]"):
+        Cross(age, incentive, drop=["age", "incentive", "purpose"])
 
 
 def test_a_wrong_three_way_drop_lists_the_lower_cross_too():
     purpose, age, incentive, _ = encodings()
     terms = [purpose, age, incentive, Cross(age, incentive, drop=["age", "incentive"]),
              Cross(purpose, age, incentive, drop=["purpose", "age", "incentive"])]
-    with pytest.raises(ValueError, match="removes the part that varies with purpose and age together") as error:
-        Design(terms, intercept=True).check()
-    assert "Cross('age_x_incentive'): 'purpose'" in str(error.value)
-    assert "drop=['purpose', ('age', 'incentive')]" in str(error.value)
+    message = only_violation(Design(terms, intercept=True), "constraint")
+    assert "removes the part that varies with purpose and age together" in message
+    assert "Cross('age_x_incentive'): 'purpose'" in message
+    assert "drop=['purpose', ('age', 'incentive')]" in message
 
 
 def test_reference_drop_and_intercept_have_no_defaults():
@@ -159,19 +171,39 @@ def test_a_cross_alone_without_an_intercept_is_the_full_tensor_product():
     assert Z.shape[1] == 25 and rank(Z) == 25
     with pytest.raises(ValueError, match=r"drop names \['age'\], which have reference=None"):
         Cross(age, incentive, drop=["age"])
-    with pytest.raises(ValueError, match="The constant is carried by the intercept and Cross"):
-        Design([Cross(age, incentive, drop=[])], intercept=True).check()
+    both = Design([Cross(age, incentive, drop=[])], intercept=True).check()       # found at the constant and the cross
+    assert [(violation.kind, violation.term) for violation in both] == [
+        ("collinear", "the constant"), ("collinear", "Cross('age_x_incentive')")]
+    assert "The constant is carried by the intercept and Cross" in both[0].message
 
 
-@pytest.mark.parametrize("intercept, references, problem", [
-    (True, (None, 24), r"carried by the intercept and OneHot\('purpose'\), so the design is collinear"),
-    (False, (None, None), r"carried by OneHot\('purpose'\) and Tent\('age'\), so the design is collinear"),
-    (False, ("P", 24), "carried by no term, so the design gains a constraint"),
+@pytest.mark.parametrize("intercept, references, kind, problem", [
+    (True, (None, 24), "collinear", "carried by the intercept and OneHot('purpose'), so the design is collinear"),
+    (False, (None, None), "collinear", "carried by OneHot('purpose') and Tent('age'), so the design is collinear"),
+    (False, ("P", 24), "constraint", "carried by no term, so the design gains a constraint"),
 ])
-def test_exactly_one_term_carries_the_constant(intercept, references, problem):
+def test_exactly_one_term_carries_the_constant(intercept, references, kind, problem):
     terms = [OneHot("purpose", reference=references[0]), Tent("age", AGE_KNOTS, reference=references[1])]
-    with pytest.raises(ValueError, match=problem):
-        Design(terms, intercept=intercept).check()
+    assert problem in only_violation(Design(terms, intercept=intercept), kind)
+
+
+def test_a_design_with_violations_is_built_as_written_and_warns_once():
+    df = frame()
+    design = Design([OneHot("purpose", reference="P"), Tent("age", AGE_KNOTS, reference=24)], intercept=False)
+    with pytest.warns(DesignWarning, match="1 violations and is built as written: constraint in the constant") as record:
+        Z = design.fit_transform(df)
+    assert len(record) == 1
+    assert list(Z.columns) == ["purpose_C", "purpose_N", "age_at_0", "age_at_12", "age_at_60", "age_at_120"]
+    assert [violation.kind for violation in design.violations_] == ["constraint"]
+    assert rank(Z) == Z.shape[1] and rank(Z, np.ones((len(df), 1))) == Z.shape[1] + 1   # no constant in the span
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DesignWarning)                  # the strict check, for those who want it
+        with pytest.raises(DesignWarning):
+            design.fit(df)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        Design([OneHot("purpose", reference="P")], intercept=True).fit_transform(df)   # no violations, no warning
 
 
 def test_references_are_knots_or_levels():
@@ -181,14 +213,49 @@ def test_references_are_knots_or_levels():
         Design([OneHot("purpose", reference="X")], intercept=True).fit(frame())
 
 
+def test_further_references_drop_more_columns_and_are_constraints():
+    df = frame()
+    design = Design([OneHot("purpose", reference="P"), Tent("age", AGE_KNOTS, reference=[24, 60])], intercept=True)
+    message = only_violation(design, "constraint")
+    assert "coefficients are read from 24" in message and "the term is 0 at [60], as at 24" in message
+    with pytest.warns(DesignWarning, match="constraint in Tent\('age'\)"):
+        Z = design.fit_transform(df)
+    assert design.groups()["age"] == ["age_at_0", "age_at_12", "age_at_120"]
+    single = Design([OneHot("purpose", reference="P"), Tent("age", AGE_KNOTS, reference=24)], intercept=True)
+    pd.testing.assert_frame_equal(Z, single.fit_transform(df).drop(columns="age_at_60"))   # less the column at 60
+
+
+def test_a_cross_of_some_levels_names_the_others_as_references():
+    df = frame()
+    purpose, age, _, _ = encodings()                                    # purpose's reference is P
+    only_n = OneHot("purpose", reference=["P", "C"])                    # read from P, as the main term is; C joins it
+    design = Design([purpose, age, Cross(only_n, age, drop=["purpose", "age"])], intercept=True)
+    [violation] = design.check()                                       # one first reference per column: no "references"
+    assert (violation.kind, violation.term) == ("constraint", "Cross('purpose_x_age')")
+    assert "the term gives ['C'] the value of 'P'" in violation.message
+    with pytest.warns(DesignWarning):
+        Z = design.fit_transform(df)
+    assert design.groups()["purpose_x_age"] == [f"purpose_N_x_age_at_{k}" for k in (0, 12, 60, 120)]
+    assert rank(Z) == Z.shape[1]
+
+
+def test_references_name_each_value_once_and_leave_one():
+    with pytest.raises(ValueError, match="reference 30 is not one of the knots"):
+        Tent("age", AGE_KNOTS, reference=[24, 30])
+    with pytest.raises(ValueError, match="repeats a value"):
+        Tent("age", AGE_KNOTS, reference=[24, 24])
+    with pytest.raises(ValueError, match="names every one of the levels"):
+        Design([OneHot("purpose", reference=["C", "N", "P"])], intercept=True).fit(frame())
+
+
 def test_a_cross_may_use_coarser_knots_but_not_extra_ones():
     df = frame()
     _, age, incentive, _ = encodings()
     coarse = Tent("incentive", (-3, 0, 3), reference=0)
     Z = Design([age, incentive, Cross(age, coarse, drop=["age", "incentive"])], intercept=True).fit_transform(df)
     assert rank(Z) == Z.shape[1] == 1 + 4 + 4 + 4 * 2
-    with pytest.raises(ValueError, match=r"incentive knots \[-3.0, -1.0, 0.0, 1.0, 3.0\] are not a subset"):
-        Design([age, coarse, Cross(age, incentive, drop=["age", "incentive"])], intercept=True).check()
+    finer = Design([age, coarse, Cross(age, incentive, drop=["age", "incentive"])], intercept=True)
+    assert "incentive knots [-3.0, -1.0, 0.0, 1.0, 3.0] are not a subset" in only_violation(finer, "knots")
 
 
 def test_a_cross_with_its_own_reference_spans_the_same_model_but_warns():
@@ -196,8 +263,9 @@ def test_a_cross_with_its_own_reference_spans_the_same_model_but_warns():
     _, age, incentive, _ = encodings()
     same = Design([age, incentive, Cross(age, incentive, drop=["age", "incentive"])], intercept=True).fit_transform(df)
     age_60 = Tent("age", AGE_KNOTS, reference=60)
-    with pytest.warns(UserWarning, match=r"age has different references \(24 in Tent\('age'\), 60 in Cross"):
-        other = Design([age, incentive, Cross(age_60, incentive, drop=["age", "incentive"])], intercept=True)
+    other = Design([age, incentive, Cross(age_60, incentive, drop=["age", "incentive"])], intercept=True)
+    assert "age has different references (24 in Tent('age'), 60 in Cross" in only_violation(other, "references")
+    with pytest.warns(DesignWarning, match="references in age"):
         moved = other.fit_transform(df)
     kept = other.groups()["age_x_incentive"]
     assert "age_at_24_x_incentive_at_-3" in kept and "age_at_60_x_incentive_at_-3" not in kept
@@ -208,17 +276,23 @@ def test_the_design_checks_its_terms_together():
     purpose, age, incentive, ltv = encodings()
     with pytest.raises(ValueError, match=r"share the names \['age'\]"):
         Design([age, Tent("age", (0, 60, 120), reference=60)], intercept=True).check()
-    with pytest.raises(ValueError, match="Two crosses read the same columns"):
-        Design([age, incentive, Cross(age, incentive, drop=["age", "incentive"]),
-                Cross(incentive, age, drop=["incentive", "age"])], intercept=True).check()
-    with pytest.raises(ValueError, match="age is encoded both as OneHot and as Tent"):
-        Design([age, Cross(OneHot("age", reference=24), incentive, drop=[("age", "incentive")])],
-               intercept=True).check()
-    with pytest.raises(ValueError, match="no drop fits this design. the part that varies with age and incentive "
-                                         "together is provided by Cross\\('age_x_incentive'\\), but no term provides "
-                                         "the part that varies only with age"):
-        Design([ltv, Cross(age, incentive, ltv, drop=["ltv"]), Cross(age, incentive, drop=["age", "incentive"])],
-               intercept=True).check()
+    twice = Design([age, incentive, Cross(age, incentive, drop=["age", "incentive"]),
+                    Cross(incentive, age, drop=["incentive", "age"])], intercept=True).check()
+    assert [(violation.kind, violation.term) for violation in twice] == [
+        ("collinear", "Cross('age_x_incentive')"), ("collinear", "Cross('incentive_x_age')")]
+    assert "adds nothing" in twice[0].message and "already provided by Cross('incentive_x_age')" in twice[0].message
+    two_ways = Design([age, Cross(OneHot("age", reference=24), incentive, drop=[("age", "incentive")])],
+                      intercept=True).check()
+    assert [violation.kind for violation in two_ways] == ["encoding", "collinear"]   # and the cross repeats age
+    assert "age is encoded both as OneHot and as Tent" in two_ways[0].message
+    unfit = Design([ltv, Cross(age, incentive, ltv, drop=["ltv"]), Cross(age, incentive, drop=["age", "incentive"])],
+                   intercept=True).check()
+    assert [(violation.kind, violation.term) for violation in unfit] == [      # what drop=["ltv"] does, then the pair
+        ("hierarchy", "Cross('age_x_incentive_x_ltv')"), ("collinear", "Cross('age_x_incentive_x_ltv')"),
+        ("constraint", "Cross('age_x_incentive_x_ltv')"), ("constraint", "Cross('age_x_incentive')")]
+    assert "Each effect" not in unfit[1].message                    # no drop fits, so no table ending in one
+    assert ("no drop fits this design. the part that varies with age and incentive together is provided by "
+            "Cross('age_x_incentive'), but no term provides the part that varies only with age") in unfit[0].message
 
 
 def test_fit_leaves_the_terms_unfitted_and_fits_a_shared_encoding_once():
@@ -242,9 +316,13 @@ def test_transform_reads_new_rows_with_the_learned_levels():
         design.transform(df.assign(purpose="R"))
 
 
-def test_fit_transform_warns_about_cells_without_data():
+def test_fit_transform_records_cells_without_data():
     df = frame()
     df.loc[(df["purpose"] == "N") & (df["age"] > 24), "purpose"] = "C"
     purpose, age, _, _ = encodings()
-    with pytest.warns(UserWarning, match=r"2 columns have no data.*'purpose_N_x_age_at_60', 'purpose_N_x_age_at_120'"):
-        Design([purpose, age, Cross(purpose, age, drop=["purpose", "age"])], intercept=True).fit_transform(df)
+    design = Design([purpose, age, Cross(purpose, age, drop=["purpose", "age"])], intercept=True)
+    with pytest.warns(DesignWarning, match="no data in purpose_x_age"):
+        design.fit_transform(df)
+    [violation] = design.violations_
+    assert violation.kind == "no data" and "2 columns have no data" in violation.message
+    assert "'purpose_N_x_age_at_60', 'purpose_N_x_age_at_120'" in violation.message

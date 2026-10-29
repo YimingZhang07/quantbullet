@@ -2,7 +2,7 @@ import importlib
 
 _lazy_by_module = {
     ".transformers": [ "FlatRampTransformer", "TentTransformer" ],
-    ".design": [ "Design", "Tent", "OneHot", "Cross" ],
+    ".design": [ "Design", "Tent", "OneHot", "Cross", "DesignWarning", "Violation" ],
 }
 
 _lazy_map = {
@@ -24,4 +24,4 @@ def __dir__():
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .transformers import FlatRampTransformer, TentTransformer
-    from .design import Design, Tent, OneHot, Cross
+    from .design import Design, Tent, OneHot, Cross, DesignWarning, Violation
