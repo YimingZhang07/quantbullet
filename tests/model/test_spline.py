@@ -36,7 +36,7 @@ class TestFlatRampTransformer(unittest.TestCase):
         y = np.sin(x) + np.random.normal(scale=0.1, size=x.shape)
 
         transformer = FlatRampTransformer(knots=[0, 2, 4, 6, 8, 10], include_bias=False)
-        basis = transformer.transform(x.reshape(-1, 1))
+        basis = transformer.fit_transform(x.reshape(-1, 1))
 
         # use the transformed basis to fit a linear regression
         r = LinearRegression()

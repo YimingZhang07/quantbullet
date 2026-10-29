@@ -5,107 +5,60 @@ from sklearn.utils.validation import check_array, check_is_fitted
 from sklearn.base import BaseEstimator, TransformerMixin
 from quantbullet.dfutils import get_bins_and_labels
 
+
+def _single_column(X):
+    """One feature as a finite float vector and its name: a Series, a one-column DataFrame or an (n, 1) array."""
+    if isinstance(X, pd.Series):
+        name, values = (X.name if X.name is not None else "x0"), X.to_numpy()[:, None]
+    elif isinstance(X, pd.DataFrame):
+        if X.shape[1] != 1:
+            raise ValueError("X must have exactly one feature (1 column).")
+        name, values = X.columns[0], X.to_numpy()
+    else:
+        name, values = "x0", X
+    values = check_array(values, ensure_2d=True, dtype=float)
+    if values.shape[1] != 1:
+        raise ValueError("X must have exactly one feature.")
+    return values[:, 0], str(name)
+
+
 class FlatRampTransformer(BaseEstimator, TransformerMixin):
-    """
-    FlatRampTransformer is a transformer that creates a flat ramp basis.
+    """Flat ramp basis: ``min(x, k_1)``, ``clip(x, k_1, k_2)``, ..., ``max(x, k_K)``, after an optional column of ones.
+
     Parameters
     ----------
     knots : array-like
-        The knots of the flat ramp basis.
+        The knots of the flat ramp basis, strictly increasing.
     include_bias : bool, default=False
         Whether to include a bias term.
-    dummy_segments : array-like, default=None
-        The indices of the dummy segments.
-    keep_ramp_for_dummies : bool, default=False
-        Whether to keep the ramp for the dummy segments. If True, both the ramp and the dummy segment will be included.
     """
-    def __init__(self, knots, include_bias=False, dummy_segments=None, keep_ramp_for_dummies=False):
+    def __init__(self, knots, include_bias=False):
         self.knots = np.asarray(knots)
         if not np.all(np.diff(self.knots) > 0):
             raise ValueError("Knots must be strictly increasing.")
         self.include_bias = include_bias
-        self.dummy_segments = dummy_segments or []
-        self.keep_ramp_for_dummies = keep_ramp_for_dummies
-        
-    def _normalize_segment_indices(self, indices):
-        """Convert dummy segment indices (with negatives) to 0..n_pieces-1."""
-        if not indices:
-            return set()
-        normalized = set()
-        for idx in indices:
-            if idx < 0:
-                idx = self.n_pieces_ + idx  # convert negative
-            if idx < 0 or idx >= self.n_pieces_:
-                raise ValueError(f"dummy_segments index {idx} out of range 0..{self.n_pieces_-1}")
-            normalized.add(idx)
-        return normalized
 
     def fit(self, X, y=None):
-        # accept pandas Series or 1-column DataFrame
-        if isinstance(X, pd.Series):
-            self.feature_names_in_ = [X.name or "x0"]
-            X = X.to_numpy()[:, None]
-        elif isinstance(X, pd.DataFrame):
-            if X.shape[1] != 1:
-                raise ValueError("X must have exactly one feature (1 column).")
-            self.feature_names_in_ = list(X.columns)
-            X = X.to_numpy()
-        else:
-            X = check_array(X, ensure_2d=True, dtype=float)
-            if X.shape[1] != 1:
-                raise ValueError("X must have exactly one feature.")
-            self.feature_names_in_ = ["x0"]
-
-        if np.all(X >= self.knots[0]):
+        x, fname = _single_column(X)
+        if np.all(x >= self.knots[0]):
             raise ValueError(
-                f"{self.feature_names_in_[0]}: No values smaller than leftmost knot {self.knots[0]}. "
+                f"{fname}: No values smaller than leftmost knot {self.knots[0]}. "
                 "Leftmost basis would be constant."
             )
-        if np.all(X <= self.knots[-1]):
+        if np.all(x <= self.knots[-1]):
             raise ValueError(
-                f"{self.feature_names_in_[0]}: No values greater than rightmost knot {self.knots[-1]}. "
+                f"{fname}: No values greater than rightmost knot {self.knots[-1]}. "
                 "Rightmost basis would be constant."
             )
 
+        self.feature_names_in_ = [fname]
         self.n_features_in_ = 1
-        self.n_pieces_ = len(self.knots) + 1
-        self.dummy_segments_ = self._normalize_segment_indices(self.dummy_segments)
-        
-        fname = self.feature_names_in_[0]
-        names = []
 
-        if self.include_bias:
-            names.append(f"{fname}_bias")
-
-        # leftmost piece (index 0)
-        a = self.numeric_to_string(self.knots[0])
-        if 0 in self.dummy_segments_:
-            if self.keep_ramp_for_dummies:
-                names.append(f"{fname}_le_{a}")
-            names.append(f"{fname}_le_{a}_d")
-        else:
-            names.append(f"{fname}_le_{a}")
-
-        # middle pieces (1..n_knots-1)
-        for seg_idx, (a, b) in enumerate(zip(self.knots[:-1], self.knots[1:]), start=1):
-            sa, sb = self.numeric_to_string(a), self.numeric_to_string(b)
-            if seg_idx in self.dummy_segments_:
-                if self.keep_ramp_for_dummies:
-                    names.append(f"{fname}_in_{sa}_{sb}")
-                names.append(f"{fname}_in_{sa}_{sb}_d")
-            else:
-                names.append(f"{fname}_{sa}_{sb}")
-
-        # rightmost piece (last index)
-        last_idx = self.n_pieces_ - 1
-        b = self.numeric_to_string(self.knots[-1])
-        if last_idx in self.dummy_segments_:
-            if self.keep_ramp_for_dummies:
-                names.append(f"{fname}_gt_{b}")
-            names.append(f"{fname}_gt_{b}_d")
-        else:
-            names.append(f"{fname}_gt_{b}")
-
+        names = [f"{fname}_bias"] if self.include_bias else []
+        names.append(f"{fname}_le_{self.numeric_to_string(self.knots[0])}")
+        for a, b in zip(self.knots[:-1], self.knots[1:]):
+            names.append(f"{fname}_{self.numeric_to_string(a)}_{self.numeric_to_string(b)}")
+        names.append(f"{fname}_gt_{self.numeric_to_string(self.knots[-1])}")
         self.feature_names_out_ = np.array(names, dtype=object)
         return self
     
@@ -136,71 +89,21 @@ class FlatRampTransformer(BaseEstimator, TransformerMixin):
         return s
     
     def transform(self, X):
-        # keep same logic as fit
-        if isinstance(X, pd.Series):
-            X = X.to_numpy()[:, None]
-        elif isinstance(X, pd.DataFrame):
-            X = X.to_numpy()
-        else:
-            X = check_array(X, ensure_2d=True, dtype=float)
-
-        x = X.ravel()
-        basis = []
-
-        if self.include_bias:
-            basis.append(np.ones_like(x))
-
-        # leftmost (upper cap)
-        a = self.knots[0]
-        if 0 in self.dummy_segments_:
-            if self.keep_ramp_for_dummies:
-                basis.append(np.clip(x, None, a))
-            basis.append((x <= a).astype(float))
-        else:
-            basis.append(np.clip(x, None, a))
-
-        # middle pieces
-        for seg_idx, (a, b) in enumerate(zip(self.knots[:-1], self.knots[1:]), start=1):
-            if seg_idx in self.dummy_segments_:
-                if self.keep_ramp_for_dummies:
-                    basis.append(np.clip(x, a, b))
-                basis.append(((x >= a) & (x < b)).astype(float))
-            else:
-                basis.append(np.clip(x, a, b))
-
-        # rightmost piece
-        last_idx = self.n_pieces_ - 1
-        b = self.knots[-1]
-        if last_idx in self.dummy_segments_:
-            if self.keep_ramp_for_dummies:
-                basis.append(np.clip(x, b, None))
-            basis.append((x >= b).astype(float))
-        else:
-            basis.append(np.clip(x, b, None))
-
+        check_is_fitted(self, "feature_names_out_")
+        x, _ = _single_column(X)
+        basis = [np.ones_like(x)] if self.include_bias else []
+        basis.append(np.clip(x, None, self.knots[0]))
+        for a, b in zip(self.knots[:-1], self.knots[1:]):
+            basis.append(np.clip(x, a, b))
+        basis.append(np.clip(x, self.knots[-1], None))
         return np.column_stack(basis)
 
     def get_feature_names_out(self, input_features=None):
-        return getattr(self, "feature_names_out_", None)
+        check_is_fitted(self, "feature_names_out_")
+        return self.feature_names_out_
 
     def get_bins_and_labels(self):
         return get_bins_and_labels(list(self.knots))
-
-
-def _single_column(X):
-    """One feature as a finite float vector and its name: a Series, a one-column DataFrame or an (n, 1) array."""
-    if isinstance(X, pd.Series):
-        name, values = (X.name if X.name is not None else "x0"), X.to_numpy()[:, None]
-    elif isinstance(X, pd.DataFrame):
-        if X.shape[1] != 1:
-            raise ValueError("X must have exactly one feature (1 column).")
-        name, values = X.columns[0], X.to_numpy()
-    else:
-        name, values = "x0", X
-    values = check_array(values, ensure_2d=True, dtype=float)
-    if values.shape[1] != 1:
-        raise ValueError("X must have exactly one feature.")
-    return values[:, 0], str(name)
 
 
 class TentTransformer(BaseEstimator, TransformerMixin):

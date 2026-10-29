@@ -101,7 +101,7 @@ def test_prepare_leaves_the_spec_unfitted_and_the_model_keeps_a_fitted_copy():
     spec = ModelSpec([purpose, tent, flat])
     model = fit(spec.prepare(df, response="y"), "log", "poisson")
     assert not hasattr(tent, "transformer_") and not hasattr(purpose, "levels_")
-    assert not hasattr(flat.transformer, "n_pieces_")
+    assert not hasattr(flat.transformer, "feature_names_out_")
     assert model.spec_ is not spec and model.spec_.terms[0].levels_ == ["C", "N", "P"]
     assert model.spec_.feature_groups()["age"] == ["age_at_1", "age_at_12", "age_at_24", "age_at_60", "age_at_120"]
     new = frame(n=50, seed=9)
