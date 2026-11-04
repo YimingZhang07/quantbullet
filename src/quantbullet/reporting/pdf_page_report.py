@@ -32,6 +32,7 @@ _BULLET_INDENT = 0.18  # inches from the bullet to its text
 _CELL_PAD = 0.06  # inches between a cell edge and left- or right-aligned text
 _CHROME_RULE_GAP = 0.14  # inches between the body box and a header or footer rule
 _CHROME_TEXT_GAP = 0.08  # inches between a rule and its header or footer text
+_LEGEND_ROOM = 0.1  # inches reserved beyond an outside figure legend's own extent
 
 
 @dataclass(frozen=True)
@@ -480,7 +481,36 @@ class ReportPage:
                 (page_width - left - right) / page_width, (y - floor) / page_height)
         self._fit_charts(rect, chart_axes)
 
+    def _anchor_figure_legends(self, rect):
+        """Anchor figure legends to the chart region and return the region left for the Axes.
+
+        Matplotlib anchors a figure legend to the whole page, in the header or
+        footer. An anchor of its own also ends constrained layout's room for an
+        'outside' legend, so that room comes out of the region here. A legend
+        the caller anchored stays where it is.
+        """
+        x0, y0, width, height = rect
+        page_width, page_height = self._style.page_size
+        to_figure = self.fig.transFigure.inverted()
+        for legend in self.fig.legends:
+            if legend.get_bbox_to_anchor() is not self.fig.bbox:
+                continue
+            side = legend._outside_loc  # Matplotlib has no public accessor.
+            if side:
+                box = legend.get_tightbbox(self.fig._get_renderer()).transformed(to_figure)
+                room_x = box.width + _LEGEND_ROOM / page_width
+                room_y = box.height + _LEGEND_ROOM / page_height
+                if side == "left":
+                    x0 += room_x
+                if side == "lower":
+                    y0 += room_y
+                width -= room_x if side in ("left", "right") else 0.0
+                height -= room_y if side in ("lower", "upper") else 0.0
+            legend.set_bbox_to_anchor(rect, transform=self.fig.transFigure)
+        return x0, y0, width, height
+
     def _fit_charts(self, rect, chart_axes):
+        rect = self._anchor_figure_legends(rect)
         engine = self.fig.get_layout_engine()
         if isinstance(engine, ConstrainedLayoutEngine):
             engine.set(rect=rect)
@@ -768,7 +798,9 @@ class PdfPageReport:
 
         The figure's content is fitted into the body below the title: a
         constrained or tight layout gets that rectangle, and any other figure
-        has its Axes scaled into it. ``title`` replaces the figure's suptitle,
+        has its Axes scaled into it. Figure legends move into that rectangle
+        too, except one given its own ``bbox_to_anchor``, which stays at those
+        coordinates on the page. ``title`` replaces the figure's suptitle,
         which is the title when ``title`` is not given. ``bookmark_title``
         overrides the title in the PDF outline; a page with neither gets a
         page-number bookmark. The figure is drawn under the caller's rcParams.

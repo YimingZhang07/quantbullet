@@ -299,6 +299,43 @@ class TestPdfPageReport(unittest.TestCase):
             self._assert_in_body(fig, [*fig.axes, title])
             self.assertLess(self._ink(fig, fig.axes[0]).y1, self._ink(fig, title).y0)
 
+    def test_outside_figure_legends_stay_in_the_body_clear_of_the_charts(self):
+        path = self._path("outside_legends.pdf")
+        report = PdfPageReport(path, footer=("", "Page {page}", ""))
+        figures = []
+        for loc in ("outside lower center", "outside upper center", "outside right upper"):
+            fig = self._line_figure("Chart", layout="constrained")
+            fig.legend(["Series"], loc=loc)
+            report.add_figure(fig, title="Added")
+            figures.append(fig)
+        with report.page("On a page") as page:
+            ax = page.chart()
+            ax.plot([0, 1], [0, 1], label="Series")
+            page.fig.legend(loc="outside lower center")
+            page.caption("Source line")
+        report.save()
+
+        for fig in figures:
+            legend = fig.legends[0]
+            self._assert_in_body(fig, [legend, *fig.axes])
+            self.assertFalse(self._ink(fig, legend).overlaps(self._ink(fig, fig.axes[0])))
+        legend = page.fig.legends[0]
+        caption = next(text for text in page.fig.texts if text.get_text() == "Source line")
+        self._assert_in_body(page.fig, [legend, ax, caption])
+        self.assertLess(self._ink(page.fig, legend).y1, self._ink(page.fig, ax).y0)
+        self.assertGreater(self._ink(page.fig, legend).y0, self._ink(page.fig, caption).y1)
+
+    def test_figure_legend_of_a_plain_figure_follows_its_axes_into_the_body(self):
+        fig = self._line_figure("Plain")
+        fig.subplots_adjust(bottom=0.25)
+        fig.legend(["Series"], loc="lower center")
+        report = PdfPageReport(self._path("plain_legend.pdf"))
+        report.add_figure(fig, title="Plain")
+        report.save()
+
+        self._assert_in_body(fig, [fig.legends[0], *fig.axes])
+        self.assertFalse(self._ink(fig, fig.legends[0]).overlaps(self._ink(fig, fig.axes[0])))
+
     def test_report_rc_applies_inside_page_blocks_only(self):
         path = self._path("rc.pdf")
         report = PdfPageReport(path, layout=(1, 1))
