@@ -13,7 +13,7 @@ __getattr__, __dir__, __all__ = lazy.attach(
         "binned_plots": ["plot_binned_actual_vs_pred"],
         "scatter": ["plot_scatter_multi_y"],
         "dist": ["plot_distributions"],
-        "binned_means": ["BinSpec", "BinnedMeans", "BinnedMeansPlot", "BinnedMeansStyle",
+        "binned_means": ["BinSpec", "BinnedMeans", "BinnedMeansPlot", "BinnedMeansStyle", "SeriesStyle",
                          "DEFAULT_BINNED_MEANS_STYLE", "PRINT_BINNED_MEANS_STYLE",
                          "summarize_binned_means", "draw_binned_means", "plot_binned_means"],
         "two_way": ["TwoWayPlot", "TwoWayStyle", "DEFAULT_TWO_WAY_STYLE",

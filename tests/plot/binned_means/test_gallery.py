@@ -6,6 +6,7 @@ tests/_cache_dir/binned_means/. Otherwise they are temporary.
 Synthetic rates are proportions; incentive is in percentage points.
 """
 import ast
+from dataclasses import replace
 from html import escape
 import inspect
 from textwrap import dedent
@@ -17,7 +18,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from quantbullet.plot import BinSpec, plot_binned_means
+from quantbullet.plot import DEFAULT_BINNED_MEANS_STYLE, BinSpec, SeriesStyle, plot_binned_means
 from tests.artifacts import gallery_dir
 
 
@@ -379,6 +380,27 @@ class TestBinnedMeansGallery(unittest.TestCase):
         )
         self.save_case("10_categorical_points", "categorical", ("点图（不连线）· 按列分面", "Unconnected points · column facets"),
                        "Use an unbinned categorical x axis for unconnected metric points; col=... creates one panel per occupancy.", result)
+
+    def test_11_single_panel_metric_styles(self):
+        result = plot_binned_means(
+            self.df,
+            x="incentive",
+            y=["historical_cpr", "model_cpr"],
+            weight="upb",
+            bins={"incentive": BinSpec.step(0.25)},
+            panel_size=(8, 4.8),
+            y_format=".0%",
+            y_label="CPR (UPB weighted)",
+            title="Metrics styled by name",
+            labels={"incentive": "Refinance incentive (pp)",
+                    "historical_cpr": "Historical CPR", "model_cpr": "Model CPR"},
+            style=replace(DEFAULT_BINNED_MEANS_STYLE, metric_styles={
+                "historical_cpr": SeriesStyle(color="#111111", line_width=2.4, marker="none"),
+                "model_cpr": SeriesStyle(color="#DB6400", linestyle="--", marker="s"),
+            }),
+        )
+        self.save_case("11_single_metric_styles", "single", ("按名字指定样式", "Metrics styled by name"),
+                       "style.metric_styles fixes a metric's color and line by column name, whatever its position in y.", result)
 
 
 if __name__ == "__main__":

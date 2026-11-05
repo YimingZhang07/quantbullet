@@ -1,7 +1,7 @@
 """Draw bin-level means as curves over count or weight bars, with optional groups and facets."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import product
 from typing import Literal, Mapping
 
@@ -43,8 +43,31 @@ class BinnedMeansPlot:
 
 
 @dataclass(frozen=True)
+class SeriesStyle:
+    """Appearance of one metric; ``None`` keeps the default.
+
+    Values are Matplotlib's: ``marker="none"`` removes a default marker, and a
+    color may carry alpha, e.g. ``"#11111180"``. Widths and sizes are points.
+    """
+
+    color: str | None = None
+    linestyle: str | tuple | None = None
+    marker: str | None = None
+    line_width: float | None = None
+    marker_size: float | None = None
+
+
+_DEFAULT_SERIES_STYLE = SeriesStyle()
+
+
+@dataclass(frozen=True)
 class BinnedMeansStyle:
-    """Visual settings specific to weighted-mean curves and bars."""
+    """Visual settings specific to weighted-mean curves and bars.
+
+    ``metric_styles`` maps source column names to a ``SeriesStyle``, so a metric
+    keeps its look across figures whatever its position in ``y``. Names a figure
+    does not draw are ignored, which lets one style serve many figures.
+    """
 
     metric_linestyles: tuple[str, ...] = ("-", "--", "-.", ":")
     line_width: float = 1.8
@@ -60,11 +83,22 @@ class BinnedMeansStyle:
     stacked_bar_alpha: float = 0.18
     bar_width_ratio: float = 0.86
     categorical_tick_rotation: float = 30.0
+    metric_styles: Mapping[str, SeriesStyle] = field(default_factory=dict)
+
+    def __post_init__(self):
+        for metric, series in self.metric_styles.items():
+            if not isinstance(series, SeriesStyle):
+                raise TypeError(f"metric_styles[{metric!r}] must be a SeriesStyle, got {type(series).__name__}")
 
 
 DEFAULT_BINNED_MEANS_STYLE = BinnedMeansStyle()
 # Thinner marks for the small panels of PRINT_THEME figures.
 PRINT_BINNED_MEANS_STYLE = BinnedMeansStyle(line_width=1.3, legend_line_width=1.5, marker_size=2.2)
+
+
+def _override(value, default):
+    """A ``SeriesStyle`` value, or the default where it is unset."""
+    return default if value is None else value
 
 
 def _level_label(value, first=False):
@@ -140,6 +174,11 @@ def draw_binned_means(
     uses unconnected markers, with marker shapes identifying metrics, unless
     ``style.connect_categorical`` is true. ``stacked`` requires group.
     Missing means break lines.
+
+    ``style.metric_styles`` overrides those defaults by metric name. With group
+    a metric's ``color`` is ignored, since color identifies the groups. On
+    unconnected categorical points its ``linestyle`` is ignored.
+
     ``ax`` renders one panel on an existing Axes. ``legend`` defaults to a
     figure legend, or an Axes legend when ``ax`` is given; ``"none"`` lets a
     caller sharing one figure across several calls draw a single legend.
@@ -208,13 +247,24 @@ def draw_binned_means(
     xlevels = list(data.levels["x"])
     xpos, widths = data.x_positions, data.x_widths * style.bar_width_ratio
 
-    def metric_appearance(index: int) -> dict:
+    def series_style(index: int) -> SeriesStyle:
+        return style.metric_styles.get(data.metrics[index], _DEFAULT_SERIES_STYLE)
+
+    def metric_appearance(index: int, line_width: float) -> dict:
+        series = series_style(index)
         if points_only:
-            return {"linestyle": "None",
-                    "marker": style.categorical_metric_markers[index % len(style.categorical_metric_markers)],
-                    "markersize": style.categorical_marker_size}
-        return {"linestyle": styles[index % len(styles)] if "group" in dim else "-",
-                "marker": style.marker, "markersize": style.marker_size}
+            linestyle = "None"
+            marker = style.categorical_metric_markers[index % len(style.categorical_metric_markers)]
+            marker_size = style.categorical_marker_size
+        else:
+            linestyle = _override(series.linestyle, styles[index % len(styles)] if "group" in dim else "-")
+            marker, marker_size = style.marker, style.marker_size
+        return {"linestyle": linestyle, "marker": _override(series.marker, marker),
+                "markersize": _override(series.marker_size, marker_size),
+                "linewidth": _override(series.line_width, line_width)}
+
+    def metric_color(index: int) -> str:
+        return _override(series_style(index).color, palette[index % len(palette)])
 
     for index, (rv, cv) in enumerate(panels):
         ax = axes.flat[index]
@@ -262,9 +312,9 @@ def draw_binned_means(
             subset = panel.loc[panel["group"] == value] if "group" in dim else panel
             subset = subset.set_index("x").reindex(xlevels)
             for mi, metric in enumerate(data.metrics):
-                color = palette[(gi if "group" in dim else mi) % len(palette)]
+                color = palette[gi % len(palette)] if "group" in dim else metric_color(mi)
                 ax.plot(xpos, subset[f"{metric}__mean"].to_numpy(dtype=float), color=color,
-                        linewidth=style.line_width, **metric_appearance(mi))
+                        **metric_appearance(mi, style.line_width))
         if panel.empty or not panel["count"].sum():
             ax.text(0.5, 0.5, "No observations", transform=ax.transAxes, ha="center",
                     color=theme.muted_text_color)
@@ -322,23 +372,22 @@ def draw_binned_means(
     handles = []
     if "group" in dim:
         for gi, value in enumerate(groups):
+            appearance = (metric_appearance(0, style.legend_line_width) if points_only
+                          else {"linewidth": style.legend_line_width})
             handles.append(Line2D([], [], color=palette[gi % len(palette)],
                                   label=f"{labels.get(dim['group'], dim['group'])}: {_level_label(value, gi == 0)}",
-                                  linewidth=style.legend_line_width,
-                                  **(metric_appearance(0) if points_only else {})))
+                                  **appearance))
         # A single metric has no line style to tell apart; the y title names it.
         for mi, metric in enumerate(data.metrics if len(data.metrics) > 1 else ()):
-            appearance = metric_appearance(mi)
+            appearance = metric_appearance(mi, style.legend_line_width)
             if not points_only:
                 # The common marker can obscure a short dashed legend sample.
-                appearance["marker"] = None
+                appearance["marker"] = series_style(mi).marker
             handles.append(Line2D([], [], color=theme.label_color,
-                                  label=labels.get(metric, metric),
-                                  linewidth=style.legend_line_width, **appearance))
+                                  label=labels.get(metric, metric), **appearance))
     else:
-        handles = [Line2D([], [], color=palette[mi % len(palette)],
-                          label=labels.get(metric, metric),
-                          linewidth=style.legend_line_width, **metric_appearance(mi))
+        handles = [Line2D([], [], color=metric_color(mi), label=labels.get(metric, metric),
+                          **metric_appearance(mi, style.legend_line_width))
                    for mi, metric in enumerate(data.metrics)]
     if bar_mode == "total":
         handles.append(Patch(facecolor=style.bar_color, alpha=style.total_bar_alpha,

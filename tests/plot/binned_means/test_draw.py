@@ -1,16 +1,19 @@
 """Drawing: counts, legends, dates, facets, and per-axis scales, tick labels and titles."""
+from dataclasses import replace
 from datetime import date
 
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.colors import to_rgb
 import numpy as np
 import pandas as pd
 import polars as pl
 import pytest
 
-from quantbullet.plot.binned_means import (BinnedMeans, BinSpec, draw_binned_means, plot_binned_means,
-                                           summarize_binned_means)
+from quantbullet.plot.binned_means import (DEFAULT_BINNED_MEANS_STYLE, BinnedMeans, BinSpec, SeriesStyle,
+                                           draw_binned_means, plot_binned_means, summarize_binned_means)
+from quantbullet.plot.theme import MINIMAL_THEME
 from tests.plot.helpers import LEVELS, facet_frame, visible_tick_labels
 
 
@@ -221,3 +224,93 @@ def test_weight_bars_need_a_weight_and_a_known_value():
         plot_binned_means(df, x="x", y="y", weight="w", bar_value="upb")
     unlabeled = plot_binned_means(df, x="x", y="y", weight="w", bar_value="weight")
     assert unlabeled.bar_axes[0, 0].get_ylabel() == "w"  # the column name without a label
+
+
+def _metrics_frame():
+    return pd.DataFrame({"x": [1, 2, 1, 2], "g": ["p", "p", "q", "q"],
+                         "a": [.1, .2, .3, .4], "b": [.2, .3, .4, .5], "c": [.3, .4, .5, .6]})
+
+
+def _with_metric_styles(**metric_styles):
+    return replace(DEFAULT_BINNED_MEANS_STYLE, metric_styles=metric_styles)
+
+
+def _legend_handles(result):
+    legend = result.fig.legends[0]
+    return dict(zip((text.get_text() for text in legend.get_texts()), legend.legend_handles))
+
+
+def test_metrics_without_a_style_keep_their_position_defaults():
+    palette = MINIMAL_THEME.palette
+    plain = plot_binned_means(_metrics_frame(), x="x", y=["a", "b"]).axes[0, 0].lines
+    assert [line.get_color() for line in plain] == list(palette[:2])
+    assert [line.get_linestyle() for line in plain] == ["-", "-"]
+    grouped = plot_binned_means(_metrics_frame(), x="x", y=["a", "b"], group="g").axes[0, 0].lines
+    assert [line.get_color() for line in grouped] == [palette[0], palette[0], palette[1], palette[1]]
+    assert [line.get_linestyle() for line in grouped] == ["-", "--", "-", "--"]
+
+
+def test_metric_style_sets_lines_and_legend_by_name():
+    style = _with_metric_styles(b=SeriesStyle(color="#111111", linestyle="--", line_width=3.0, marker="s",
+                                              marker_size=6.0),
+                                not_drawn=SeriesStyle(color="#222222"))
+    result = plot_binned_means(_metrics_frame(), x="x", y=["a", "b", "c"], style=style)
+    styled = result.axes[0, 0].lines[1]
+    assert (styled.get_color(), styled.get_linestyle(), styled.get_linewidth()) == ("#111111", "--", 3.0)
+    assert (styled.get_marker(), styled.get_markersize()) == ("s", 6.0)
+    # Unstyled metrics keep the palette slot of their position.
+    palette = MINIMAL_THEME.palette
+    assert [line.get_color() for line in result.axes[0, 0].lines] == [palette[0], "#111111", palette[2]]
+    assert result.axes[0, 0].lines[0].get_linewidth() == DEFAULT_BINNED_MEANS_STYLE.line_width
+
+    handles = _legend_handles(result)
+    assert (handles["b"].get_color(), handles["b"].get_linestyle()) == ("#111111", "--")
+    assert (handles["b"].get_linewidth(), handles["b"].get_marker()) == (3.0, "s")
+    assert handles["a"].get_linewidth() == DEFAULT_BINNED_MEANS_STYLE.legend_line_width
+
+
+def test_metric_style_follows_the_metric_when_y_is_reordered():
+    style = _with_metric_styles(a=SeriesStyle(color="#111111", linestyle=":"))
+    for y, position in ((["a", "b"], 0), (["b", "a"], 1)):
+        line = plot_binned_means(_metrics_frame(), x="x", y=y, style=style).axes[0, 0].lines[position]
+        assert (line.get_color(), line.get_linestyle()) == ("#111111", ":")
+
+
+def test_marker_none_removes_the_default_marker():
+    style = _with_metric_styles(a=SeriesStyle(marker="none"))
+    lines = plot_binned_means(_metrics_frame(), x="x", y=["a", "b"], style=style).axes[0, 0].lines
+    assert lines[0].get_marker() == "none"
+    assert lines[1].get_marker() == DEFAULT_BINNED_MEANS_STYLE.marker
+
+
+def test_with_group_color_stays_with_the_groups_and_the_rest_applies():
+    palette = MINIMAL_THEME.palette
+    style = _with_metric_styles(a=SeriesStyle(color="#111111", linestyle=":", marker="s"))
+    result = plot_binned_means(_metrics_frame(), x="x", y=["a", "b"], group="g", bar_mode="stacked", style=style)
+    lines = result.axes[0, 0].lines
+    assert [line.get_color() for line in lines] == [palette[0], palette[0], palette[1], palette[1]]
+    assert [line.get_linestyle() for line in lines] == [":", "--", ":", "--"]
+    assert lines[0].get_marker() == "s"
+    bars = result.bar_axes[0, 0].patches
+    assert to_rgb(bars[0].get_facecolor()[:3]) == to_rgb(palette[0])
+    assert to_rgb(bars[-1].get_facecolor()[:3]) == to_rgb(palette[1])
+
+    handles = _legend_handles(result)
+    assert handles["g: p"].get_color() == palette[0]
+    assert (handles["a"].get_color(), handles["a"].get_linestyle()) == (MINIMAL_THEME.label_color, ":")
+    # A chosen marker reaches the legend; the common default one still does not.
+    assert handles["a"].get_marker() == "s"
+    assert handles["b"].get_marker() in ("None", "none", "", None)
+
+
+def test_metric_style_on_unconnected_categorical_points():
+    frame = _metrics_frame().assign(x=["u", "v", "u", "v"])
+    style = _with_metric_styles(a=SeriesStyle(color="#111111", linestyle="--", marker="D", marker_size=9.0))
+    line = plot_binned_means(frame, x="x", y=["a", "b"], bins={}, style=style).axes[0, 0].lines[0]
+    assert line.get_linestyle() == "None"
+    assert (line.get_color(), line.get_marker(), line.get_markersize()) == ("#111111", "D", 9.0)
+
+
+def test_metric_styles_values_must_be_series_styles():
+    with pytest.raises(TypeError, match=r"metric_styles\['a'\] must be a SeriesStyle"):
+        _with_metric_styles(a="#111111")

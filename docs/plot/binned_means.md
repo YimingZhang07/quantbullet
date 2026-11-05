@@ -271,6 +271,31 @@ categorical_result = plot_binned_means(
 )
 ```
 
+Colors and line styles above follow a metric's position in `y`. To fix a metric's
+look by name, across figures, set `metric_styles`; keys are source column names:
+
+```python
+from quantbullet.plot import SeriesStyle
+
+house_style = replace(
+    DEFAULT_BINNED_MEANS_STYLE,
+    metric_styles={
+        "historical_cpr": SeriesStyle(color="#111111", line_width=2.2),
+        "model_cpr": SeriesStyle(color="#DB6400", linestyle="--"),
+    },
+)
+result = plot_binned_means(df, x="incentive", y=["model_cpr", "historical_cpr"], style=house_style)
+```
+
+- `SeriesStyle` has `color`, `linestyle`, `marker`, `line_width` and `marker_size`.
+  `None` keeps the default; `marker="none"` removes a default marker. The legend
+  follows the same values.
+- Names a figure does not draw are ignored, so one style can serve many figures.
+  A misspelled name is ignored too.
+- With `group`, a metric's `color` is ignored because color identifies the groups;
+  its other settings still apply.
+- On unconnected categorical points, `linestyle` is ignored.
+
 All data processing is separate from rendering. 全量行只处理一次：
 
 1. 只取用到的列组成 Polars frame。Pandas 列经 NumPy 转换（不需要 PyArrow），

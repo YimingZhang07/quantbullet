@@ -15,11 +15,11 @@ from typing import Callable, Literal, Mapping, Sequence
 from ..theme import MINIMAL_THEME, PlotTheme
 from .binning import BinSpec
 from .draw import (DEFAULT_BINNED_MEANS_STYLE, PRINT_BINNED_MEANS_STYLE, BinnedMeansPlot, BinnedMeansStyle,
-                   draw_binned_means)
+                   SeriesStyle, draw_binned_means)
 from .summary import BinnedMeans, summarize_binned_means
 
 __all__ = [
-    "BinSpec", "BinnedMeans", "BinnedMeansPlot", "BinnedMeansStyle",
+    "BinSpec", "BinnedMeans", "BinnedMeansPlot", "BinnedMeansStyle", "SeriesStyle",
     "DEFAULT_BINNED_MEANS_STYLE", "PRINT_BINNED_MEANS_STYLE",
     "draw_binned_means", "plot_binned_means", "summarize_binned_means",
 ]
@@ -70,6 +70,7 @@ def plot_binned_means(
     ``weight`` instead of rows. ``y_scale`` / ``bar_scale`` set each y
     axis's range, ``y_ticks`` / ``bar_ticks`` its tick labels and
     ``y_titles`` / ``bar_titles`` / ``x_titles`` the axis titles.
+    ``style.metric_styles`` sets a metric's color and line by name.
 
     Example::
 
