@@ -1,0 +1,8 @@
+{
+  "name": "default",
+  "description": "Navy and gold research deck, 16:9 at 1600 x 900.",
+  "extension": "qb-default",
+  "logo": "assets/logo.svg",
+  "title_logo": "assets/logo-white.svg",
+  "theme": {}
+}

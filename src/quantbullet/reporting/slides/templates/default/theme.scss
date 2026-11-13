@@ -1,0 +1,389 @@
+/*-- scss:defaults --*/
+// Design tokens. SlideTemplate.install writes the deck's SlideTheme values above these
+// lines, so the !default values below only apply when the extension is used on its own.
+$qb-primary: #0b3d6e !default;
+$qb-accent: #f2a900 !default;
+$qb-secondary: #5b8db8 !default;
+$qb-neutral: #9aa5b1 !default;
+$qb-ink: #1f2937 !default;
+$qb-muted: #6b7280 !default;
+$qb-bg-alt: #e8eef5 !default;
+$qb-positive: #2e7d6b !default;
+$qb-negative: #b5503c !default;
+$qb-font-family: "Source Sans 3", "Helvetica Neue", Arial, sans-serif !default;
+$qb-font-size-root: 32px !default;
+
+$body-bg: #ffffff;
+$body-color: $qb-ink;
+$link-color: $qb-primary;
+$font-family-sans-serif: $qb-font-family;
+$presentation-font-size-root: $qb-font-size-root;
+$presentation-heading-font: $qb-font-family;
+$presentation-heading-color: $qb-primary;
+$presentation-heading-font-weight: 700;
+$presentation-h1-font-size: 2.1em;
+$presentation-h2-font-size: 1.35em;
+$presentation-h3-font-size: 1.05em;
+$presentation-line-height: 1.35;
+$presentation-slide-text-align: left;
+$presentation-title-slide-text-align: left;
+
+/*-- scss:rules --*/
+
+// ---- Base ---------------------------------------------------------------------------------
+.reveal .slides > section,
+.reveal .slides > section > section {
+  height: 100%;
+}
+
+.reveal .slides section h2 {
+  margin-bottom: 0.7em;
+  &::after {
+    content: "";
+    display: block;
+    width: 90px;
+    height: 5px;
+    margin-top: 0.3em;
+    background: $qb-accent;
+  }
+}
+
+.reveal .slides section h2:empty {
+  display: none;
+}
+
+.reveal .slides section h3 {
+  color: $qb-ink;
+}
+
+.reveal .slides section ul li::marker {
+  color: $qb-accent;
+}
+
+// ---- Chrome: footer, logo, slide number -------------------------------------------------------
+.reveal .footer {
+  color: $qb-muted;
+  font-size: 0.42em;
+}
+
+.reveal .slide-logo {
+  max-height: 1.6em !important;
+}
+
+.reveal .slide-number {
+  color: $qb-muted;
+  background: transparent;
+}
+
+// No footer or logo on the title slide and section slides.
+.reveal:has(section.qb-title.present),
+.reveal:has(section.section-slide.present),
+.reveal:has(section.present > h1.section-slide) {
+  .footer,
+  .slide-logo {
+    display: none !important;
+  }
+}
+
+// ---- Title slide --------------------------------------------------------------------------------
+.reveal .slides section.qb-title {
+  text-align: left;
+
+  .qb-title-accent {
+    position: absolute;
+    left: 0;
+    top: 200px;
+    width: 120px;
+    height: 8px;
+    background: $qb-accent;
+  }
+
+  .qb-title-inner {
+    position: absolute;
+    left: 0;
+    top: 240px;
+    width: 85%;
+  }
+
+  .qb-tag {
+    display: inline-block;
+    padding: 0.15em 0.7em;
+    border: 2px solid $qb-accent;
+    color: $qb-accent;
+    font-size: 0.45em;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .title {
+    margin: 0.35em 0 0.2em;
+    color: #ffffff;
+    font-size: 2.3em;
+    line-height: 1.1;
+  }
+
+  .subtitle {
+    margin: 0;
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 1.05em;
+  }
+
+  .qb-title-meta {
+    margin-top: 2em;
+    color: rgba(255, 255, 255, 0.75);
+    font-size: 0.65em;
+
+    .qb-authors + .qb-date::before {
+      content: " · ";
+    }
+  }
+
+  .qb-title-logo {
+    position: absolute;
+    right: 0;
+    bottom: 10px;
+    height: 64px;
+    margin: 0;
+  }
+}
+
+// ---- Section slides -----------------------------------------------------------------------------
+.reveal .slides section h1.section-slide,
+.reveal .slides section.section-slide h1 {
+  margin-top: 280px;
+  color: #ffffff;
+  font-size: 2.1em;
+
+  &::after {
+    content: "";
+    display: block;
+    width: 110px;
+    height: 7px;
+    margin-top: 0.3em;
+    background: $qb-accent;
+  }
+
+  .section-num {
+    display: block;
+    margin-bottom: 0.3em;
+    color: $qb-accent;
+    font-size: 0.35em;
+    letter-spacing: 0.12em;
+  }
+}
+
+.reveal .slides section .section-desc {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.85em;
+}
+
+// ---- Layouts (classes on ## headings) ----------------------------------------------------------
+// .takeaway: one message, large, with a gold rule on the left
+.reveal .slides section.takeaway .takeaway-message {
+  margin-top: 230px;
+  padding: 0.2em 0 0.2em 0.8em;
+  border-left: 10px solid $qb-accent;
+  color: $qb-primary;
+  font-size: 1.55em;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+// .chart-full: a small heading and a chart across the full width
+.reveal .slides section.chart-full {
+  h2 {
+    margin-bottom: 0.3em;
+    font-size: 1.05em;
+  }
+  img {
+    width: 100%;
+    max-height: 720px;
+    object-fit: contain;
+  }
+}
+
+// .two-col: columns with a gap
+.reveal .slides section.two-col .columns {
+  display: flex;
+  gap: 48px;
+  align-items: flex-start;
+}
+
+.reveal .slides section .columns .column img {
+  width: 100%;
+  height: auto;
+}
+
+// .dense: smaller text for tables and footnotes
+.reveal .slides section.dense > :not(h2) {
+  font-size: 0.72em;
+}
+
+// .agenda: large numbered list with gold numerals
+.reveal .slides section.agenda ol {
+  counter-reset: agenda;
+  list-style: none;
+  margin-left: 0;
+
+  li {
+    counter-increment: agenda;
+    margin: 0.55em 0;
+    font-size: 1.15em;
+
+    &::before {
+      content: counter(agenda, decimal-leading-zero);
+      display: inline-block;
+      width: 2em;
+      color: $qb-accent;
+      font-weight: 700;
+    }
+  }
+}
+
+// .appendix: muted heading and an "Appendix" tag
+.reveal .slides section.appendix {
+  h2 {
+    color: $qb-muted;
+  }
+  &::before {
+    content: "Appendix";
+    position: absolute;
+    top: 0.3em;
+    right: 160px; // left of the slide number
+    padding: 0.1em 0.6em;
+    border: 1px solid $qb-neutral;
+    color: $qb-muted;
+    font-size: 0.42em;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+}
+
+// ---- Components ---------------------------------------------------------------------------------
+.reveal .qb-text-small {
+  font-size: 0.75em;
+}
+
+.reveal .qb-text-large {
+  font-size: 1.25em;
+}
+
+.reveal .kpi-row {
+  display: flex;
+  gap: 32px;
+  margin: 0.4em 0 0.9em;
+}
+
+.reveal .kpi {
+  flex: 1 1 0;
+  padding: 0.45em 0.7em 0.5em;
+  border-top: 6px solid $qb-primary;
+  border-radius: 4px;
+  background: $qb-bg-alt;
+}
+
+.reveal .kpi-value {
+  color: $qb-primary;
+  font-size: 1.7em;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.reveal .kpi-label {
+  margin-top: 0.25em;
+  color: $qb-muted;
+  font-size: 0.55em;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.reveal .kpi-delta {
+  margin-top: 0.25em;
+  font-size: 0.6em;
+  font-weight: 600;
+
+  &.good { color: $qb-positive; }
+  &.bad { color: $qb-negative; }
+  &.flat { color: $qb-muted; }
+}
+
+.reveal .qb-source {
+  position: absolute;
+  left: 0;
+  bottom: 40px;
+  color: $qb-muted;
+  font-size: 0.45em;
+}
+
+.reveal .qb-note {
+  color: $qb-muted;
+  font-size: 0.55em;
+  font-style: italic;
+}
+
+.reveal .plotly-graph-div {
+  width: 100% !important;
+}
+
+// ---- Tables: house tables and plain Markdown / pandas tables ----------------------------------
+.reveal table {
+  margin: 0.3em 0;
+  border-collapse: collapse;
+  font-size: 0.6em;
+  font-variant-numeric: tabular-nums;
+
+  caption {
+    caption-side: top;
+    padding-bottom: 0.3em;
+    color: $qb-primary;
+    font-weight: 700;
+    text-align: left;
+  }
+
+  thead th,
+  th {
+    padding: 0.35em 0.8em;
+    border: none;
+    background: $qb-primary;
+    color: #ffffff;
+    font-weight: 600;
+  }
+
+  th,
+  td {
+    text-align: left;
+  }
+
+  td {
+    padding: 0.3em 0.8em;
+    border: none;
+    border-bottom: 1px solid #e5e7eb;
+  }
+
+  tbody tr:nth-child(even) td {
+    background: $qb-bg-alt;
+  }
+
+  th.num,
+  td.num {
+    text-align: right;
+  }
+
+  td.neg {
+    color: $qb-negative;
+  }
+
+  tr.bold td {
+    font-weight: 700;
+  }
+}
+
+.reveal .slides section.dense table {
+  font-size: 0.85em;
+}
+
+// ---- Disclaimer partial ---------------------------------------------------------------------------
+.reveal .slides section.disclaimer p {
+  color: $qb-muted;
+}

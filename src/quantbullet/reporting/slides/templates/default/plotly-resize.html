@@ -1,0 +1,19 @@
+<script>
+// Plotly charts drawn while their slide is hidden take the wrong size; resize the charts of
+// each slide when it is shown.
+(function () {
+  function resize(slide) {
+    if (!window.Plotly || !slide) return;
+    slide.querySelectorAll(".plotly-graph-div").forEach(function (el) {
+      window.Plotly.Plots.resize(el);
+    });
+  }
+  function hook() {
+    if (!window.Reveal || !window.Reveal.on) return;
+    window.Reveal.on("ready", function (event) { resize(event.currentSlide); });
+    window.Reveal.on("slidechanged", function (event) { resize(event.currentSlide); });
+    if (window.Reveal.isReady && window.Reveal.isReady()) resize(window.Reveal.getCurrentSlide());
+  }
+  window.addEventListener("load", hook);
+})();
+</script>

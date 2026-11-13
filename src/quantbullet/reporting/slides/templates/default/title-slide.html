@@ -1,0 +1,13 @@
+<section id="title-slide" class="qb-title" data-background-color="$if(qb-title-background)$$qb-title-background$$else$#0b3d6e$endif$">
+  <div class="qb-title-accent"></div>
+  <div class="qb-title-inner">
+    $if(classification)$<span class="qb-tag">$classification$</span>$endif$
+    <h1 class="title">$title$</h1>
+    $if(subtitle)$<p class="subtitle">$subtitle$</p>$endif$
+    <div class="qb-title-meta">
+      $if(by-author)$<span class="qb-authors">$for(by-author)$$by-author.name.literal$$sep$ · $endfor$</span>$endif$
+      $if(date)$<span class="qb-date">$date$</span>$endif$
+    </div>
+  </div>
+  $if(qb-title-logo)$<img class="qb-title-logo" src="$qb-title-logo$" alt="logo">$endif$
+</section>
