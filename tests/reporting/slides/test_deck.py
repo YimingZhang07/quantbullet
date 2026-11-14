@@ -109,6 +109,16 @@ class TestDeckRender(unittest.TestCase):
         self.assertIn("section-num", html)
         self.assertIsNone(re.search(r'<script src="(?!data:)[^"]+"', html))  # nothing external
 
+    def test_render_editorial(self):
+        deck = SlideDeck("Editorial", template="editorial")
+        deck.section("Part one")
+        deck.takeaway("One message.")
+        with tempfile.TemporaryDirectory() as tmp:
+            html = deck.render(Path(tmp) / "deck.html").read_text(encoding="utf-8")
+        self.assertIn("qb-editorial-title", html)
+        self.assertIn('data-background-color="#121212"', html)  # section slide
+        self.assertIn("Source Serif 4", html)
+
     def test_render_folder(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = sample_deck().render(Path(tmp) / "deck", embed=False)

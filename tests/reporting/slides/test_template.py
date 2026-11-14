@@ -22,6 +22,19 @@ class TestTemplates(unittest.TestCase):
         self.assertIn("disclaimer", template.partials)
         self.assertIn("## Disclaimer", template.partial("disclaimer"))
 
+    def test_builtin_editorial(self):
+        template = get_template("editorial")
+        theme = template.default_theme
+        self.assertEqual(template.format_name, "qb-editorial-revealjs")
+        self.assertEqual(theme.accent, "#e3120b")
+        self.assertEqual(theme.heading_family, "Source Serif 4")
+        self.assertEqual(theme.y_axis_side, "right")
+        self.assertIsInstance(theme.palette, tuple)
+        with tempfile.TemporaryDirectory() as tmp:
+            fonts = (template.install(tmp) / "fonts.html").read_text(encoding="utf-8")
+        self.assertIn('font-family: "Source Serif 4"', fonts)
+        self.assertIn('font-family: "Source Sans 3"', fonts)
+
     def test_unknown_names(self):
         with self.assertRaises(KeyError):
             get_template("no-such-template")

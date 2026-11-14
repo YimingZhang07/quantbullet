@@ -11,6 +11,7 @@ $qb-bg-alt: #e8eef5 !default;
 $qb-positive: #2e7d6b !default;
 $qb-negative: #b5503c !default;
 $qb-font-family: "Source Sans 3", "Helvetica Neue", Arial, sans-serif !default;
+$qb-heading-font-family: $qb-font-family !default;
 $qb-font-size-root: 32px !default;
 
 $body-bg: #ffffff;
@@ -18,7 +19,7 @@ $body-color: $qb-ink;
 $link-color: $qb-primary;
 $font-family-sans-serif: $qb-font-family;
 $presentation-font-size-root: $qb-font-size-root;
-$presentation-heading-font: $qb-font-family;
+$presentation-heading-font: $qb-heading-font-family;
 $presentation-heading-color: $qb-primary;
 $presentation-heading-font-weight: 700;
 $presentation-h1-font-size: 2.1em;

@@ -35,6 +35,29 @@ class TestSlideTheme(unittest.TestCase):
         self.assertEqual(set(DEFAULT_THEME.font_files()), {"Regular", "Bold", "Italic"})
         self.assertEqual(SlideTheme(font_family="Some System Font").font_files(), {})
 
+    def test_heading_font(self):
+        self.assertEqual(DEFAULT_THEME.heading_family, "Source Sans 3")
+        self.assertIn('$qb-heading-font-family: "Source Sans 3"', DEFAULT_THEME.to_scss())
+        serif = SlideTheme(heading_font_family="Source Serif 4")
+        self.assertIn('$qb-heading-font-family: "Source Serif 4"', serif.to_scss())
+        embedded = {(family, key) for family, key, _ in serif.embedded_fonts()}
+        self.assertEqual(embedded, {("Source Sans 3", "Regular"), ("Source Sans 3", "Bold"),
+                                    ("Source Sans 3", "Italic"), ("Source Serif 4", "Regular"),
+                                    ("Source Serif 4", "Bold")})
+
+    def test_y_axis_side(self):
+        import plotly.graph_objects as go
+
+        with self.assertRaises(ValueError):
+            SlideTheme(y_axis_side="top")
+        right = SlideTheme(y_axis_side="right")
+        rc = right.mpl_rc()
+        self.assertTrue(rc["ytick.labelright"])
+        self.assertFalse(rc["ytick.labelleft"])
+        self.assertNotIn("ytick.labelright", DEFAULT_THEME.mpl_rc())
+        fig = right.style_plotly(go.Figure(go.Scatter(y=[1, 2])))
+        self.assertEqual(fig.layout.template.layout.yaxis.side, "right")
+
     def test_matplotlib_context_sets_cycle(self):
         with DEFAULT_THEME.matplotlib():
             colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]

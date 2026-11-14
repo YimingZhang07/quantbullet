@@ -1,0 +1,22 @@
+{
+  "name": "editorial",
+  "description": "Business-magazine style: white pages, red rule and tab over serif headlines, charts with the value axis on the right. 16:9 at 1600 x 900.",
+  "extension": "qb-editorial",
+  "logo": "assets/logo.svg",
+  "title_logo": "assets/logo.svg",
+  "theme": {
+    "primary": "#121212",
+    "accent": "#e3120b",
+    "secondary": "#006ba2",
+    "neutral": "#758d99",
+    "ink": "#262626",
+    "muted": "#5f6b73",
+    "bg_alt": "#e9edf0",
+    "positive": "#379a8b",
+    "negative": "#db444b",
+    "palette": ["#006ba2", "#3ebcd2", "#379a8b", "#ebb434", "#9a607f", "#b4ba39", "#d1b07c", "#758d99"],
+    "font_family": "Source Sans 3",
+    "heading_font_family": "Source Serif 4",
+    "y_axis_side": "right"
+  }
+}

@@ -107,16 +107,16 @@ class SlideTemplate:
 
 def _font_faces(theme: SlideTheme) -> str:
     """A <style> block embedding the theme's bundled font files, or a comment when none."""
-    files = theme.font_files()
-    if not files:
+    fonts = theme.embedded_fonts()
+    if not fonts:
         return "<!-- no bundled font for this theme -->\n"
     styles = {"Regular": ("normal", "normal"), "Bold": ("bold", "normal"),
               "Italic": ("normal", "italic")}
     rules = []
-    for key, path in files.items():
+    for family, key, path in fonts:
         weight, style = styles[key]
         data = base64.b64encode(path.read_bytes()).decode("ascii")
-        rules.append(f'@font-face {{ font-family: "{theme.font_family}"; font-weight: {weight}; '
+        rules.append(f'@font-face {{ font-family: "{family}"; font-weight: {weight}; '
                      f'font-style: {style}; src: url(data:font/ttf;base64,{data}) format("truetype"); }}')
     return "<style>\n" + "\n".join(rules) + "\n</style>\n"
 
@@ -130,9 +130,13 @@ def _builtin_dir(name: str) -> Path:
     return Path(str(importlib.resources.files("quantbullet.reporting.slides") / "templates" / name))
 
 
+BUILTIN_TEMPLATES = ("default", "editorial")
+
+
 def _ensure_builtins() -> None:
-    if "default" not in _REGISTRY:
-        _REGISTRY["default"] = SlideTemplate.from_dir(_builtin_dir("default"))
+    for name in BUILTIN_TEMPLATES:
+        if name not in _REGISTRY:
+            _REGISTRY[name] = SlideTemplate.from_dir(_builtin_dir(name))
 
 
 def register_template(template: SlideTemplate, *, replace: bool = False) -> None:

@@ -2,7 +2,8 @@
 
 The examples build reveal.js decks in Python with ``quantbullet.reporting.slides`` and render
 them with Quarto: a showcase that uses every preset page once, a restyled deck (another
-palette, numbered sections, folder output), and a page layout of your own.
+palette, numbered sections, folder output), the built-in "editorial" template, and a page
+layout of your own.
 
 ``setUpClass`` makes the fake data that every example charts: monthly 1M CPR by vintage.
 
@@ -186,6 +187,62 @@ class TestSlideDeckExamples(unittest.TestCase):
         path = deck.render(output_path("restyled"), embed=False)  # a folder: index.html, index.qmd, assets
         print(f"written: {path}")
         self.assertTrue((path.parent / "index.qmd").is_file())
+
+    def test_editorial_template(self):
+        """The built-in "editorial" template: serif headlines under a red rule, open tables,
+        and charts with the value axis on the right."""
+        data = self.cpr
+        latest = data[data.month == data.month.max()].set_index("vintage")
+        deck = SlideDeck(
+            "The 2021 vintage breaks away",
+            subtitle="Prepayment monitor · October 2026",
+            author=["Research"],
+            date=ASOF,
+            classification="Internal",
+            template="editorial",                # its own SlideTheme comes with it
+            footer="Research · Synthetic data",
+        )
+        print(deck.theme)                        # serif headings, red accent, y_axis_side="right"
+
+        deck.agenda()
+        deck.section("Speeds", description="Where prepayments are moving")
+        with deck.slide("Speeds at a glance") as s:
+            s.kpis([dict(value=f"{latest.loc[v, 'cpr']:.1f}", label=f"{v} vintage CPR")
+                    for v in (2019, 2021, 2023)])
+            s.bullets(["Most vintages are flat.", "The 2021 vintage is up about 6 CPR."])
+            s.source("Synthetic data")
+        deck.takeaway("Refinancing is concentrated in one vintage, not across the book.")
+
+        with deck.theme.matplotlib():            # value axis on the right, like the slides
+            fig, ax = plt.subplots(figsize=(8, 5.5))
+            for vintage, group in data.groupby("vintage"):
+                ax.plot(group.month, group.cpr, label=str(vintage))
+            ax.set_title("1M CPR, %", loc="left")  # units in the title, not on the axis
+            ax.legend(ncols=5, loc="upper left")
+        with deck.two_col("2021 is the outlier", widths=(40, 60)) as s:
+            s.left.bullets(["2021: +6 CPR since spring.", "2019-2020: flat."])
+            s.right.chart(fig)
+            s.source("Synthetic data")
+
+        with deck.theme.plotly():
+            plotly_fig = px.line(data, x="month", y="cpr", color=data.vintage.astype(str),
+                                 labels={"cpr": "1M CPR (%)", "month": "", "color": "Vintage"})
+        deck.chart_slide("CPR history (interactive)", plotly_fig, height=680)
+
+        table = latest.reset_index()[["vintage", "cpr", "balance"]].astype({"vintage": str})
+        with deck.slide("Balances by vintage", layout="dense") as s:
+            s.table(table, schema=[
+                ColumnMeta("vintage", "Vintage"),
+                ColumnMeta("cpr", "1M CPR", ColumnFormat(decimals=1)),
+                ColumnMeta("balance", "Balance ($mm)", ColumnFormat(decimals=0, comma=True)),
+            ], caption="Latest month")
+
+        deck.section("Appendix", appendix=True)
+        deck.disclaimer()
+
+        path = deck.render(output_path("editorial.html"))
+        print(f"written: {path}")
+        self.assertIn("qb-editorial-title", path.read_text(encoding="utf-8"))
 
     def test_custom_layout(self):
         """A page layout of your own: a Slide subclass plus a CSS class."""

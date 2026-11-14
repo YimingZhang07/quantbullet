@@ -1,0 +1,438 @@
+/*-- scss:defaults --*/
+// Design tokens. SlideTemplate.install writes the deck's SlideTheme values above these
+// lines, so the !default values below only apply when the extension is used on its own.
+$qb-primary: #121212 !default;
+$qb-accent: #e3120b !default;
+$qb-secondary: #006ba2 !default;
+$qb-neutral: #758d99 !default;
+$qb-ink: #262626 !default;
+$qb-muted: #5f6b73 !default;
+$qb-bg-alt: #e9edf0 !default;
+$qb-positive: #379a8b !default;
+$qb-negative: #db444b !default;
+$qb-font-family: "Source Sans 3", "Helvetica Neue", Arial, sans-serif !default;
+$qb-heading-font-family: "Source Serif 4", Georgia, serif !default;
+$qb-font-size-root: 32px !default;
+
+$qb-rule: #d9dfe3; // hairlines between rows and items
+
+$body-bg: #ffffff;
+$body-color: $qb-ink;
+$link-color: $qb-secondary;
+$font-family-sans-serif: $qb-font-family;
+$presentation-font-size-root: $qb-font-size-root;
+$presentation-heading-font: $qb-heading-font-family;
+$presentation-heading-color: $qb-primary;
+$presentation-heading-font-weight: 700;
+$presentation-h1-font-size: 2.1em;
+$presentation-h2-font-size: 1.3em;
+$presentation-h3-font-size: 1.0em;
+$presentation-line-height: 1.35;
+$presentation-slide-text-align: left;
+$presentation-title-slide-text-align: left;
+
+/*-- scss:rules --*/
+
+// The house mark: a red hairline across the top with a short red tab at its left end.
+@mixin red-rule($tab-width: 72px, $tab-height: 16px) {
+  position: relative;
+  border-top: 3px solid $qb-accent;
+  &::before {
+    content: "";
+    position: absolute;
+    top: -3px;
+    left: 0;
+    width: $tab-width;
+    height: $tab-height;
+    background: $qb-accent;
+  }
+}
+
+// ---- Base ---------------------------------------------------------------------------------
+.reveal .slides > section,
+.reveal .slides > section > section {
+  height: 100%;
+}
+
+.reveal .slides section h2 {
+  @include red-rule;
+  margin-bottom: 0.6em;
+  padding-top: 32px;
+  letter-spacing: -0.005em;
+  line-height: 1.15;
+}
+
+.reveal .slides section h2:empty {
+  display: none;
+}
+
+.reveal .slides section h3 {
+  color: $qb-ink;
+  font-family: $qb-font-family;
+}
+
+.reveal .slides section ul {
+  list-style: square;
+
+  li::marker {
+    color: $qb-accent;
+  }
+}
+
+.reveal .slides section li {
+  margin: 0.25em 0;
+}
+
+// ---- Chrome: footer, logo, slide number -------------------------------------------------------
+.reveal .footer {
+  color: $qb-muted;
+  font-size: 0.42em;
+}
+
+.reveal .slide-logo {
+  max-height: 1.4em !important;
+}
+
+.reveal .slide-number {
+  color: $qb-muted;
+  background: transparent;
+  font-family: $qb-font-family;
+}
+
+// No footer or logo on the title slide and section slides.
+.reveal:has(section.qb-title.present),
+.reveal:has(section.section-slide.present),
+.reveal:has(section.present > h1.section-slide) {
+  .footer,
+  .slide-logo {
+    display: none !important;
+  }
+}
+
+// ---- Title slide: white page, red rule, large serif title -----------------------------------
+.reveal .slides section.qb-title {
+  text-align: left;
+
+  .qb-title-rule {
+    @include red-rule(120px, 26px);
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 150px;
+  }
+
+  .qb-title-inner {
+    position: absolute;
+    left: 0;
+    top: 220px;
+    width: 88%;
+  }
+
+  .qb-tag {
+    display: inline-block;
+    color: $qb-accent;
+    font-size: 0.5em;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .title {
+    margin: 0.3em 0 0.25em;
+    color: $qb-primary;
+    font-family: $qb-heading-font-family;
+    font-size: 2.5em;
+    letter-spacing: -0.01em;
+    line-height: 1.05;
+  }
+
+  .subtitle {
+    margin: 0;
+    color: $qb-muted;
+    font-size: 1.05em;
+  }
+
+  .qb-title-meta {
+    margin-top: 2.2em;
+    padding-top: 0.6em;
+    border-top: 1px solid $qb-rule;
+    color: $qb-ink;
+    font-size: 0.6em;
+
+    .qb-authors {
+      font-weight: 700;
+    }
+
+    .qb-authors + .qb-date::before {
+      content: " · ";
+    }
+  }
+
+  .qb-title-logo {
+    position: absolute;
+    right: 0;
+    bottom: 10px;
+    height: 56px;
+    margin: 0;
+  }
+}
+
+// ---- Section slides: dark page, white serif title -------------------------------------------
+.reveal .slides section h1.section-slide,
+.reveal .slides section.section-slide h1 {
+  margin-top: 280px;
+  color: #ffffff;
+  font-size: 2.2em;
+  letter-spacing: -0.01em;
+
+  &::after {
+    content: "";
+    display: block;
+    width: 110px;
+    height: 10px;
+    margin-top: 0.35em;
+    background: $qb-accent;
+  }
+
+  .section-num {
+    display: block;
+    margin-bottom: 0.35em;
+    color: $qb-accent;
+    font-family: $qb-font-family;
+    font-size: 0.32em;
+    letter-spacing: 0.14em;
+  }
+}
+
+.reveal .slides section .section-desc {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.85em;
+}
+
+// ---- Layouts (classes on ## headings) ----------------------------------------------------------
+// .takeaway: one message in large serif under the red rule
+.reveal .slides section.takeaway .takeaway-message {
+  @include red-rule(96px, 20px);
+  margin-top: 220px;
+  padding-top: 44px;
+  color: $qb-primary;
+  font-family: $qb-heading-font-family;
+  font-size: 1.6em;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+// .chart-full: a smaller heading and a chart across the full width
+.reveal .slides section.chart-full {
+  h2 {
+    margin-bottom: 0.3em;
+    font-size: 1.05em;
+  }
+  img {
+    width: 100%;
+    max-height: 720px;
+    object-fit: contain;
+  }
+}
+
+// .two-col: columns with a gap
+.reveal .slides section.two-col .columns {
+  display: flex;
+  gap: 56px;
+  align-items: flex-start;
+}
+
+.reveal .slides section .columns .column img {
+  width: 100%;
+  height: auto;
+}
+
+// .dense: smaller text for tables and footnotes
+.reveal .slides section.dense > :not(h2) {
+  font-size: 0.72em;
+}
+
+// .agenda: red serif numerals, hairlines between items
+.reveal .slides section.agenda ol {
+  counter-reset: agenda;
+  list-style: none;
+  margin-left: 0;
+  width: 75%;
+
+  li {
+    counter-increment: agenda;
+    margin: 0;
+    padding: 0.35em 0;
+    border-bottom: 1px solid $qb-rule;
+    font-size: 1.1em;
+
+    &::before {
+      content: counter(agenda);
+      display: inline-block;
+      width: 1.8em;
+      color: $qb-accent;
+      font-family: $qb-heading-font-family;
+      font-weight: 700;
+    }
+  }
+}
+
+// .appendix: muted heading and an "Appendix" tag
+.reveal .slides section.appendix {
+  h2 {
+    color: $qb-muted;
+  }
+  &::before {
+    content: "Appendix";
+    position: absolute;
+    top: 0.3em;
+    right: 160px; // left of the slide number
+    color: $qb-muted;
+    font-size: 0.42em;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+}
+
+// ---- Components ---------------------------------------------------------------------------------
+.reveal .qb-text-small {
+  font-size: 0.75em;
+}
+
+.reveal .qb-text-large {
+  font-size: 1.25em;
+}
+
+.reveal .kpi-row {
+  display: flex;
+  gap: 48px;
+  margin: 0.3em 0 0.9em;
+}
+
+.reveal .kpi {
+  flex: 1 1 0;
+  position: relative;
+  padding: 0.55em 0 0.3em;
+  border-top: 1px solid $qb-neutral;
+
+  &::before {
+    content: "";
+    position: absolute;
+    top: -1px;
+    left: 0;
+    width: 48px;
+    height: 8px;
+    background: $qb-accent;
+  }
+}
+
+.reveal .kpi-value {
+  color: $qb-primary;
+  font-family: $qb-heading-font-family;
+  font-size: 1.8em;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.reveal .kpi-label {
+  margin-top: 0.3em;
+  color: $qb-muted;
+  font-size: 0.52em;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.reveal .kpi-delta {
+  margin-top: 0.25em;
+  font-size: 0.6em;
+  font-weight: 600;
+
+  &.good { color: $qb-positive; }
+  &.bad { color: $qb-negative; }
+  &.flat { color: $qb-muted; }
+}
+
+.reveal .qb-source {
+  position: absolute;
+  left: 0;
+  bottom: 40px;
+  color: $qb-muted;
+  font-size: 0.45em;
+}
+
+.reveal .qb-note {
+  color: $qb-muted;
+  font-size: 0.55em;
+  font-style: italic;
+}
+
+.reveal .plotly-graph-div {
+  width: 100% !important;
+}
+
+// ---- Tables: open style, rules instead of fills --------------------------------------------
+.reveal table {
+  margin: 0.3em 0;
+  border-collapse: collapse;
+  border-top: 2px solid $qb-primary;
+  font-size: 0.6em;
+  font-variant-numeric: tabular-nums;
+
+  caption {
+    caption-side: top;
+    padding-bottom: 0.4em;
+    color: $qb-primary;
+    font-family: $qb-heading-font-family;
+    font-size: 1.15em;
+    font-weight: 700;
+    text-align: left;
+  }
+
+  thead th,
+  th {
+    padding: 0.4em 0.9em;
+    border: none;
+    border-bottom: 1px solid $qb-primary;
+    background: transparent;
+    color: $qb-primary;
+    font-weight: 700;
+    vertical-align: bottom;
+  }
+
+  th,
+  td {
+    text-align: left;
+  }
+
+  td {
+    padding: 0.32em 0.9em;
+    border: none;
+    border-bottom: 1px solid $qb-rule;
+  }
+
+  th.num,
+  td.num {
+    text-align: right;
+  }
+
+  td.neg {
+    color: $qb-negative;
+  }
+
+  tr.bold td {
+    border-top: 1px solid $qb-primary;
+    border-bottom: 2px solid $qb-primary;
+    font-weight: 700;
+  }
+}
+
+.reveal .slides section.dense table {
+  font-size: 0.85em;
+}
+
+// ---- Disclaimer partial ---------------------------------------------------------------------------
+.reveal .slides section.disclaimer p {
+  color: $qb-muted;
+}

@@ -13,7 +13,7 @@ import re
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, Literal
 
 _HEX = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 _COLOR_FIELDS = ("primary", "accent", "secondary", "neutral", "ink", "muted", "bg_alt",
@@ -32,8 +32,11 @@ class SlideTheme:
     negative). ``font_family`` is a CSS family name; a family bundled with
     quantbullet (``BUNDLED_FONTS``) is embedded in the deck so it renders
     offline, any other is left to the viewer's system unless ``webfont_url``
-    loads it (a stylesheet URL such as a Google Fonts link). ``base_font_px``
-    is the body text size on the 1600 x 900 slide.
+    loads it (a stylesheet URL such as a Google Fonts link).
+    ``heading_font_family`` is the family of slide headings and large numbers
+    (``None``: the body family), embedded the same way. ``base_font_px`` is the
+    body text size on the 1600 x 900 slide. ``y_axis_side`` puts the value axis
+    of charts on the ``"left"`` or the ``"right"`` (an editorial habit).
     """
 
     primary: str = "#0b3d6e"
@@ -47,8 +50,10 @@ class SlideTheme:
     negative: str = "#b5503c"
     palette: tuple[str, ...] | None = None
     font_family: str = "Source Sans 3"
+    heading_font_family: str | None = None
     webfont_url: str | None = None
     base_font_px: int = 32
+    y_axis_side: Literal["left", "right"] = "left"
 
     def __post_init__(self):
         for name in _COLOR_FIELDS:
@@ -60,6 +65,8 @@ class SlideTheme:
                 raise ValueError(f"palette colors must be hex strings; got {value!r}.")
         if self.palette is not None:
             object.__setattr__(self, "palette", tuple(self.palette))
+        if self.y_axis_side not in ("left", "right"):
+            raise ValueError(f"y_axis_side must be 'left' or 'right'; got {self.y_axis_side!r}.")
 
     def replace(self, **changes) -> SlideTheme:
         """Return a copy with ``changes`` applied."""
@@ -73,19 +80,28 @@ class SlideTheme:
         return (self.primary, self.accent, self.secondary, self.neutral, self.positive,
                 self.negative)
 
+    @property
+    def heading_family(self) -> str:
+        """The family of headings: ``heading_font_family``, or the body family when unset."""
+        return self.heading_font_family or self.font_family
+
     # ---- CSS side --------------------------------------------------------------------------
 
     def to_scss(self) -> str:
         """SCSS variable definitions (``$qb-primary`` ...) for the template's defaults layer."""
         lines = [f"$qb-{name.replace('_', '-')}: {getattr(self, name)};" for name in _COLOR_FIELDS]
-        families = [f'"{self.font_family}"', '"Helvetica Neue"', "Arial", "sans-serif"]
-        lines.append(f"$qb-font-family: {', '.join(families)};")
+        fallback = '"Helvetica Neue", Arial, sans-serif'
+        lines.append(f'$qb-font-family: "{self.font_family}", {fallback};')
+        lines.append(f'$qb-heading-font-family: "{self.heading_family}", {fallback};')
         lines.append(f"$qb-font-size-root: {int(self.base_font_px)}px;")
         return "\n".join(lines) + "\n"
 
-    def font_files(self) -> dict[str, Path]:
-        """Bundled font files for ``font_family`` keyed by weight/style, or {} when not bundled."""
-        stem = BUNDLED_FONTS.get(self.font_family)
+    def font_files(self, family: str | None = None) -> dict[str, Path]:
+        """Bundled font files of ``family`` (default ``font_family``) keyed by weight/style.
+
+        Keys are ``"Regular"``, ``"Bold"`` and ``"Italic"``; {} when the family is not bundled.
+        """
+        stem = BUNDLED_FONTS.get(family or self.font_family)
         if stem is None:
             return {}
         folder = importlib.resources.files("quantbullet.reporting") / "fonts"
@@ -96,13 +112,26 @@ class SlideTheme:
                 files[key] = path
         return files
 
+    def embedded_fonts(self) -> list[tuple[str, str, Path]]:
+        """``(family, style key, file)`` for every bundled font file a deck embeds.
+
+        The body family brings Regular, Bold and Italic; a separate heading family brings
+        Regular and Bold.
+        """
+        fonts = [(self.font_family, key, path) for key, path in self.font_files().items()]
+        if self.heading_family != self.font_family:
+            fonts += [(self.heading_family, key, path)
+                      for key, path in self.font_files(self.heading_family).items()
+                      if key in ("Regular", "Bold")]
+        return fonts
+
     # ---- matplotlib ------------------------------------------------------------------------
 
     def mpl_rc(self) -> dict:
         """rcParams for charts shown on a 1600 x 900 slide."""
         from cycler import cycler
 
-        return {
+        rc = {
             "axes.prop_cycle": cycler(color=list(self.colors)),
             "axes.edgecolor": self.neutral,
             "axes.labelcolor": self.ink,
@@ -135,6 +164,10 @@ class SlideTheme:
             "font.family": [self.font_family, "DejaVu Sans"],
             "svg.fonttype": "none",
         }
+        if self.y_axis_side == "right":
+            rc.update({"axes.spines.left": False, "ytick.left": False, "ytick.right": False,
+                       "ytick.labelleft": False, "ytick.labelright": True})
+        return rc
 
     @contextmanager
     def matplotlib(self) -> Iterator[None]:
@@ -143,7 +176,7 @@ class SlideTheme:
         from matplotlib import font_manager
 
         registered = {Path(font.fname).resolve() for font in font_manager.fontManager.ttflist}
-        for path in self.font_files().values():
+        for _, _, path in self.embedded_fonts():
             if path.resolve() not in registered:
                 font_manager.fontManager.addfont(str(path))
         with plt.rc_context(self.mpl_rc()):
@@ -157,18 +190,20 @@ class SlideTheme:
 
         axis = dict(gridcolor="#e5e7eb", linecolor=self.neutral, zerolinecolor="#d1d5db",
                     tickfont=dict(size=14, color=self.ink), title=dict(font=dict(size=16)))
+        yaxis = dict(axis, side=self.y_axis_side)
         return go.layout.Template(layout=dict(
             colorway=list(self.colors),
             font=dict(family=f"{self.font_family}, Helvetica Neue, Arial, sans-serif", size=16,
                       color=self.ink),
             title=dict(font=dict(size=20, color=self.ink), x=0, xanchor="left"),
-            margin=dict(l=60, r=20, t=60, b=50),
+            margin=(dict(l=20, r=70, t=60, b=50) if self.y_axis_side == "right"
+                    else dict(l=60, r=20, t=60, b=50)),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0,
                         font=dict(size=14)),
             hoverlabel=dict(bgcolor="white", bordercolor=self.neutral,
                             font=dict(family=self.font_family, size=14, color=self.ink)),
             xaxis=axis,
-            yaxis=axis,
+            yaxis=yaxis,
             paper_bgcolor="white",
             plot_bgcolor="white",
         ))
