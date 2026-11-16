@@ -50,6 +50,10 @@ class TestTemplates(unittest.TestCase):
             self.assertLess(defaults, scss.index("$qb-primary: #123456;"))
             self.assertLess(scss.index("$qb-primary: #123456;"), scss.index("$qb-primary: #0b3d6e !default;"))
             self.assertIn("@font-face", (dest / "fonts.html").read_text(encoding="utf-8"))
+            math_font = (dest / "math-font.html").read_text(encoding="utf-8")
+            self.assertIn('font-family: "STIX Two Math"; src: url(data:font/ttf;base64,', math_font)
+            self.assertNotIn("STIX", (dest / "fonts.html").read_text(encoding="utf-8"))
+            self.assertTrue((dest / "math.lua").is_file())
             self.assertTrue((dest / "_extension.yml").is_file())
 
     def test_export_register_and_use_a_custom_template(self):

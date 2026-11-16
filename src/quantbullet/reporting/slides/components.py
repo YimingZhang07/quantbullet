@@ -153,7 +153,9 @@ class RawHTML(Component):
 # ---- Charts and images -----------------------------------------------------------------------
 
 def _image_markdown(path: str, caption: str | None, width: str | None) -> str:
-    attrs = f'{{width="{width}"}}' if width else ""
+    # Without a width, a lone image stretches to fill the rest of the slide (Quarto's
+    # auto-stretch); a width turns that off so the width is kept.
+    attrs = f'{{.nostretch width="{width}"}}' if width else ""
     return f"![{caption or ''}]({path}){attrs}"
 
 

@@ -20,7 +20,8 @@ _COLOR_FIELDS = ("primary", "accent", "secondary", "neutral", "ink", "muted", "b
                  "positive", "negative")
 # Families bundled in quantbullet/reporting/fonts: family name -> file stem prefix.
 BUNDLED_FONTS = {"Source Sans 3": "SourceSans3", "Source Serif 4": "SourceSerif4",
-                 "Roboto": "Roboto", "Source Code Pro": "SourceCodePro"}
+                 "Roboto": "Roboto", "Source Code Pro": "SourceCodePro",
+                 "STIX Two Math": "STIXTwoMath"}
 
 
 @dataclass(frozen=True)
@@ -35,7 +36,9 @@ class SlideTheme:
     loads it (a stylesheet URL such as a Google Fonts link).
     ``heading_font_family`` is the family of slide headings and large numbers
     (``None``: the body family), embedded the same way. ``base_font_px`` is the
-    body text size on the 1600 x 900 slide. ``y_axis_side`` puts the value axis
+    body text size on the 1600 x 900 slide. ``math_font_family`` typesets formulas
+    when a deck uses ``math="mathml"`` (a bundled family is embedded only in decks
+    that contain formulas). ``y_axis_side`` puts the value axis
     of charts on the ``"left"`` or the ``"right"`` (an editorial habit).
     """
 
@@ -51,6 +54,7 @@ class SlideTheme:
     palette: tuple[str, ...] | None = None
     font_family: str = "Source Sans 3"
     heading_font_family: str | None = None
+    math_font_family: str = "STIX Two Math"
     webfont_url: str | None = None
     base_font_px: int = 32
     y_axis_side: Literal["left", "right"] = "left"

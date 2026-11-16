@@ -7,7 +7,7 @@ import json
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Sequence
+from typing import Literal, Sequence
 
 from .components import RenderContext
 from .quarto import render_qmd
@@ -42,7 +42,10 @@ class SlideDeck:
     registered template name or a :class:`SlideTemplate`; ``theme`` overrides the template's
     default :class:`SlideTheme`. ``footer`` is the text at the bottom of content slides;
     ``logo`` shows the template logo (``False`` hides it). ``number_sections`` labels section
-    slides 01, 02, ... ``options`` are further reveal.js format options passed to Quarto
+    slides 01, 02, ... ``math`` is how ``$...$`` formulas are drawn: ``"mathml"`` (the
+    browser draws them with the theme's embedded math font; works offline), ``"mathjax"``
+    or ``"katex"`` (JavaScript loaded from a CDN when the deck opens, so formulas need a
+    network connection). ``options`` are further reveal.js format options passed to Quarto
     (for example ``{"slide-number": False}``).
 
     Slides are added in order with :meth:`slide`, :meth:`section`, :meth:`takeaway`,
@@ -55,6 +58,7 @@ class SlideDeck:
                  date: str | dt.date | None = None, classification: str | None = None,
                  template: str | SlideTemplate = "default", theme: SlideTheme | None = None,
                  footer: str | None = None, logo: bool = True, number_sections: bool = False,
+                 math: Literal["mathml", "mathjax", "katex"] = "mathml",
                  options: dict | None = None):
         self.template = get_template(template) if isinstance(template, str) else template
         self.theme = self.template.default_theme if theme is None else theme
@@ -64,6 +68,9 @@ class SlideDeck:
         self.footer = footer
         self.logo = logo
         self.number_sections = number_sections
+        if math not in ("mathml", "mathjax", "katex"):
+            raise ValueError(f"math must be 'mathml', 'mathjax' or 'katex'; got {math!r}.")
+        self.math = math
         self.options = dict(options or {})
         self.slides: list[Slide] = []
 
@@ -137,7 +144,8 @@ class SlideDeck:
         return f"_extensions/{self.template.extension}/{relative}"
 
     def _front_matter_dict(self, embed: bool) -> dict:
-        fmt = {"footer": self.footer, "embed-resources": True if embed else None}
+        fmt = {"footer": self.footer, "embed-resources": True if embed else None,
+               "html-math-method": self.math}
         if self.logo:
             fmt["logo"] = self._extension_path(self.template.logo)
         fmt.update(self.options)
@@ -149,6 +157,7 @@ class SlideDeck:
             "qb-section-background": self.theme.primary,
             "qb-appendix-background": self.theme.muted,
             "qb-number-sections": self.number_sections,
+            "qb-math": self.math,
             "format": {self.template.format_name: {k: v for k, v in fmt.items() if v is not None}},
         })
         if self.theme.webfont_url:

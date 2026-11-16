@@ -116,7 +116,7 @@ class TestCharts(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = RenderContext(assets_dir=Path(tmp))
             md = component.to_markdown(ctx)
-            self.assertEqual(md, '![](assets/fig-001.svg){width="80%"}')
+            self.assertEqual(md, '![](assets/fig-001.svg){.nostretch width="80%"}')
             self.assertTrue((Path(tmp) / "fig-001.svg").is_file())
 
     def test_plotly_script_is_loaded_once(self):

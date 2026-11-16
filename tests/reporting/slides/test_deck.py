@@ -81,6 +81,15 @@ class TestDeckMarkdown(unittest.TestCase):
         self.assertIn('qb-section-background: "#141f52"', head)
         self.assertIn('"slide-number": false', head)
 
+    def test_math_method(self):
+        head = SlideDeck("x").to_qmd().split("---")[1]
+        self.assertIn('"html-math-method": "mathml"', head)
+        self.assertIn('qb-math: "mathml"', head)
+        head = SlideDeck("x", math="mathjax").to_qmd().split("---")[1]
+        self.assertIn('"html-math-method": "mathjax"', head)
+        with self.assertRaises(ValueError):
+            SlideDeck("x", math="latex")
+
     def test_build_writes_project(self):
         with tempfile.TemporaryDirectory() as tmp:
             qmd = sample_deck().build(tmp)
@@ -118,6 +127,22 @@ class TestDeckRender(unittest.TestCase):
         self.assertIn("qb-editorial-title", html)
         self.assertIn('data-background-color="#121212"', html)  # section slide
         self.assertIn("Source Serif 4", html)
+
+    def test_render_math_offline(self):
+        def render(deck):
+            with tempfile.TemporaryDirectory() as tmp:
+                return deck.render(Path(tmp) / "deck.html").read_text(encoding="utf-8")
+
+        deck = SlideDeck("Math")
+        deck.slide("F").text(r"Speed $\mathrm{CPR} = 1 - (1 - \mathrm{SMM})^{12}$")
+        html = render(deck)
+        self.assertIn("<math", html)
+        self.assertIn('font-family: "STIX Two Math"; src: url(data:', html)  # embedded
+        self.assertIsNone(re.search(r"https?://[^\"' ]*(mathjax|katex)", html, flags=re.I))
+
+        plain = SlideDeck("No math")
+        plain.slide("F").text("Balances of $5mm and $6mm.")  # dollars, but no formula
+        self.assertNotIn('font-family: "STIX Two Math"; src', render(plain))
 
     def test_render_folder(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -6,6 +6,8 @@ A template folder contains
 - ``theme.scss``: the SCSS theme; :meth:`SlideTemplate.install` writes the
   :class:`~quantbullet.reporting.slides.SlideTheme` variables into its defaults section;
 - ``fonts.html``: a placeholder that :meth:`SlideTemplate.install` replaces with the embedded fonts;
+- ``math-font.html``: a placeholder that :meth:`SlideTemplate.install` replaces with the math
+  font; the ``math.lua`` filter adds it to decks that contain formulas;
 - ``partials/*.md``: fixed slides such as a disclaimer, inserted with ``SlideDeck.include``;
 - ``template.json`` (optional): ``name``, ``description``, ``extension`` (the Quarto extension
   name, default ``qb-<name>``), ``logo`` and ``title_logo`` (paths inside the folder) and
@@ -102,6 +104,7 @@ class SlideTemplate:
         scss_path.write_text(scss.replace(_DEFAULTS_MARKER, f"{_DEFAULTS_MARKER}\n{tokens}", 1),
                              encoding="utf-8")
         (dest / "fonts.html").write_text(_font_faces(theme), encoding="utf-8")
+        (dest / "math-font.html").write_text(_math_font(theme), encoding="utf-8")
         return dest
 
 
@@ -118,6 +121,20 @@ def _font_faces(theme: SlideTheme) -> str:
         data = base64.b64encode(path.read_bytes()).decode("ascii")
         rules.append(f'@font-face {{ font-family: "{family}"; font-weight: {weight}; '
                      f'font-style: {style}; src: url(data:font/ttf;base64,{data}) format("truetype"); }}')
+    return "<style>\n" + "\n".join(rules) + "\n</style>\n"
+
+
+def _math_font(theme: SlideTheme) -> str:
+    """A <style> block giving MathML formulas the theme's math font, embedded when bundled."""
+    family = theme.math_font_family
+    rules = []
+    path = theme.font_files(family).get("Regular")
+    if path is not None:
+        data = base64.b64encode(path.read_bytes()).decode("ascii")
+        rules.append(f'@font-face {{ font-family: "{family}"; '
+                     f'src: url(data:font/ttf;base64,{data}) format("truetype"); }}')
+    rules.append(f'.reveal math {{ font-family: "{family}", "Cambria Math", "STIX Two Math", '
+                 f'"Latin Modern Math", math; }}')
     return "<style>\n" + "\n".join(rules) + "\n</style>\n"
 
 

@@ -19,6 +19,7 @@ contributes:
         - title-slide.html
       filters:
         - sections.lua
+        - math.lua
       include-in-header:
         - fonts.html
       include-after-body:

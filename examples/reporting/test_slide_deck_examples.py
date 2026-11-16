@@ -1,7 +1,8 @@
 """SlideDeck on fake prepayment data: one runnable example per test method.
 
 The examples build reveal.js decks in Python with ``quantbullet.reporting.slides`` and render
-them with Quarto: a showcase that uses every preset page once, a restyled deck (another
+them with Quarto: a showcase that uses every preset page and content type once (KPIs,
+charts, tables, formulas, code, lists, images), a restyled deck (another
 palette, numbered sections, folder output), the built-in "editorial" template, and a page
 layout of your own.
 
@@ -84,7 +85,7 @@ class TestSlideDeckExamples(unittest.TestCase):
         cls.cpr = fake_cpr(seed=0)  # every example charts this
 
     def test_showcase(self):
-        """Start here: every preset page once, in one single-file deck."""
+        """Start here: every preset page and content type once, in one single-file deck."""
         data = self.cpr
         latest = data[data.month == data.month.max()].set_index("vintage")
         prior = data[data.month == data.month.unique()[-2]].set_index("vintage")
@@ -154,9 +155,51 @@ class TestSlideDeckExamples(unittest.TestCase):
             s.markdown("| Plain | Markdown |\n|---|---:|\n| tables | 1.0 |\n| match | 2.0 |")
             s.source("Synthetic data")
 
+        with deck.slide("How CPR is measured") as s:    # LaTeX in text, bullets and Markdown
+            s.text(r"Monthly speed: $\mathrm{SMM}_t = \dfrac{\text{prepaid}_t}"
+                   r"{\text{balance}_{t-1} - \text{scheduled}_t}$, annualized as")
+            s.markdown(r"""
+$$
+\mathrm{CPR}_t = 1 - \left(1 - \mathrm{SMM}_t\right)^{12}
+$$
+""")
+            s.bullets([r"Loan-level hazard: $h_i(t) = h_0(t)\,\exp(\beta^\top x_i)$",
+                       r"Refi incentive: $\Delta r = r_{\text{note}} - r_{\text{market}}$"])
+            s.note("Formulas are drawn as MathML with an embedded font, so they show offline")
+
+        with deck.two_col("Lists and code", widths=(45, 55)) as s:
+            s.left.bullets(["Load the tape", "Compute SMM", "Annualize to CPR"],
+                           numbered=True)           # 1. 2. 3.
+            s.left.bullets(["Then this", "and this, one click at a time"],
+                           incremental=True)        # revealed item by item
+            s.right.markdown('''
+```python
+smm = prepaid / (balance_prev - scheduled)
+cpr = 1 - (1 - smm) ** 12
+```
+''')                                                # fenced code is syntax-highlighted
+
+        with deck.theme.matplotlib():
+            grid = data.pivot_table(index="vintage", columns="month", values="cpr")
+            heat, ax = plt.subplots(figsize=(12, 4.5))
+            mesh = ax.pcolormesh(grid.columns, grid.index.astype(str), grid.values, cmap="Blues")
+            heat.colorbar(mesh, ax=ax, label="1M CPR (%)")
+            ax.grid(False)
+        deck.chart_slide("CPR by vintage and month", heat,
+                         fmt="png", dpi=200)        # dense charts as PNG; "svg" (default) stays sharp
+
         deck.section("Appendix", appendix=True)  # later slides get the Appendix tag
+        with deck.theme.matplotlib():               # stands in for an image file made elsewhere
+            runoff, ax = plt.subplots(figsize=(6, 3.5))
+            data.groupby("month").balance.sum().plot(ax=ax, color=deck.theme.primary)
+            ax.set_xlabel("")
+            ax.set_title("Total balance ($mm)")
+            image_file = output_path("runoff.png")
+            runoff.savefig(image_file, dpi=150)
+            plt.close(runoff)
         with deck.slide("Methodology") as s:
             s.text("CPR is the annualized single-month prepayment rate.", size="small")
+            s.image(image_file, width="55%")        # any image file, copied into the deck
         deck.disclaimer()                        # the template's partials/disclaimer.md
 
         path = deck.render(output_path("showcase.html"),
