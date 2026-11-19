@@ -1,3 +1,5 @@
+
+
 # quantbullet
 
 `quantbullet` is a toolkit designed for streamlined quantitative analysis in finance. The goals for this package are:
@@ -27,7 +29,7 @@ Interested in contributing? Check out the contributing guidelines. Please note t
 
 ## Credits
 
-This project developement is generously supported by JetBrains softwares with their Open Source development license.
+This project development is generously supported by JetBrains softwares with their Open Source development license.
 
 <img src="https://resources.jetbrains.com/storage/products/company/brand/logos/jb_beam.png" alt="JetBrains Logo (Main) logo." width=200>
 
